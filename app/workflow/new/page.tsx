@@ -45,7 +45,6 @@ export default function NewWorkflowPage() {
         },
         body: JSON.stringify({
           workflow
-          // testPhoneNumber는 서버에서 환경변수로 처리
         }),
       })
 
@@ -53,28 +52,52 @@ export default function NewWorkflowPage() {
         const result = await response.json()
         
         // 결과를 더 자세히 표시
-        let message = `테스트 실행 완료!\n\n`;
-        message += `테스트 모드: ${result.testMode ? '활성화' : '비활성화'}\n`;
-        message += `실행 시간: ${new Date(result.executionTime).toLocaleString()}\n\n`;
+        let message = `🎯 워크플로우 테스트 완료!\n\n`;
         
-        result.results.forEach((step: any, index: number) => {
-          message += `단계 ${step.step}: ${step.status === 'success' ? '✅' : '❌'} ${step.message}\n`;
+        // 테스트 설정 정보
+        message += `📋 테스트 설정:\n`;
+        message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
+        message += `• 실제 발송: ${result.testSettings.enableRealSending ? '✅ 활성화' : '❌ 비활성화'}\n`;
+        message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n`;
+        message += `• 실행 시간: ${new Date(result.executionTime).toLocaleString()}\n\n`;
+        
+        // 각 단계별 결과
+        message += `📊 실행 결과:\n`;
+        result.results.forEach((step: any) => {
+          const statusIcon = step.status === 'success' ? '✅' : '❌';
+          message += `${statusIcon} 단계 ${step.step}: ${step.message}\n`;
+          
+          if (step.variables && Object.keys(step.variables).length > 0) {
+            message += `   🔧 사용된 변수: ${Object.keys(step.variables).length}개\n`;
+          }
+          
           if (step.processedContent) {
-            message += `메시지: ${step.processedContent.substring(0, 50)}...\n`;
+            const preview = step.processedContent.length > 50 
+              ? step.processedContent.substring(0, 50) + '...' 
+              : step.processedContent;
+            message += `   💬 메시지: ${preview}\n`;
           }
+          
           if (step.fallbackToSMS) {
-            message += `📱 SMS 대체 발송됨\n`;
+            message += `   📱 SMS 대체 발송됨\n`;
           }
+          
           message += `\n`;
         });
         
+        // 성공/실패 요약
+        const successCount = result.results.filter((r: any) => r.status === 'success').length;
+        const totalCount = result.results.length;
+        message += `📈 요약: ${successCount}/${totalCount} 단계 성공`;
+        
         alert(message)
       } else {
-        throw new Error("테스트 실행 실패")
+        const errorResult = await response.json()
+        throw new Error(errorResult.message || "테스트 실행 실패")
       }
     } catch (error) {
       console.error("테스트 실행 실패:", error)
-      alert("테스트 실행에 실패했습니다.")
+      alert(`❌ 테스트 실행에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
     } finally {
       setIsLoading(false)
     }
@@ -86,14 +109,14 @@ export default function NewWorkflowPage() {
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center py-6">
-            <Link href="/">
+              <Link href="/">
               <Button variant="ghost" size="sm" className="mr-4">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                돌아가기
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">새 워크플로우 만들기</h1>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  돌아가기
+                </Button>
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">새 워크플로우 만들기</h1>
               <p className="text-gray-600">자동화된 메시지 발송 워크플로우를 설정하세요</p>
             </div>
           </div>
@@ -106,7 +129,7 @@ export default function NewWorkflowPage() {
           onSave={handleSave}
           onTest={handleTest}
         />
-      </div>
+          </div>
 
       {/* Loading Overlay */}
       {isLoading && (

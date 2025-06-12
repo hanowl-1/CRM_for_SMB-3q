@@ -74,6 +74,11 @@ export function TemplateBrowser({
         if (template.channelKey !== filter.platform) return false;
       }
 
+      // 서비스 플랫폼 필터 추가
+      if (filter.servicePlatform && filter.servicePlatform !== 'all') {
+        if (template.servicePlatform !== filter.servicePlatform) return false;
+      }
+
       // 버튼 필터
       if (filter.hasButtons !== undefined) {
         const hasButtons = template.buttons && template.buttons.length > 0;
@@ -233,7 +238,7 @@ export function TemplateBrowser({
           </div>
 
           {/* 필터 옵션 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <label className="text-sm font-medium mb-2 block">카테고리</label>
               <Select
@@ -279,7 +284,7 @@ export function TemplateBrowser({
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">플랫폼</label>
+              <label className="text-sm font-medium mb-2 block">채널</label>
               <Select
                 value={filter.platform || 'all'}
                 onValueChange={(value) => setFilter(prev => ({ 
@@ -288,7 +293,7 @@ export function TemplateBrowser({
                 }))}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="플랫폼 선택" />
+                  <SelectValue placeholder="채널 선택" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
@@ -296,6 +301,26 @@ export function TemplateBrowser({
                   <SelectItem value="CHART">차트</SelectItem>
                   <SelectItem value="CEO">CEO</SelectItem>
                   <SelectItem value="BLOGGER">블로거</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-2 block">서비스</label>
+              <Select
+                value={filter.servicePlatform || 'all'}
+                onValueChange={(value) => setFilter(prev => ({ 
+                  ...prev, 
+                  servicePlatform: value === 'all' ? undefined : value 
+                }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="서비스 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체</SelectItem>
+                  <SelectItem value="MEMBERS">MEMBERS</SelectItem>
+                  <SelectItem value="CHART">CHART</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -347,7 +372,12 @@ export function TemplateBrowser({
               )}
               {filter.platform && (
                 <Badge variant="secondary">
-                  플랫폼: {getChannelName(filter.platform)}
+                  채널: {getChannelName(filter.platform)}
+                </Badge>
+              )}
+              {filter.servicePlatform && (
+                <Badge variant="secondary">
+                  서비스: {filter.servicePlatform}
                 </Badge>
               )}
               {filter.hasButtons && (

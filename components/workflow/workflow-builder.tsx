@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Workflow, WorkflowTrigger, WorkflowStep } from '@/lib/types/workflow';
+import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
+import { VariableSettings } from '@/components/workflow/variable-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Play, 
   Plus, 
@@ -19,8 +21,10 @@ import {
   Settings, 
   Save,
   Eye,
-  Trash2
+  Trash2,
+  Zap
 } from 'lucide-react';
+import { mockTemplates } from '@/lib/data/mock-templates';
 
 interface WorkflowBuilderProps {
   workflow?: Workflow;
@@ -40,8 +44,19 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     }
   );
   const [steps, setSteps] = useState<WorkflowStep[]>(workflow?.steps || []);
+  const [testSettings, setTestSettings] = useState<WorkflowTestSettings>(
+    workflow?.testSettings || {
+      testPhoneNumber: '010-1234-5678',
+      testVariables: {},
+      enableRealSending: false,
+      fallbackToSMS: true
+    }
+  );
+  
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [showVariableSettings, setShowVariableSettings] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState<number | null>(null);
+  const [currentTemplate, setCurrentTemplate] = useState<KakaoTemplate | null>(null);
 
   const triggerOptions = [
     { value: 'signup', label: '회원가입', description: '새로운 회원이 가입했을 때' },
@@ -58,7 +73,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       action: {
         id: `action_${Date.now()}`,
         type,
-        delay: type === 'wait' ? 60 : undefined
+        delay: type === 'wait' ? 60 : undefined,
+        variables: {}
       },
       position: { x: 100, y: steps.length * 150 + 100 }
     };
@@ -78,8 +94,35 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       updatedSteps[currentStepIndex].action.templateId = template.id;
       updatedSteps[currentStepIndex].name = `${template.templateName} 발송`;
       setSteps(updatedSteps);
+      setCurrentTemplate(template);
       setShowTemplateSelector(false);
-      setCurrentStepIndex(null);
+      setShowVariableSettings(true);
+    }
+  };
+
+  const handleVariablesChange = (variables: Record<string, string>) => {
+    if (currentStepIndex !== null) {
+      const updatedSteps = [...steps];
+      updatedSteps[currentStepIndex].action.variables = variables;
+      setSteps(updatedSteps);
+    }
+  };
+
+  const handleVariableSettingsClose = () => {
+    setShowVariableSettings(false);
+    setCurrentStepIndex(null);
+    setCurrentTemplate(null);
+  };
+
+  const openVariableSettings = (stepIndex: number) => {
+    const step = steps[stepIndex];
+    if (step.action.templateId) {
+      const template = mockTemplates.find(t => t.id === step.action.templateId);
+      if (template) {
+        setCurrentStepIndex(stepIndex);
+        setCurrentTemplate(template);
+        setShowVariableSettings(true);
+      }
     }
   };
 
@@ -95,6 +138,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       status: 'draft',
       trigger,
       steps,
+      testSettings,
       createdAt: workflow?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       stats: {
@@ -114,6 +158,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         status: 'draft',
         trigger,
         steps,
+        testSettings,
         createdAt: workflow?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         stats: {
@@ -251,6 +296,12 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                         {step.action.type === 'send_alimtalk' ? '알림톡' : 
                          step.action.type === 'send_sms' ? 'SMS' : '대기'}
                       </Badge>
+                      {step.action.variables && Object.keys(step.action.variables).length > 0 && (
+                        <Badge variant="secondary">
+                          <Zap className="w-3 h-3 mr-1" />
+                          변수 {Object.keys(step.action.variables).length}개
+                        </Badge>
+                      )}
                     </div>
                     
                     {step.action.type === 'wait' && (
@@ -268,22 +319,37 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   
                   <div className="flex gap-2">
                     {(step.action.type === 'send_alimtalk' || step.action.type === 'send_sms') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setCurrentStepIndex(index);
-                          setShowTemplateSelector(true);
-                        }}
-                      >
-                        <Settings className="w-4 h-4" />
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setCurrentStepIndex(index);
+                            setShowTemplateSelector(true);
+                          }}
+                          title="템플릿 변경"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                        
+                        {step.action.templateId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openVariableSettings(index)}
+                            title="변수 설정"
+                          >
+                            <Zap className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </>
                     )}
                     
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => removeStep(index)}
+                      title="단계 삭제"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -320,6 +386,55 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             onSelect={handleTemplateSelect}
             showSelectButton={true}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* 변수 설정 다이얼로그 */}
+      <Dialog open={showVariableSettings} onOpenChange={setShowVariableSettings}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {currentTemplate?.templateName} - 변수 및 테스트 설정
+            </DialogTitle>
+          </DialogHeader>
+          
+          <Tabs defaultValue="variables" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="variables">변수 설정</TabsTrigger>
+              <TabsTrigger value="test">테스트 설정</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="variables" className="mt-6">
+              {currentTemplate && currentStepIndex !== null && (
+                <VariableSettings
+                  templateContent={currentTemplate.templateContent}
+                  variables={steps[currentStepIndex]?.action.variables || {}}
+                  testSettings={testSettings}
+                  onVariablesChange={handleVariablesChange}
+                  onTestSettingsChange={setTestSettings}
+                />
+              )}
+            </TabsContent>
+            
+            <TabsContent value="test" className="mt-6">
+              <VariableSettings
+                templateContent=""
+                variables={{}}
+                testSettings={testSettings}
+                onVariablesChange={() => {}}
+                onTestSettingsChange={setTestSettings}
+              />
+            </TabsContent>
+          </Tabs>
+          
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="outline" onClick={handleVariableSettingsClose}>
+              취소
+            </Button>
+            <Button onClick={handleVariableSettingsClose}>
+              적용
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

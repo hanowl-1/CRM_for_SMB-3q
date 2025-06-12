@@ -9,25 +9,29 @@ const coolsms = require('coolsms-node-sdk').default;
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
 const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
-const TEST_MODE = process.env.TEST_MODE === 'true';
 const TEST_PHONE_NUMBER = process.env.TEST_PHONE_NUMBER;
 
 interface TestRequest {
   workflow: Workflow;
-  testPhoneNumber?: string;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { workflow, testPhoneNumber }: TestRequest = await request.json();
-    const phoneNumber = testPhoneNumber || TEST_PHONE_NUMBER;
+    const { workflow }: TestRequest = await request.json();
+    
+    // 워크플로우의 테스트 설정 사용
+    const testSettings = workflow.testSettings;
+    const phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
+    const enableRealSending = testSettings?.enableRealSending ?? false;
+    const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
     console.log('워크플로우 테스트 실행:', {
       workflowId: workflow.id,
       workflowName: workflow.name,
       stepsCount: workflow.steps.length,
       phoneNumber,
-      testMode: TEST_MODE
+      enableRealSending,
+      fallbackToSMS
     });
 
     // 워크플로우 단계별 실행
@@ -44,21 +48,26 @@ export async function POST(request: NextRequest) {
           throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
         }
 
+        // 사용자 정의 변수 사용 (없으면 기본값)
+        const variables = step.action.variables || {
+          '고객명': '테스트 고객',
+          '회사명': '테스트 회사',
+          '취소일': '2024-01-20',
+          '구독상태': '취소됨',
+          '실패사유': '카드 한도 초과',
+          '다음결제일': '2024-01-25',
+          '블로그제목': '새로운 비즈니스 전략',
+          '콘텐츠제목': '마케팅 가이드',
+          '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
+        };
+
         const result = await sendAlimtalk({
           templateCode: template.templateCode,
           templateContent: template.templateContent,
           phoneNumber: phoneNumber!,
-          variables: {
-            '고객명': '테스트 고객',
-            '회사명': '테스트 회사',
-            '취소일': '2024-01-20',
-            '구독상태': '취소됨',
-            '실패사유': '카드 한도 초과',
-            '다음결제일': '2024-01-25',
-            '블로그제목': '새로운 비즈니스 전략',
-            '콘텐츠제목': '마케팅 가이드',
-            '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
-          }
+          variables,
+          enableRealSending,
+          fallbackToSMS
         });
 
         results.push({
@@ -67,7 +76,9 @@ export async function POST(request: NextRequest) {
           status: result.success ? 'success' : 'failed',
           message: result.message,
           messageId: result.messageId,
-          processedContent: result.processedContent
+          processedContent: result.processedContent,
+          fallbackToSMS: result.fallbackToSMS,
+          variables: variables
         });
 
       } else if (step.action.type === 'send_sms') {
@@ -77,13 +88,17 @@ export async function POST(request: NextRequest) {
           throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
         }
 
+        // 사용자 정의 변수 사용
+        const variables = step.action.variables || {
+          '고객명': '테스트 고객',
+          '회사명': '테스트 회사'
+        };
+
         const result = await sendSMS({
           content: template.templateContent,
           phoneNumber: phoneNumber!,
-          variables: {
-            '고객명': '테스트 고객',
-            '회사명': '테스트 회사'
-          }
+          variables,
+          enableRealSending
         });
 
         results.push({
@@ -92,7 +107,8 @@ export async function POST(request: NextRequest) {
           status: result.success ? 'success' : 'failed',
           message: result.message,
           messageId: result.messageId,
-          processedContent: result.processedContent
+          processedContent: result.processedContent,
+          variables: variables
         });
 
       } else if (step.action.type === 'wait') {
@@ -111,7 +127,11 @@ export async function POST(request: NextRequest) {
       message: '워크플로우 테스트가 완료되었습니다.',
       results,
       executionTime: new Date().toISOString(),
-      testMode: TEST_MODE
+      testSettings: {
+        enableRealSending,
+        fallbackToSMS,
+        phoneNumber
+      }
     });
 
   } catch (error) {
@@ -132,12 +152,16 @@ async function sendAlimtalk({
   templateCode,
   templateContent,
   phoneNumber,
-  variables
+  variables,
+  enableRealSending,
+  fallbackToSMS
 }: {
   templateCode: string;
   templateContent: string;
   phoneNumber: string;
   variables: Record<string, string>;
+  enableRealSending: boolean;
+  fallbackToSMS: boolean;
 }) {
   // 변수 치환
   let processedContent = templateContent;
@@ -148,9 +172,11 @@ async function sendAlimtalk({
   console.log('🔔 알림톡 발송 시도');
   console.log('템플릿 코드:', templateCode);
   console.log('수신번호:', phoneNumber);
+  console.log('사용자 변수:', variables);
   console.log('처리된 메시지:', processedContent);
+  console.log('실제 발송:', enableRealSending ? '활성화' : '비활성화');
 
-  if (TEST_MODE) {
+  if (!enableRealSending) {
     // 테스트 모드: 실제 발송하지 않고 성공 응답 반환
     console.log('🧪 테스트 모드 - 실제 발송하지 않음');
     
@@ -200,28 +226,38 @@ async function sendAlimtalk({
   } catch (error) {
     console.error('❌ 알림톡 발송 실패:', error);
     
-    // 알림톡 실패 시 SMS로 대체 발송
-    console.log('📱 SMS로 대체 발송 시도...');
-    
-    try {
-      const smsResult = await sendSMS({
-        content: processedContent,
-        phoneNumber,
-        variables: {}
-      });
+    // 알림톡 실패 시 SMS로 대체 발송 (설정이 활성화된 경우)
+    if (fallbackToSMS) {
+      console.log('📱 SMS로 대체 발송 시도...');
       
-      return {
-        success: true,
-        message: '알림톡 실패 → SMS 대체 발송 완료',
-        messageId: smsResult.messageId,
-        processedContent,
-        fallbackToSMS: true
-      };
-    } catch (smsError) {
+      try {
+        const smsResult = await sendSMS({
+          content: processedContent,
+          phoneNumber,
+          variables: {},
+          enableRealSending
+        });
+        
+        return {
+          success: true,
+          message: '알림톡 실패 → SMS 대체 발송 완료',
+          messageId: smsResult.messageId,
+          processedContent,
+          fallbackToSMS: true
+        };
+      } catch (smsError) {
+        return {
+          success: false,
+          message: '알림톡 및 SMS 발송 모두 실패',
+          error: { alimtalk: error, sms: smsError },
+          processedContent
+        };
+      }
+    } else {
       return {
         success: false,
-        message: '알림톡 및 SMS 발송 모두 실패',
-        error: { alimtalk: error, sms: smsError },
+        message: '알림톡 발송 실패 (SMS 대체 비활성화)',
+        error: error,
         processedContent
       };
     }
@@ -232,11 +268,13 @@ async function sendAlimtalk({
 async function sendSMS({
   content,
   phoneNumber,
-  variables
+  variables,
+  enableRealSending
 }: {
   content: string;
   phoneNumber: string;
   variables: Record<string, string>;
+  enableRealSending: boolean;
 }) {
   // 변수 치환
   let processedContent = content;
@@ -247,8 +285,9 @@ async function sendSMS({
   console.log('📱 SMS 발송 시도');
   console.log('수신번호:', phoneNumber);
   console.log('처리된 메시지:', processedContent);
+  console.log('실제 발송:', enableRealSending ? '활성화' : '비활성화');
 
-  if (TEST_MODE) {
+  if (!enableRealSending) {
     // 테스트 모드: 실제 발송하지 않고 성공 응답 반환
     console.log('🧪 테스트 모드 - 실제 발송하지 않음');
     

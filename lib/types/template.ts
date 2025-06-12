@@ -28,6 +28,8 @@ export interface KakaoTemplate {
   updateDate: string;
   channelKey: string;
   variables?: string[];
+  servicePlatform?: string;
+  templateNumber?: number;
 }
 
 export interface TemplateCategory {
@@ -41,6 +43,7 @@ export interface TemplateFilter {
   category?: string;
   status?: string;
   platform?: string;
+  servicePlatform?: string;
   hasButtons?: boolean;
   hasImages?: boolean;
 }

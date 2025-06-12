@@ -18,6 +18,7 @@ export interface WorkflowAction {
   templateId?: string;
   delay?: number; // minutes
   conditions?: WorkflowCondition[];
+  variables?: Record<string, string>; // 사용자 정의 변수
 }
 
 export interface WorkflowStep {
@@ -28,6 +29,13 @@ export interface WorkflowStep {
   position: { x: number; y: number };
 }
 
+export interface WorkflowTestSettings {
+  testPhoneNumber: string;
+  testVariables: Record<string, string>;
+  enableRealSending: boolean;
+  fallbackToSMS: boolean;
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -35,6 +43,7 @@ export interface Workflow {
   status: 'draft' | 'active' | 'paused' | 'archived';
   trigger: WorkflowTrigger;
   steps: WorkflowStep[];
+  testSettings?: WorkflowTestSettings; // 테스트 설정
   createdAt: string;
   updatedAt: string;
   stats: {

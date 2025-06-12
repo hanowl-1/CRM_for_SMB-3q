@@ -67,13 +67,25 @@ export function TemplateCard({
             <CardTitle className="text-sm font-medium truncate">
               {template.templateName}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {template.templateCode}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xs text-muted-foreground">
+                {template.templateCode}
+              </p>
+              {template.templateNumber && (
+                <Badge variant="outline" className="text-xs px-1.5 py-0.5">
+                  #{template.templateNumber}
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="flex flex-col gap-1">
             {getStatusBadge(template.status, template.inspectionStatus)}
             {getChannelBadge(template.channelKey)}
+            {template.servicePlatform && (
+              <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
+                {template.servicePlatform}
+              </Badge>
+            )}
           </div>
         </div>
       </CardHeader>

@@ -61,6 +61,11 @@ export default function Dashboard() {
               <p className="text-gray-600">워크플로우를 만들어 메시지를 자동으로 발송하세요</p>
             </div>
             <div className="flex gap-3">
+              <Link href="/sms">
+                <Button variant="outline">
+                  <MessageSquare className="w-4 h-4 mr-2" />단순 SMS 발송
+                </Button>
+              </Link>
               <Link href="/templates">
                 <Button variant="outline">
                   <FileText className="w-4 h-4 mr-2" />템플릿 라이브러리
