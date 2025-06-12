@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings } from '@/lib/types/workflow';
+import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
 import { VariableSettings } from '@/components/workflow/variable-settings';
+import { TriggerSettings } from './trigger-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +41,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       id: '1',
       type: 'signup',
       name: '회원가입',
-      description: '새로운 회원이 가입했을 때'
+      description: '새로운 회원이 가입했을 때',
+      conditions: [],
+      conditionLogic: 'AND'
     }
   );
   const [steps, setSteps] = useState<WorkflowStep[]>(workflow?.steps || []);
@@ -205,37 +208,11 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           <CardTitle>트리거 설정</CardTitle>
         </CardHeader>
         <CardContent>
-          <div>
-            <label className="text-sm font-medium mb-2 block">언제 실행할까요?</label>
-            <Select
-              value={trigger.type}
-              onValueChange={(value) => {
-                const option = triggerOptions.find(opt => opt.value === value);
-                if (option) {
-                  setTrigger({
-                    id: trigger.id,
-                    type: value as any,
-                    name: option.label,
-                    description: option.description
-                  });
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="트리거 선택" />
-              </SelectTrigger>
-              <SelectContent>
-                {triggerOptions.map(option => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <div>
-                      <div className="font-medium">{option.label}</div>
-                      <div className="text-xs text-muted-foreground">{option.description}</div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <TriggerSettings
+            trigger={trigger}
+            onTriggerChange={(newTrigger: WorkflowTrigger) => setTrigger(newTrigger)}
+            options={triggerOptions}
+          />
         </CardContent>
       </Card>
 
@@ -378,14 +355,17 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
       {/* 템플릿 선택 다이얼로그 */}
       <Dialog open={showTemplateSelector} onOpenChange={setShowTemplateSelector}>
-        <DialogContent className="max-w-6xl max-h-[90vh]">
-          <DialogHeader>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>템플릿 선택</DialogTitle>
           </DialogHeader>
-          <TemplateBrowser
-            onSelect={handleTemplateSelect}
-            showSelectButton={true}
-          />
+          <div className="flex-1 overflow-y-auto">
+            <TemplateBrowser
+              onSelect={handleTemplateSelect}
+              showSelectButton={true}
+              isDialogMode={true}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 

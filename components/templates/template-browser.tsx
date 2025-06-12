@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { KakaoTemplate, TemplateFilter, TemplateStats } from '@/lib/types/template';
 import { mockTemplates, templateCategories, calculateTemplateStats } from '@/lib/data/mock-templates';
 import { TemplateCard } from './template-card';
@@ -21,20 +22,26 @@ import {
   XCircle, 
   Clock,
   Image,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft,
+  Home
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface TemplateBrowserProps {
   onSelect?: (template: KakaoTemplate) => void;
   showSelectButton?: boolean;
   selectedTemplateId?: string;
+  isDialogMode?: boolean;
 }
 
 export function TemplateBrowser({ 
   onSelect, 
   showSelectButton = false, 
-  selectedTemplateId 
+  selectedTemplateId,
+  isDialogMode = false
 }: TemplateBrowserProps) {
+  const router = useRouter();
   const [templates] = useState<KakaoTemplate[]>(mockTemplates);
   const [filter, setFilter] = useState<TemplateFilter>({});
   const [previewTemplate, setPreviewTemplate] = useState<KakaoTemplate | null>(null);
@@ -96,6 +103,7 @@ export function TemplateBrowser({
   }, [templates, filter]);
 
   const handlePreview = (template: KakaoTemplate) => {
+    console.log('미리보기 클릭됨:', template.templateName);
     setPreviewTemplate(template);
     setIsPreviewOpen(true);
   };
@@ -119,96 +127,115 @@ export function TemplateBrowser({
     return channelNames[channelKey] || channelKey;
   };
 
+  const handleGoHome = () => {
+    router.push('/');
+  };
+
   return (
     <div className="space-y-6">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">템플릿 라이브러리</h1>
-          <p className="text-muted-foreground">
-            카카오톡 알림톡 템플릿을 검색하고 선택하세요
-          </p>
+      {!isDialogMode && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleGoHome}
+              className="flex items-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              홈으로
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">템플릿 라이브러리</h1>
+              <p className="text-muted-foreground">
+                카카오톡 알림톡 템플릿을 검색하고 선택하세요
+              </p>
+            </div>
+          </div>
+          <Button onClick={handleRefresh} variant="outline">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            새로고침
+          </Button>
         </div>
-        <Button onClick={handleRefresh} variant="outline">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          새로고침
-        </Button>
-      </div>
+      )}
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-blue-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">전체</p>
-                <p className="text-xl font-bold">{stats.total}</p>
+      {!isDialogMode && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">전체</p>
+                  <p className="text-xl font-bold">{stats.total}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">승인됨</p>
-                <p className="text-xl font-bold">{stats.approved}</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">승인됨</p>
+                  <p className="text-xl font-bold">{stats.approved}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-yellow-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">검토중</p>
-                <p className="text-xl font-bold">{stats.pending}</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-yellow-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">검토중</p>
+                  <p className="text-xl font-bold">{stats.pending}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-red-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">거부됨</p>
-                <p className="text-xl font-bold">{stats.rejected}</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-red-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">거부됨</p>
+                  <p className="text-xl font-bold">{stats.rejected}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <ExternalLink className="w-4 h-4 text-purple-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">버튼</p>
-                <p className="text-xl font-bold">{stats.withButtons}</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <ExternalLink className="w-4 h-4 text-purple-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">버튼</p>
+                  <p className="text-xl font-bold">{stats.withButtons}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Image className="w-4 h-4 text-orange-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">이미지</p>
-                <p className="text-xl font-bold">{stats.withImages}</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <Image className="w-4 h-4 text-orange-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">이미지</p>
+                  <p className="text-xl font-bold">{stats.withImages}</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* 필터 및 검색 */}
       <Card>
@@ -416,11 +443,12 @@ export function TemplateBrowser({
           </CardContent>
         </Card>
       ) : (
-        <div className={
+        <div className={cn(
           viewMode === 'grid' 
             ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-            : "space-y-4"
-        }>
+            : "space-y-4",
+          isDialogMode && "max-h-[60vh] overflow-y-auto pr-2"
+        )}>
           {filteredTemplates.map(template => (
             <TemplateCard
               key={template.id}

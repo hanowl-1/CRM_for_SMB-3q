@@ -27,6 +27,8 @@ export function TemplatePreviewDialog({
 }: TemplatePreviewDialogProps) {
   const [copied, setCopied] = useState(false);
 
+  console.log('TemplatePreviewDialog 렌더링:', { template: template?.templateName, open });
+
   if (!template) return null;
 
   const handleCopyContent = async () => {
@@ -78,7 +80,7 @@ export function TemplatePreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh]">
+      <DialogContent className="max-w-2xl max-h-[90vh] z-[9999]">
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">

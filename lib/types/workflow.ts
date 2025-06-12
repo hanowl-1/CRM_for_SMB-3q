@@ -4,11 +4,13 @@ export interface WorkflowTrigger {
   name: string;
   description: string;
   conditions?: WorkflowCondition[];
+  conditionLogic?: 'AND' | 'OR'; // 조건들 간의 논리 연산자
 }
 
 export interface WorkflowCondition {
+  id: string;
   field: string;
-  operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+  operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than' | 'exists' | 'not_exists';
   value: string;
 }
 
