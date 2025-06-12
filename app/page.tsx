@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText } from "lucide-react"
+import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText, Wrench } from "lucide-react"
 import Link from "next/link"
 
 export default function Dashboard() {
@@ -61,6 +61,11 @@ export default function Dashboard() {
               <p className="text-gray-600">워크플로우를 만들어 메시지를 자동으로 발송하세요</p>
             </div>
             <div className="flex gap-3">
+              <Link href="/template-builder">
+                <Button variant="outline" className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100">
+                  <Wrench className="w-4 h-4 mr-2" />템플릿 빌더
+                </Button>
+              </Link>
               <Link href="/sms">
                 <Button variant="outline">
                   <MessageSquare className="w-4 h-4 mr-2" />단순 SMS 발송
