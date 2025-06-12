@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings } from "lucide-react"
+import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText } from "lucide-react"
 import Link from "next/link"
 
 export default function Dashboard() {
@@ -60,11 +60,18 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-900">알림톡 자동화</h1>
               <p className="text-gray-600">워크플로우를 만들어 메시지를 자동으로 발송하세요</p>
             </div>
-            <Link href="/workflow/new">
-              <Button className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />새 워크플로우
-              </Button>
-            </Link>
+            <div className="flex gap-3">
+              <Link href="/templates">
+                <Button variant="outline">
+                  <FileText className="w-4 h-4 mr-2" />템플릿 라이브러리
+                </Button>
+              </Link>
+              <Link href="/workflow/new">
+                <Button className="bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />새 워크플로우
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
