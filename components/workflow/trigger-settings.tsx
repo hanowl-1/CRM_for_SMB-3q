@@ -46,6 +46,9 @@ const operatorOptions = [
 
 export function TriggerSettings({ trigger, onTriggerChange, options }: TriggerSettingsProps) {
   const addCondition = () => {
+    console.log('조건 추가 버튼 클릭됨');
+    console.log('현재 trigger:', trigger);
+    
     const newCondition: WorkflowCondition = {
       id: `condition_${Date.now()}`,
       field: 'user.email',
@@ -59,6 +62,7 @@ export function TriggerSettings({ trigger, onTriggerChange, options }: TriggerSe
       conditionLogic: trigger.conditionLogic || 'AND'
     };
 
+    console.log('업데이트된 trigger:', updatedTrigger);
     onTriggerChange(updatedTrigger);
   };
 
@@ -129,15 +133,19 @@ export function TriggerSettings({ trigger, onTriggerChange, options }: TriggerSe
       <div>
         <div className="flex items-center justify-between mb-3">
           <label className="text-sm font-medium">추가 조건 (선택사항)</label>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={addCondition}
-            className="flex items-center gap-2"
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('버튼 클릭 이벤트 발생');
+              addCondition();
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            type="button"
           >
             <Plus className="w-4 h-4" />
             조건 추가
-          </Button>
+          </button>
         </div>
 
         {trigger.conditions && trigger.conditions.length > 0 && (
@@ -227,6 +235,7 @@ export function TriggerSettings({ trigger, onTriggerChange, options }: TriggerSe
                       size="sm"
                       onClick={() => removeCondition(condition.id)}
                       title="조건 삭제"
+                      type="button"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -237,7 +246,7 @@ export function TriggerSettings({ trigger, onTriggerChange, options }: TriggerSe
           </Card>
         )}
 
-        {trigger.conditions && trigger.conditions.length === 0 && (
+        {(!trigger.conditions || trigger.conditions.length === 0) && (
           <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-lg">
             <Zap className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">추가 조건이 없습니다</p>

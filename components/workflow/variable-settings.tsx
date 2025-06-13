@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Trash2, Info } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Trash2, Info, Database, Settings } from 'lucide-react';
 import { WorkflowTestSettings } from '@/lib/types/workflow';
+import DbVariableSettings from './db-variable-settings';
 
 interface VariableSettingsProps {
   templateContent?: string;
@@ -117,75 +119,102 @@ export function VariableSettings({
         </Card>
       )}
 
-      {/* 변수 설정 */}
+      {/* 변수 설정 탭 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">변수 값 설정</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* 기존 변수들 */}
-          {Object.entries(variables).map(([key, value]) => (
-            <div key={key} className="flex items-center gap-3">
-              <div className="flex-1 grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-sm font-medium">#{key}</Label>
-                  <Input
-                    value={key}
-                    onChange={(e) => {
-                      const newVariables = { ...variables };
-                      delete newVariables[key];
-                      newVariables[e.target.value] = value;
-                      onVariablesChange(newVariables);
-                    }}
-                    placeholder="변수명"
-                  />
+        <CardContent>
+          <Tabs defaultValue="manual" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="manual" className="flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                수동 설정
+              </TabsTrigger>
+              <TabsTrigger value="database" className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                DB 기반 설정
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="manual" className="space-y-4 mt-4">
+              {/* 기존 변수들 */}
+              {Object.entries(variables).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="flex-1 grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-sm font-medium">#{key}</Label>
+                      <Input
+                        value={key}
+                        onChange={(e) => {
+                          const newVariables = { ...variables };
+                          delete newVariables[key];
+                          newVariables[e.target.value] = value;
+                          onVariablesChange(newVariables);
+                        }}
+                        placeholder="변수명"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">값</Label>
+                      <Input
+                        value={value}
+                        onChange={(e) => updateVariable(key, e.target.value)}
+                        placeholder="변수 값"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeVariable(key)}
+                    className="mt-6"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-                <div>
-                  <Label className="text-sm font-medium">값</Label>
-                  <Input
-                    value={value}
-                    onChange={(e) => updateVariable(key, e.target.value)}
-                    placeholder="변수 값"
-                  />
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeVariable(key)}
-                className="mt-6"
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
+              ))}
 
-          {/* 새 변수 추가 */}
-          <div className="border-t pt-4">
-            <div className="flex items-end gap-3">
-              <div className="flex-1 grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-sm font-medium">새 변수명</Label>
-                  <Input
-                    value={newVariableKey}
-                    onChange={(e) => setNewVariableKey(e.target.value)}
-                    placeholder="예: 고객명"
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm font-medium">값</Label>
-                  <Input
-                    value={newVariableValue}
-                    onChange={(e) => setNewVariableValue(e.target.value)}
-                    placeholder="예: 홍길동"
-                  />
+              {/* 새 변수 추가 */}
+              <div className="border-t pt-4">
+                <div className="flex items-end gap-3">
+                  <div className="flex-1 grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-sm font-medium">새 변수명</Label>
+                      <Input
+                        value={newVariableKey}
+                        onChange={(e) => setNewVariableKey(e.target.value)}
+                        placeholder="예: 고객명"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">값</Label>
+                      <Input
+                        value={newVariableValue}
+                        onChange={(e) => setNewVariableValue(e.target.value)}
+                        placeholder="예: 홍길동"
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={addVariable} disabled={!newVariableKey || !newVariableValue}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
                 </div>
               </div>
-              <Button onClick={addVariable} disabled={!newVariableKey || !newVariableValue}>
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+            </TabsContent>
+            
+            <TabsContent value="database" className="mt-4">
+              <DbVariableSettings 
+                onVariablesExtracted={(variables) => {
+                  // 추출된 변수를 기존 변수와 병합
+                  const stringVariables = Object.fromEntries(
+                    Object.entries(variables).map(([key, value]) => [key, String(value)])
+                  );
+                  onVariablesChange({ ...variables, ...stringVariables });
+                }}
+              />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
@@ -206,65 +235,40 @@ export function VariableSettings({
               placeholder="010-1234-5678"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              테스트 메시지를 받을 전화번호를 입력하세요
+              테스트 발송 시 사용할 전화번호를 입력하세요
             </p>
           </div>
 
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-sm font-medium">실제 발송 활성화</Label>
+              <Label className="text-sm font-medium">테스트 모드</Label>
               <p className="text-xs text-muted-foreground">
-                비활성화 시 콘솔에만 로그가 출력됩니다
+                활성화 시 실제 발송 없이 시뮬레이션만 실행
               </p>
             </div>
             <Switch
-              checked={testSettings.enableRealSending}
+              checked={testSettings.testMode}
               onCheckedChange={(checked) => onTestSettingsChange({
                 ...testSettings,
-                enableRealSending: checked
+                testMode: checked
               })}
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm font-medium">알림톡 실패 시 SMS 대체</Label>
-              <p className="text-xs text-muted-foreground">
-                알림톡 발송 실패 시 자동으로 SMS로 발송합니다
-              </p>
-            </div>
-            <Switch
-              checked={testSettings.fallbackToSMS}
-              onCheckedChange={(checked) => onTestSettingsChange({
+          <div>
+            <Label className="text-sm font-medium mb-2 block">테스트 메모</Label>
+            <Textarea
+              value={testSettings.testNotes}
+              onChange={(e) => onTestSettingsChange({
                 ...testSettings,
-                fallbackToSMS: checked
+                testNotes: e.target.value
               })}
+              placeholder="테스트 관련 메모를 입력하세요..."
+              rows={3}
             />
           </div>
         </CardContent>
       </Card>
-
-      {/* 미리보기 */}
-      {templateContent && Object.keys(variables).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">메시지 미리보기</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <Textarea
-                value={Object.entries(variables).reduce(
-                  (content, [key, value]) => content.replace(new RegExp(`#{${key}}`, 'g'), value),
-                  templateContent
-                )}
-                readOnly
-                rows={6}
-                className="bg-transparent border-none resize-none"
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 } 

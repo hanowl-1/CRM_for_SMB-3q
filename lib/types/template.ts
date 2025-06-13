@@ -24,6 +24,7 @@ export interface KakaoTemplate {
     scheme_ios?: string;
   }>;
   categoryCode: string;
+  category?: string;
   createDate: string;
   updateDate: string;
   channelKey: string;

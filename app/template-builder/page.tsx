@@ -53,33 +53,113 @@ interface TemplateData {
   }>
 }
 
-// 기존 템플릿에서 사용되는 변수들
-const commonVariables = [
-  { name: 'total_reviews', description: '총 리뷰 수', example: '150', category: 'CEO' },
-  { name: 'monthly_review_count', description: '월간 리뷰 수', example: '25', category: 'CEO' },
-  { name: 'total_post_views', description: '총 포스트 조회수', example: '12,500', category: 'CEO' },
-  { name: 'top_5p_reviewers_count', description: '상위 5% 블로거 참여 수', example: '8', category: 'CEO' },
-  { name: 'naver_place_rank', description: '네이버 플레이스 순위', example: '3', category: 'CEO' },
+// 기존 템플릿에서 사용되는 모든 변수들 (총 104개)
+const allTemplateVariables = [
+  { name: 'adName', description: '광고명', example: '슈퍼멤버스 프리미엄', category: 'CEO' },
+  { name: 'adname', description: '광고명', example: '슈퍼멤버스 프리미엄', category: 'CEO' },
+  { name: 'adsStart', description: '광고 시작일', example: '2024-06-01', category: 'CEO' },
+  { name: 'amount', description: '금액', example: '50,000원', category: 'CEO' },
   { name: 'blog_post_rank', description: '블로그 포스트 순위', example: '2', category: 'CEO' },
-  { name: 'views', description: '블로그 포스트 조회수', example: '3,240', category: 'CEO' },
+  { name: 'companyId', description: '회사 ID', example: 'COMP_001', category: 'CEO' },
+  { name: 'failReason', description: '실패 사유', example: '카드 한도 초과', category: 'CEO' },
+  { name: 'keyword1', description: '키워드 1', example: '강남 맛집', category: 'CEO' },
+  { name: 'keyword2', description: '키워드 2', example: '한식당', category: 'CEO' },
+  { name: 'keyword3', description: '키워드 3', example: '점심 맛집', category: 'CEO' },
+  { name: 'keyword4', description: '키워드 4', example: '저녁 맛집', category: 'CEO' },
+  { name: 'keyword5', description: '키워드 5', example: '회식 장소', category: 'CEO' },
   { name: 'keywordrank1', description: '키워드 순위 1', example: '강남 맛집 - 1위', category: 'CEO' },
   { name: 'keywordrank2', description: '키워드 순위 2', example: '한식당 추천 - 3위', category: 'CEO' },
   { name: 'keywordrank3', description: '키워드 순위 3', example: '점심 맛집 - 5위', category: 'CEO' },
+  { name: 'keywordrank4', description: '키워드 순위 4', example: '저녁 맛집 - 7위', category: 'CEO' },
+  { name: 'keywordrank5', description: '키워드 순위 5', example: '회식 장소 - 9위', category: 'CEO' },
+  { name: 'monthly_review_count', description: '월간 리뷰 수', example: '25', category: 'CEO' },
+  { name: 'naver_place_rank', description: '네이버 플레이스 순위', example: '3', category: 'CEO' },
+  { name: 'nextpaidat', description: '다음 결제일', example: '2024-07-01', category: 'CEO' },
+  { name: 'paymentAmount', description: '결제 금액', example: '99,000원', category: 'CEO' },
+  { name: 'placekeyword1', description: '플레이스 키워드 1', example: '강남역 한식', category: 'CEO' },
+  { name: 'placekeyword2', description: '플레이스 키워드 2', example: '점심식사', category: 'CEO' },
+  { name: 'placekeyword3', description: '플레이스 키워드 3', example: '회식장소', category: 'CEO' },
   { name: 'placekeywordrank1', description: '플레이스 키워드 순위 1', example: '강남역 한식 - 2위', category: 'CEO' },
   { name: 'placekeywordrank2', description: '플레이스 키워드 순위 2', example: '점심식사 - 4위', category: 'CEO' },
   { name: 'placekeywordrank3', description: '플레이스 키워드 순위 3', example: '회식장소 - 6위', category: 'CEO' },
+  { name: 'placerank1', description: '플레이스 순위 1', example: '1위', category: 'CEO' },
+  { name: 'placerank2', description: '플레이스 순위 2', example: '3위', category: 'CEO' },
+  { name: 'placerank3', description: '플레이스 순위 3', example: '5위', category: 'CEO' },
+  { name: 'rank1', description: '순위 1', example: '1위', category: 'CEO' },
+  { name: 'rank2', description: '순위 2', example: '2위', category: 'CEO' },
+  { name: 'rank3', description: '순위 3', example: '3위', category: 'CEO' },
+  { name: 'rank4', description: '순위 4', example: '4위', category: 'CEO' },
+  { name: 'rank5', description: '순위 5', example: '5위', category: 'CEO' },
+  { name: 'rankingchanges1', description: '순위 변화 1', example: '↑2', category: 'CEO' },
+  { name: 'rankingchanges2', description: '순위 변화 2', example: '↓1', category: 'CEO' },
+  { name: 'rankingchanges3', description: '순위 변화 3', example: '→', category: 'CEO' },
   { name: 'recentorder', description: '최근 주문 개월 수', example: '6', category: 'CEO' },
-  { name: '가맹점명', description: '가맹점 이름', example: '맛있는 한식당', category: 'BLOGGER' },
-  { name: '리뷰작성마감일', description: '리뷰 작성 마감일', example: '2024-06-15', category: 'BLOGGER' },
-  { name: '캠페인명', description: '캠페인 이름', example: '신메뉴 체험단', category: 'BLOGGER' },
-  { name: '추가제공포인트', description: '추가 제공 포인트', example: '5,000P', category: 'BLOGGER' },
-  { name: '제공항목', description: '제공 항목', example: '메인메뉴 1개 + 사이드 1개', category: 'BLOGGER' },
+  { name: 'reviewcountchanges', description: '리뷰 수 변화', example: '+15', category: 'CEO' },
+  { name: 'reviewers', description: '리뷰어 수', example: '127', category: 'CEO' },
+  { name: 'reviews', description: '리뷰 수', example: '150', category: 'CEO' },
+  { name: 'top_5p_reviewers_count', description: '상위 5% 블로거 참여 수', example: '8', category: 'CEO' },
+  { name: 'topplacerank', description: '최고 플레이스 순위', example: '1위', category: 'CEO' },
+  { name: 'toppostingrank', description: '최고 포스팅 순위', example: '1위', category: 'CEO' },
+  { name: 'total_post_views', description: '총 포스트 조회수', example: '12,500', category: 'CEO' },
+  { name: 'total_reviews', description: '총 리뷰 수', example: '150', category: 'CEO' },
+  { name: 'views', description: '블로그 포스트 조회수', example: '3,240', category: 'CEO' },
+  { name: '결제금액', description: '결제금액', example: '99,000원', category: 'CEO' },
+  { name: '결제수단', description: '결제수단', example: '신용카드', category: 'CEO' },
+  { name: '결제실패일', description: '결제실패일', example: '2024-06-15', category: 'CEO' },
+  { name: '결제일', description: '결제일', example: '2024-06-01', category: 'CEO' },
+  { name: '광고기간', description: '광고기간', example: '1개월', category: 'CEO' },
+  { name: '광고상품', description: '광고상품', example: '슈퍼멤버스 프리미엄', category: 'CEO' },
+  { name: '광고제안결과안내', description: '광고제안결과안내', example: '승인됨', category: 'CEO' },
+  { name: '노출키워드개수', description: '노출키워드개수', example: '15개', category: 'CEO' },
+  { name: '다음결제예정일', description: '다음결제예정일', example: '2024-07-01', category: 'CEO' },
+  { name: '리뷰마감일', description: '리뷰마감일', example: '2024-06-30', category: 'CEO' },
+  { name: '발송처리필요인원', description: '발송처리필요인원', example: '25명', category: 'CEO' },
+  { name: '블로거아이디', description: '블로거아이디', example: 'blogger123', category: 'CEO' },
+  { name: '선정 기간', description: '선정 기간', example: '2024-06-01 ~ 2024-06-07', category: 'CEO' },
+  { name: '선정마감일', description: '선정마감일', example: '2024-06-07', category: 'CEO' },
+  { name: '선정시작일', description: '선정시작일', example: '2024-06-01', category: 'CEO' },
+  { name: '신청 기간', description: '신청 기간', example: '2024-05-25 ~ 2024-05-31', category: 'CEO' },
+  { name: '신청마감일', description: '신청마감일', example: '2024-05-31', category: 'CEO' },
+  { name: '신청시작일', description: '신청시작일', example: '2024-05-25', category: 'CEO' },
+  { name: '원고검수필요건수', description: '원고검수필요건수', example: '3건', category: 'CEO' },
+  { name: '이용확인처리코드', description: '이용확인처리코드', example: 'CONF_001', category: 'CEO' },
+  { name: '자동제안명', description: '자동제안명', example: '맛집 리뷰 캠페인', category: 'CEO' },
+  { name: '적립처리필요인원', description: '적립처리필요인원', example: '12명', category: 'CEO' },
+  { name: '제품구매링크', description: '제품구매링크', example: 'https://example.com/product', category: 'CEO' },
+  { name: '종료예정일', description: '종료예정일', example: '2024-06-30', category: 'CEO' },
+  { name: '총수락건수', description: '총수락건수', example: '45건', category: 'CEO' },
+  { name: '총제안건수', description: '총제안건수', example: '50건', category: 'CEO' },
+  { name: '최소보장인원', description: '최소보장인원', example: '10명', category: 'CEO' },
+  { name: '키워드', description: '키워드', example: '강남 맛집', category: 'CEO' },
+  { name: '키워드1', description: '키워드1', example: '강남 맛집', category: 'CEO' },
+  { name: '키워드1 n위', description: '키워드1 순위', example: '강남 맛집 1위', category: 'CEO' },
+  { name: '키워드2', description: '키워드2', example: '한식당', category: 'CEO' },
+  { name: '키워드2 n위', description: '키워드2 순위', example: '한식당 3위', category: 'CEO' },
+  { name: '키워드3', description: '키워드3', example: '점심 맛집', category: 'CEO' },
+  { name: '키워드3 n위', description: '키워드3 순위', example: '점심 맛집 5위', category: 'CEO' },
+  { name: '키워드순위', description: '키워드순위', example: '1위', category: 'CEO' },
+  { name: '현재이용인원', description: '현재이용인원', example: '127명', category: 'CEO' },
+  { name: '회원명', description: '회원명', example: '김사장', category: 'CEO' },
   { name: 'id', description: '캠페인 ID', example: 'CAMP_001', category: 'BLOGGER' },
-  { name: '고객명', description: '고객 이름', example: '김철수', category: 'COMMON' },
-  { name: '기간', description: '기간', example: '1개월', category: 'COMMON' },
-  { name: '총리뷰수', description: '총 리뷰 수', example: '127', category: 'COMMON' },
-  { name: '조회수', description: '조회수', example: '8,450', category: 'COMMON' }
-]
+  { name: 'inquiryId', description: '문의 ID', example: 'INQ_001', category: 'BLOGGER' },
+  { name: 'url', description: 'URL', example: 'https://example.com', category: 'BLOGGER' },
+  { name: '리뷰등록마감일', description: '리뷰등록마감일', example: '2024-06-20', category: 'BLOGGER' },
+  { name: '리뷰작성마감일', description: '리뷰 작성 마감일', example: '2024-06-15', category: 'BLOGGER' },
+  { name: '마감날짜-현재날짜', description: '마감까지 남은 일수', example: '3일', category: 'BLOGGER' },
+  { name: '이름', description: '이름', example: '김블로거', category: 'BLOGGER' },
+  { name: '3일 후_오늘', description: '3일 후 날짜', example: '2024-06-18', category: 'COMMON' },
+  { name: '3일후_내일', description: '3일 후 내일', example: '2024-06-19', category: 'COMMON' },
+  { name: 'adId', description: '광고 ID', example: 'AD_001', category: 'COMMON' },
+  { name: '가맹점명', description: '가맹점 이름', example: '맛있는 한식당', category: 'COMMON' },
+  { name: '내일_오늘', description: '내일 날짜', example: '2024-06-16', category: 'COMMON' },
+  { name: '등록기한초과일수', description: '등록기한초과일수', example: '2일', category: 'COMMON' },
+  { name: '리뷰등록기한초과일수', description: '리뷰등록기한초과일수', example: '1일', category: 'COMMON' },
+  { name: '링크수정사유', description: '링크수정사유', example: '잘못된 URL', category: 'COMMON' },
+  { name: '방문기한초과일수', description: '방문기한초과일수', example: '3일', category: 'COMMON' },
+  { name: '제공항목', description: '제공 항목', example: '메인메뉴 1개 + 사이드 1개', category: 'COMMON' },
+  { name: '추가제공포인트', description: '추가 제공 포인트', example: '5,000P', category: 'COMMON' },
+  { name: '캠페인명', description: '캠페인 이름', example: '신메뉴 체험단', category: 'COMMON' }
+];
 
 export default function TemplateBuilderPage() {
   const router = useRouter()
@@ -98,7 +178,7 @@ export default function TemplateBuilderPage() {
   const [variableSearch, setVariableSearch] = useState('')
 
   // 현재 채널에 맞는 변수들 필터링
-  const filteredVariables = commonVariables.filter(variable => 
+  const filteredVariables = allTemplateVariables.filter(variable => 
     (variable.category === template.channel || variable.category === 'COMMON') &&
     variable.name.toLowerCase().includes(variableSearch.toLowerCase())
   )
@@ -119,7 +199,7 @@ export default function TemplateBuilderPage() {
       }
       
       // 공통 변수에서 찾기
-      const commonVar = commonVariables.find(v => v.name === name)
+      const commonVar = allTemplateVariables.find(v => v.name === name)
       if (commonVar) {
         return {
           name,
@@ -348,8 +428,12 @@ export default function TemplateBuilderPage() {
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm flex items-center gap-2">
                         <Zap className="h-4 w-4" />
-                        기존 템플릿 변수 참고
+                        기존 템플릿 변수 참고 (총 {allTemplateVariables.length}개)
                       </CardTitle>
+                      <CardDescription className="text-xs">
+                        실제 운영 중인 114개 템플릿에서 사용되는 모든 변수들입니다. 
+                        {template.channel === 'CEO' ? 'CEO' : template.channel === 'BLOGGER' ? 'BLOGGER' : '모든'} 채널과 공통 변수를 표시합니다.
+                      </CardDescription>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
@@ -383,6 +467,9 @@ export default function TemplateBuilderPage() {
                             검색 결과가 없습니다
                           </div>
                         )}
+                      </div>
+                      <div className="mt-3 pt-3 border-t text-xs text-gray-500">
+                        표시된 변수: {filteredVariables.length}개 / 전체: {allTemplateVariables.length}개
                       </div>
                     </CardContent>
                   </Card>
