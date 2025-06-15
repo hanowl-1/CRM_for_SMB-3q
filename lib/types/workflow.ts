@@ -64,6 +64,7 @@ export interface VariableMapping {
   sourceType: 'field' | 'query' | 'function'; // 데이터 소스 타입
   defaultValue?: string; // 기본값
   formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
+  selectedColumn?: string; // 쿼리 결과에서 선택된 컬럼명 (query 타입일 때만 사용)
 }
 
 // 개인화 설정

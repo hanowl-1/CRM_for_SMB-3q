@@ -43,7 +43,7 @@ export class ClientPersonalizationService {
         // 각 변수 매핑에 대해 처리
         for (const mapping of settings.variableMappings) {
           const value = await this.resolveVariableValue(target, mapping);
-          const formattedValue = this.formatValue(value, mapping.formatter);
+          const formattedValue = this.formatValue(value, mapping.formatter || 'text');
           
           // 템플릿에서 변수를 실제 값으로 교체
           personalizedContent = personalizedContent.replace(
@@ -83,7 +83,7 @@ export class ClientPersonalizationService {
           if (!mapping.sourceField) {
             return mapping.defaultValue || '';
           }
-          const result = await this.executeSqlQuery(mapping.sourceField, target);
+          const result = await this.executeSqlQuery(mapping.sourceField, target, mapping.selectedColumn);
           return result || mapping.defaultValue || '';
         } catch (error) {
           console.error(`SQL 쿼리 실행 실패 (${mapping.templateVariable}):`, error);
@@ -102,7 +102,7 @@ export class ClientPersonalizationService {
   /**
    * SQL 쿼리를 실행합니다 (대상자별 개인화 지원)
    */
-  private async executeSqlQuery(query: string, target: PersonalizationTarget): Promise<any> {
+  private async executeSqlQuery(query: string, target: PersonalizationTarget, selectedColumn?: string): Promise<any> {
     try {
       // 쿼리에서 플레이스홀더를 대상자 데이터로 치환
       let processedQuery = query;
@@ -134,16 +134,23 @@ export class ClientPersonalizationService {
       });
 
       if (!response.ok) {
-        throw new Error(`쿼리 실행 실패: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`쿼리 실행 실패: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
       }
 
       const result = await response.json();
       
       if (result.success && result.data && result.data.length > 0) {
         const row = result.data[0];
-        // 첫 번째 컬럼의 값을 반환
-        const firstKey = Object.keys(row)[0];
-        return row[firstKey];
+        
+        // 선택된 컬럼이 있으면 해당 컬럼 값 반환, 없으면 첫 번째 컬럼 값 반환
+        if (selectedColumn && row.hasOwnProperty(selectedColumn)) {
+          return row[selectedColumn];
+        } else {
+          const firstKey = Object.keys(row)[0];
+          return row[firstKey];
+        }
       }
       
       return null;
@@ -248,7 +255,7 @@ export class ClientPersonalizationService {
   /**
    * 쿼리 테스트 (미리보기용)
    */
-  async testQuery(query: string, sampleData: Record<string, any>): Promise<{ success: boolean; result?: any; error?: string }> {
+  async testQuery(query: string, sampleData: Record<string, any>): Promise<{ success: boolean; result?: any; columns?: string[]; data?: any[]; error?: string }> {
     try {
       // 샘플 데이터로 플레이스홀더 치환
       let processedQuery = query;
@@ -264,6 +271,8 @@ export class ClientPersonalizationService {
         return match;
       });
 
+      console.log('Executing test query:', processedQuery);
+
       const response = await fetch('/api/mysql/query', {
         method: 'POST',
         headers: {
@@ -271,30 +280,41 @@ export class ClientPersonalizationService {
         },
         body: JSON.stringify({
           query: processedQuery,
-          limit: 1
+          limit: 10 // 테스트용으로 더 많은 결과 가져오기
         }),
       });
 
+      console.log('Response status:', response.status, response.statusText);
+
       if (!response.ok) {
-        throw new Error(`쿼리 실행 실패: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`쿼리 실행 실패: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
       }
 
       const result = await response.json();
+      console.log('Query result:', result);
       
       if (result.success && result.data && result.data.length > 0) {
-        const row = result.data[0];
-        const firstKey = Object.keys(row)[0];
+        const firstRow = result.data[0];
+        const columns = Object.keys(firstRow);
+        
         return {
           success: true,
-          result: row[firstKey]
+          result: firstRow[columns[0]], // 기본값: 첫 번째 컬럼
+          columns: columns,
+          data: result.data
         };
       }
       
       return {
         success: true,
-        result: null
+        result: null,
+        columns: [],
+        data: []
       };
     } catch (error) {
+      console.error('Test query error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : '알 수 없는 오류'

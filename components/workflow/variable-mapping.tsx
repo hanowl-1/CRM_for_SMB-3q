@@ -52,7 +52,7 @@ export function VariableMapping({
   const [personalizationEnabled, setPersonalizationEnabled] = useState(false);
   const [variableMappings, setVariableMappings] = useState<VariableMapping[]>([]);
   const [previewContent, setPreviewContent] = useState('');
-  const [queryTestResults, setQueryTestResults] = useState<Record<number, { success: boolean; result: any; error: string }>>({});
+  const [queryTestResults, setQueryTestResults] = useState<Record<number, { success: boolean; result: any; error: string; columns?: string[]; data?: any[]; selectedColumn?: string }>>({});
   
   // 초기화 상태를 추적하는 ref
   const isInitializedRef = useRef(false);
@@ -224,7 +224,14 @@ export function VariableMapping({
       const result = await clientPersonalizationService.testQuery(query, memoizedTargetSampleData);
       setQueryTestResults(prev => ({
         ...prev,
-        [index]: { success: result.success, result: result.result, error: result.error || '' }
+        [index]: { 
+          success: result.success, 
+          result: result.result, 
+          error: result.error || '', 
+          columns: result.columns || [], 
+          data: result.data || [],
+          selectedColumn: result.columns?.[0] // 기본값: 첫 번째 컬럼
+        }
       }));
     } catch (error) {
       setQueryTestResults(prev => ({
@@ -232,11 +239,47 @@ export function VariableMapping({
         [index]: { 
           success: false, 
           result: null, 
-          error: error instanceof Error ? error.message : '알 수 없는 오류'
+          error: error instanceof Error ? error.message : '알 수 없는 오류',
+          columns: [],
+          data: [],
+          selectedColumn: undefined
         }
       }));
     }
   }, [memoizedTargetSampleData]);
+
+  const updateSelectedColumn = useCallback((index: number, columnName: string) => {
+    setQueryTestResults(prev => {
+      const current = prev[index];
+      if (!current || !current.data || current.data.length === 0) return prev;
+      
+      const newResult = current.data[0][columnName];
+      return {
+        ...prev,
+        [index]: {
+          ...current,
+          selectedColumn: columnName,
+          result: newResult
+        }
+      };
+    });
+    
+    // 변수 매핑에도 선택된 컬럼 저장
+    setVariableMappings(prev => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = { ...updated[index], selectedColumn: columnName };
+        
+        // 부모에게 알림
+        setTimeout(() => {
+          if (isInitializedRef.current) {
+            notifyParent(personalizationEnabled, updated);
+          }
+        }, 100);
+      }
+      return updated;
+    });
+  }, [personalizationEnabled, notifyParent]);
 
   if (!selectedTemplate) {
     return (
@@ -490,12 +533,81 @@ export function VariableMapping({
                         {queryTestResults[index].success ? '쿼리 테스트 성공' : '쿼리 테스트 실패'}
                       </span>
                     </div>
+                    
                     {queryTestResults[index].success ? (
-                      <div className="text-sm">
-                        <span className="text-muted-foreground">결과: </span>
-                        <span className="font-mono bg-white px-2 py-1 rounded border">
-                          {queryTestResults[index].result !== null ? String(queryTestResults[index].result) : 'null'}
-                        </span>
+                      <div className="space-y-3">
+                        {/* 컬럼 선택 */}
+                        {queryTestResults[index].columns && queryTestResults[index].columns!.length > 1 && (
+                          <div>
+                            <label className="text-sm font-medium mb-2 block">변수값으로 사용할 컬럼 선택</label>
+                            <Select
+                              value={queryTestResults[index].selectedColumn || queryTestResults[index].columns![0]}
+                              onValueChange={(value) => updateSelectedColumn(index, value)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {queryTestResults[index].columns!.map(column => (
+                                  <SelectItem key={column} value={column}>
+                                    <div className="flex items-center justify-between w-full">
+                                      <span>{column}</span>
+                                      <span className="text-xs text-muted-foreground ml-2">
+                                        {queryTestResults[index].data?.[0]?.[column]}
+                                      </span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        
+                        {/* 선택된 값 표시 */}
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">선택된 값: </span>
+                          <span className="font-mono bg-white px-2 py-1 rounded border">
+                            {queryTestResults[index].result !== null ? String(queryTestResults[index].result) : 'null'}
+                          </span>
+                        </div>
+                        
+                        {/* 쿼리 결과 테이블 (처음 3개 행만 표시) */}
+                        {queryTestResults[index].data && queryTestResults[index].data!.length > 0 && (
+                          <div>
+                            <div className="text-sm font-medium mb-2">쿼리 결과 미리보기 (최대 3개 행)</div>
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-xs border border-gray-200 rounded">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    {queryTestResults[index].columns!.map(column => (
+                                      <th key={column} className="px-2 py-1 text-left border-b border-gray-200 font-medium">
+                                        {column}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {queryTestResults[index].data!.slice(0, 3).map((row, rowIndex) => (
+                                    <tr key={rowIndex} className="hover:bg-gray-50">
+                                      {queryTestResults[index].columns!.map(column => (
+                                        <td key={column} className={`px-2 py-1 border-b border-gray-100 ${
+                                          column === queryTestResults[index].selectedColumn ? 'bg-blue-50 font-medium' : ''
+                                        }`}>
+                                          {row[column]}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {queryTestResults[index].data!.length > 3 && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                ... 총 {queryTestResults[index].data!.length}개 행
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="text-sm text-red-600">
