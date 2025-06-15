@@ -61,6 +61,20 @@ export default function NewWorkflowPage() {
         message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n`;
         message += `• 실행 시간: ${new Date(result.executionTime).toLocaleString()}\n\n`;
         
+        // 환경변수 상태 정보 추가
+        if (result.envStatus) {
+          message += `🔧 환경변수 상태:\n`;
+          message += `• COOLSMS API 키: ${result.envStatus.COOLSMS_API_KEY ? '✅ 설정됨' : '❌ 누락'}\n`;
+          message += `• COOLSMS API 시크릿: ${result.envStatus.COOLSMS_API_SECRET ? '✅ 설정됨' : '❌ 누락'}\n`;
+          message += `• 카카오 발신키: ${result.envStatus.KAKAO_SENDER_KEY ? '✅ 설정됨' : '❌ 누락'}\n`;
+          message += `• 테스트 전화번호: ${result.envStatus.phoneNumber || '❌ 누락'}\n\n`;
+        }
+        
+        // 실제 발송 상태
+        if (result.realSendingStatus) {
+          message += `📡 발송 상태: ${result.realSendingStatus}\n\n`;
+        }
+        
         // 각 단계별 결과
         message += `📊 실행 결과:\n`;
         result.results.forEach((step: any) => {

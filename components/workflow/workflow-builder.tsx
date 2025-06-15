@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
@@ -81,6 +81,31 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   // 새로운 상태: 템플릿별 개인화 설정
   const [templatePersonalizations, setTemplatePersonalizations] = useState<Record<string, PersonalizationSettings>>({});
+  
+  // 새로운 상태: 템플릿별 변수 저장
+  const [templateVariables, setTemplateVariables] = useState<Record<string, Record<string, string>>>({});
+
+  // 기존 워크플로우 로드 시 변수와 개인화 설정 초기화
+  useEffect(() => {
+    if (workflow && workflow.steps) {
+      const variables: Record<string, Record<string, string>> = {};
+      const personalizations: Record<string, PersonalizationSettings> = {};
+      
+      workflow.steps.forEach(step => {
+        if (step.action.templateId) {
+          if (step.action.variables) {
+            variables[step.action.templateId] = step.action.variables;
+          }
+          if (step.action.personalization) {
+            personalizations[step.action.templateId] = step.action.personalization;
+          }
+        }
+      });
+      
+      setTemplateVariables(variables);
+      setTemplatePersonalizations(personalizations);
+    }
+  }, [workflow]);
 
   // 탭 완료 상태 체크
   const isTabComplete = (tabId: string) => {
@@ -140,6 +165,30 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       ...prev,
       [templateId]: settings
     }));
+    
+    // 개인화 설정에서 변수 추출하여 저장 (모든 값 타입 고려)
+    const variables: Record<string, string> = {};
+    settings.variableMappings.forEach(mapping => {
+      const variableName = mapping.templateVariable.replace(/^#{|}$/g, '');
+      
+      // 우선순위: actualValue > defaultValue > sourceField > 빈 문자열
+      if (mapping.actualValue) {
+        variables[variableName] = mapping.actualValue;
+      } else if (mapping.defaultValue) {
+        variables[variableName] = mapping.defaultValue;
+      } else if (mapping.sourceField) {
+        variables[variableName] = mapping.sourceField;
+      } else {
+        variables[variableName] = '';
+      }
+    });
+    
+    setTemplateVariables(prev => ({
+      ...prev,
+      [templateId]: variables
+    }));
+    
+    console.log(`🔧 템플릿 ${templateId} 변수 저장:`, variables);
   }, []);
 
   const handleSave = () => {
@@ -151,9 +200,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         id: `action_${template.id}_${Date.now()}`,
         type: 'send_alimtalk',
         templateId: template.id,
-        variables: {},
+        variables: templateVariables[template.id] || {},
         scheduleSettings: scheduleSettings,
-        personalization: templatePersonalizations[template.id] // 개인화 설정 추가
+        personalization: templatePersonalizations[template.id]
       },
       position: { x: 100, y: index * 150 + 100 }
     }));
@@ -197,9 +246,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           id: `action_${template.id}_${Date.now()}`,
           type: 'send_alimtalk',
           templateId: template.id,
-          variables: {},
+          variables: templateVariables[template.id] || {},
           scheduleSettings: scheduleSettings,
-          personalization: templatePersonalizations[template.id] // 개인화 설정 추가
+          personalization: templatePersonalizations[template.id]
         },
         position: { x: 100, y: index * 150 + 100 }
       }));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
 import { mockTemplates } from '@/lib/data/mock-templates';
+import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -10,6 +11,7 @@ const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
 const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
 const TEST_PHONE_NUMBER = process.env.TEST_PHONE_NUMBER;
+const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER || '18007710';
 
 interface TestRequest {
   workflow: Workflow;
@@ -25,6 +27,16 @@ export async function POST(request: NextRequest) {
     const enableRealSending = testSettings?.enableRealSending ?? false;
     const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
+    // 환경변수 설정 상태 확인
+    const envStatus = {
+      COOLSMS_API_KEY: !!COOLSMS_API_KEY,
+      COOLSMS_API_SECRET: !!COOLSMS_API_SECRET,
+      KAKAO_SENDER_KEY: !!KAKAO_SENDER_KEY && KAKAO_SENDER_KEY !== 'your_kakao_sender_key_here',
+      TEST_PHONE_NUMBER: !!TEST_PHONE_NUMBER,
+      phoneNumber: phoneNumber
+    };
+
+    console.log('🔧 환경변수 설정 상태:', envStatus);
     console.log('워크플로우 테스트 실행:', {
       workflowId: workflow.id,
       workflowName: workflow.name,
@@ -33,6 +45,32 @@ export async function POST(request: NextRequest) {
       enableRealSending,
       fallbackToSMS
     });
+
+    // 실제 발송이 활성화되었지만 필수 환경변수가 없는 경우 경고
+    if (enableRealSending) {
+      const missingEnvVars = [];
+      if (!COOLSMS_API_KEY) missingEnvVars.push('COOLSMS_API_KEY');
+      if (!COOLSMS_API_SECRET) missingEnvVars.push('COOLSMS_API_SECRET');
+      if (!KAKAO_SENDER_KEY || KAKAO_SENDER_KEY === 'your_kakao_sender_key_here') {
+        missingEnvVars.push('KAKAO_SENDER_KEY');
+      }
+      if (!phoneNumber) missingEnvVars.push('TEST_PHONE_NUMBER 또는 testPhoneNumber');
+
+      if (missingEnvVars.length > 0) {
+        console.warn('⚠️ 실제 발송 활성화되었지만 필수 환경변수 누락:', missingEnvVars);
+        return NextResponse.json({
+          success: false,
+          message: `실제 발송을 위해 다음 환경변수가 필요합니다: ${missingEnvVars.join(', ')}`,
+          missingEnvVars,
+          envStatus,
+          testSettings: {
+            enableRealSending,
+            fallbackToSMS,
+            phoneNumber
+          }
+        }, { status: 400 });
+      }
+    }
 
     // 워크플로우 단계별 실행
     const results = [];
@@ -49,7 +87,15 @@ export async function POST(request: NextRequest) {
         }
 
         // 사용자 정의 변수 사용 (없으면 기본값)
-        const variables = step.action.variables || {
+        console.log('🔍 step.action.variables:', step.action.variables);
+        
+        const defaultVariables = {
+          'total_reviews': '1,234',
+          'monthly_review_count': '156',
+          'top_5p_reviewers_count': '23',
+          'total_post_views': '45,678',
+          'naver_place_rank': '3',
+          'blog_post_rank': '7',
           '고객명': '테스트 고객',
           '회사명': '테스트 회사',
           '취소일': '2024-01-20',
@@ -60,6 +106,12 @@ export async function POST(request: NextRequest) {
           '콘텐츠제목': '마케팅 가이드',
           '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
         };
+        
+        const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
+          ? step.action.variables 
+          : defaultVariables;
+          
+        console.log('🔧 최종 사용할 변수:', variables);
 
         const result = await sendAlimtalk({
           templateCode: template.templateCode,
@@ -131,7 +183,12 @@ export async function POST(request: NextRequest) {
         enableRealSending,
         fallbackToSMS,
         phoneNumber
-      }
+      },
+      envStatus,
+      realSendingStatus: enableRealSending ? 
+        (envStatus.COOLSMS_API_KEY && envStatus.COOLSMS_API_SECRET && envStatus.KAKAO_SENDER_KEY ? 
+          '실제 발송 시도됨' : '환경변수 누락으로 테스트 모드로 실행됨') : 
+        '테스트 모드로 실행됨'
     });
 
   } catch (error) {
@@ -163,6 +220,12 @@ async function sendAlimtalk({
   enableRealSending: boolean;
   fallbackToSMS: boolean;
 }) {
+  // 템플릿 코드에서 실제 템플릿 ID 찾기
+  const templateId = findTemplateIdByCode(templateCode);
+  if (!templateId) {
+    throw new Error(`템플릿 코드 ${templateCode}에 해당하는 템플릿 ID를 찾을 수 없습니다.`);
+  }
+
   // 변수 치환
   let processedContent = templateContent;
   Object.entries(variables).forEach(([key, value]) => {
@@ -171,6 +234,7 @@ async function sendAlimtalk({
 
   console.log('🔔 알림톡 발송 시도');
   console.log('템플릿 코드:', templateCode);
+  console.log('템플릿 ID:', templateId);
   console.log('수신번호:', phoneNumber);
   console.log('사용자 변수:', variables);
   console.log('처리된 메시지:', processedContent);
@@ -198,19 +262,16 @@ async function sendAlimtalk({
     
     const result = await messageService.sendOne({
       to: phoneNumber,
-      from: KAKAO_SENDER_KEY,
-      text: processedContent,
+      from: SMS_SENDER_NUMBER,
       type: 'ATA', // 알림톡
       kakaoOptions: {
         senderKey: KAKAO_SENDER_KEY,
-        templateCode: templateCode,
-        // 변수가 있는 경우 추가
-        ...(Object.keys(variables).length > 0 && {
-          variables: Object.entries(variables).reduce((acc, [key, value]) => {
-            acc[key] = value;
-            return acc;
-          }, {} as Record<string, string>)
-        })
+        templateCode: templateId, // 실제 templateId를 templateCode로 사용
+        // CoolSMS API는 variables 속성 사용, 변수명을 #{변수명} 형식으로 변환
+        variables: Object.entries(variables).reduce((acc, [key, value]) => {
+          acc[`#{${key}}`] = value;
+          return acc;
+        }, {} as Record<string, string>)
       }
     });
 
@@ -234,7 +295,7 @@ async function sendAlimtalk({
         const smsResult = await sendSMS({
           content: processedContent,
           phoneNumber,
-          variables: {},
+          variables: variables,
           enableRealSending
         });
         
@@ -262,6 +323,25 @@ async function sendAlimtalk({
       };
     }
   }
+}
+
+// 템플릿 코드로 템플릿 ID 찾기 함수
+function findTemplateIdByCode(templateCode: string): string | null {
+  // templateCode 형식: "MEMBERS_113"
+  const parts = templateCode.split('_');
+  if (parts.length !== 2) return null;
+  
+  const [servicePlatform, templateNumber] = parts;
+  const templateNum = parseInt(templateNumber);
+  
+  // KakaoAlimtalkTemplateById에서 해당 조건에 맞는 템플릿 찾기
+  for (const [templateId, template] of Object.entries(KakaoAlimtalkTemplateById)) {
+    if (template.servicePlatform === servicePlatform && template.templateNumber === templateNum) {
+      return templateId;
+    }
+  }
+  
+  return null;
 }
 
 // SMS 발송 함수
@@ -309,7 +389,7 @@ async function sendSMS({
     
     const result = await messageService.sendOne({
       to: phoneNumber,
-      from: '01041513771', // 발신번호 (등록된 번호 사용)
+      from: SMS_SENDER_NUMBER,
       text: processedContent,
       type: processedContent.length > 90 ? 'LMS' : 'SMS' // 90자 초과시 LMS
     });

@@ -65,6 +65,7 @@ export interface VariableMapping {
   defaultValue?: string; // 기본값
   formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
   selectedColumn?: string; // 쿼리 결과에서 선택된 컬럼명 (query 타입일 때만 사용)
+  actualValue?: string; // 실제 쿼리 결과 값 (런타임에 설정됨)
 }
 
 // 개인화 설정
@@ -145,4 +146,101 @@ export interface WorkflowLog {
 export interface PersonalizationTarget {
   contact: string;
   data: Record<string, any>;
+}
+
+// 변수 매핑 템플릿 시스템
+export interface VariableMappingTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string; // 'performance', 'welcome', 'payment', 'general' 등
+  tags: string[];
+  variableMappings: VariableMapping[];
+  usageCount: number;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  isPublic: boolean; // 다른 사용자와 공유 가능 여부
+  isFavorite?: boolean;
+}
+
+// 자동 매핑 제안
+export interface MappingSuggestion {
+  templateVariable: string;
+  suggestedMappings: {
+    template: VariableMappingTemplate;
+    mapping: VariableMapping;
+    confidence: number; // 0-1 사이의 신뢰도
+    reason: string; // 제안 이유
+  }[];
+}
+
+// 매핑 템플릿 검색 필터
+export interface MappingTemplateFilter {
+  category?: string;
+  tags?: string[];
+  searchTerm?: string;
+  isPublic?: boolean;
+  isFavorite?: boolean;
+  sortBy?: 'name' | 'usageCount' | 'lastUsedAt' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+// 개별 변수 쿼리 템플릿
+export interface VariableQueryTemplate {
+  id: string;
+  variableName: string; // #{total_reviews}, #{monthly_review_count} 등
+  name: string; // 템플릿 이름 (예: "총 리뷰 수 조회")
+  description: string;
+  query: string; // SQL 쿼리
+  selectedColumn: string; // 결과에서 사용할 컬럼명
+  category: string; // 'performance', 'general', 'custom' 등
+  tags: string[];
+  usageCount: number;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  isPublic: boolean;
+  isFavorite?: boolean;
+}
+
+// 변수 쿼리 템플릿 검색 필터
+export interface VariableQueryTemplateFilter {
+  variableName?: string; // 특정 변수명으로 필터링
+  category?: string;
+  tags?: string[];
+  searchTerm?: string;
+  isPublic?: boolean;
+  isFavorite?: boolean;
+  sortBy?: 'name' | 'usageCount' | 'lastUsedAt' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+// 매핑 이력 템플릿 (전체 변수 매핑 세트)
+export interface MappingHistoryTemplate {
+  id: string;
+  name: string;
+  description: string;
+  templateContent: string; // 원본 카카오톡 템플릿 내용
+  variableMappings: VariableMapping[]; // 전체 변수 매핑 배열
+  category: string;
+  tags: string[];
+  usageCount: number;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  isPublic: boolean;
+  isFavorite?: boolean;
+}
+
+// 매핑 이력 템플릿 검색 필터
+export interface MappingHistoryTemplateFilter {
+  category?: string;
+  tags?: string[];
+  searchTerm?: string;
+  isPublic?: boolean;
+  isFavorite?: boolean;
+  sortBy?: 'name' | 'usageCount' | 'lastUsedAt' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
 } 

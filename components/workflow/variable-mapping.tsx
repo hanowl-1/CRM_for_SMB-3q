@@ -1,8 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import type { VariableMapping, PersonalizationSettings } from '@/lib/types/workflow';
+import type { VariableMapping, PersonalizationSettings, VariableMappingTemplate } from '@/lib/types/workflow';
 import { clientPersonalizationService } from '@/lib/services/personalization-service-client';
+import { MappingTemplateService } from '@/lib/services/mapping-template-service';
+import MappingTemplateManager from './mapping-template-manager';
+import TemplateEditorModal from './template-editor-modal';
+import VariableQuerySelector from './variable-query-selector';
+import MappingHistorySelector from './mapping-history-selector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +25,12 @@ import {
   CheckCircle,
   Settings,
   Eye,
-  Play
+  Play,
+  BookOpen,
+  Save,
+  Download,
+  Upload,
+  Sparkles
 } from 'lucide-react';
 
 interface KakaoTemplate {
@@ -53,6 +63,11 @@ export function VariableMapping({
   const [variableMappings, setVariableMappings] = useState<VariableMapping[]>([]);
   const [previewContent, setPreviewContent] = useState('');
   const [queryTestResults, setQueryTestResults] = useState<Record<number, { success: boolean; result: any; error: string; columns?: string[]; data?: any[]; selectedColumn?: string }>>({});
+  
+  // 템플릿 관리 상태
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [showTemplateSaveModal, setShowTemplateSaveModal] = useState(false);
+  const [currentVariables, setCurrentVariables] = useState<string[]>([]);
   
   // 초기화 상태를 추적하는 ref
   const isInitializedRef = useRef(false);
@@ -90,11 +105,14 @@ export function VariableMapping({
       setPersonalizationEnabled(false);
       setPreviewContent('');
       setQueryTestResults({});
+      setCurrentVariables([]);
       isInitializedRef.current = true;
       return;
     }
 
     const templateVariables = clientPersonalizationService.extractTemplateVariables(selectedTemplate.content);
+    setCurrentVariables(templateVariables);
+    
     const existingMappings = selectedTemplate.personalization?.variableMappings || [];
     
     const newMappings = templateVariables.map(variable => {
@@ -189,6 +207,43 @@ export function VariableMapping({
     });
   }, [personalizationEnabled, notifyParent]);
 
+  // 템플릿 적용 핸들러
+  const handleApplyTemplate = useCallback((template: VariableMappingTemplate) => {
+    const newMappings = [...variableMappings];
+    
+    // 템플릿의 매핑을 현재 변수들에 적용
+    template.variableMappings.forEach(templateMapping => {
+      const index = newMappings.findIndex(m => m.templateVariable === templateMapping.templateVariable);
+      if (index !== -1) {
+        newMappings[index] = { ...templateMapping };
+      }
+    });
+    
+    setVariableMappings(newMappings);
+    setShowTemplateManager(false);
+    
+    // 부모에게 알림
+    setTimeout(() => {
+      notifyParent(personalizationEnabled, newMappings);
+    }, 0);
+  }, [variableMappings, personalizationEnabled, notifyParent]);
+
+  // 현재 매핑을 템플릿으로 저장
+  const handleSaveAsTemplate = useCallback(() => {
+    if (variableMappings.length === 0) {
+      alert('저장할 변수 매핑이 없습니다.');
+      return;
+    }
+    setShowTemplateSaveModal(true);
+  }, [variableMappings]);
+
+  // 템플릿 저장 완료 핸들러
+  const handleTemplateSaved = useCallback((template: VariableMappingTemplate) => {
+    setShowTemplateSaveModal(false);
+    // 성공 메시지 표시 (선택사항)
+    console.log('템플릿이 저장되었습니다:', template.name);
+  }, []);
+
   const getSourceTypeIcon = useCallback((type: string) => {
     switch (type) {
       case 'field': return <Database className="w-4 h-4" />;
@@ -207,12 +262,16 @@ export function VariableMapping({
     }
   }, []);
 
-  const getPreviewValue = useCallback((mapping: VariableMapping) => {
+  const getPreviewValue = useCallback((mapping: VariableMapping, index: number) => {
     if (mapping.sourceType === 'field') {
       return mapping.sourceField ? memoizedTargetSampleData[mapping.sourceField] || mapping.defaultValue || '[값 없음]' : mapping.defaultValue || '[설정 필요]';
     } else if (mapping.sourceType === 'query') {
-      const testResult = Object.values(queryTestResults).find(r => r && typeof r === 'object');
-      return testResult ? String(testResult.result) || '[쿼리 테스트 필요]' : '[쿼리 테스트 필요]';
+      // 해당 인덱스의 쿼리 테스트 결과만 가져오기
+      const testResult = queryTestResults[index];
+      if (testResult && testResult.success && testResult.result !== null) {
+        return String(testResult.result);
+      }
+      return '[쿼리 테스트 필요]';
     } else if (mapping.sourceType === 'function') {
       return mapping.sourceField ? '[함수 결과]' : '[설정 필요]';
     }
@@ -222,6 +281,8 @@ export function VariableMapping({
   const testQuery = useCallback(async (query: string, index: number) => {
     try {
       const result = await clientPersonalizationService.testQuery(query, memoizedTargetSampleData);
+      const firstColumnValue = result.data?.[0]?.[result.columns?.[0] || ''];
+      
       setQueryTestResults(prev => ({
         ...prev,
         [index]: { 
@@ -233,6 +294,27 @@ export function VariableMapping({
           selectedColumn: result.columns?.[0] // 기본값: 첫 번째 컬럼
         }
       }));
+      
+      // 쿼리 테스트 성공 시 변수 매핑에 실제 값 저장
+      if (result.success && firstColumnValue !== undefined) {
+        setVariableMappings(prev => {
+          const updated = [...prev];
+          if (updated[index]) {
+            updated[index] = { 
+              ...updated[index], 
+              actualValue: String(firstColumnValue)
+            };
+            
+            // 부모에게 알림
+            setTimeout(() => {
+              if (isInitializedRef.current) {
+                notifyParent(personalizationEnabled, updated);
+              }
+            }, 100);
+          }
+          return updated;
+        });
+      }
     } catch (error) {
       setQueryTestResults(prev => ({
         ...prev,
@@ -246,7 +328,7 @@ export function VariableMapping({
         }
       }));
     }
-  }, [memoizedTargetSampleData]);
+  }, [memoizedTargetSampleData, personalizationEnabled, notifyParent]);
 
   const updateSelectedColumn = useCallback((index: number, columnName: string) => {
     setQueryTestResults(prev => {
@@ -264,11 +346,18 @@ export function VariableMapping({
       };
     });
     
-    // 변수 매핑에도 선택된 컬럼 저장
+    // 변수 매핑에도 선택된 컬럼과 실제 값 저장
     setVariableMappings(prev => {
       const updated = [...prev];
       if (updated[index]) {
-        updated[index] = { ...updated[index], selectedColumn: columnName };
+        const testResult = queryTestResults[index];
+        const actualValue = testResult?.data?.[0]?.[columnName];
+        
+        updated[index] = { 
+          ...updated[index], 
+          selectedColumn: columnName,
+          actualValue: actualValue ? String(actualValue) : undefined
+        };
         
         // 부모에게 알림
         setTimeout(() => {
@@ -279,7 +368,7 @@ export function VariableMapping({
       }
       return updated;
     });
-  }, [personalizationEnabled, notifyParent]);
+  }, [personalizationEnabled, notifyParent, queryTestResults]);
 
   if (!selectedTemplate) {
     return (
@@ -320,6 +409,51 @@ export function VariableMapping({
               />
             </div>
           </div>
+          
+          {/* 템플릿 관리 버튼들 */}
+          {templateVariables.length > 0 && (
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Sparkles className="w-4 h-4" />
+                <span>변수 매핑 관리:</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTemplateManager(true)}
+                className="flex items-center gap-2"
+              >
+                <BookOpen className="w-4 h-4" />
+                템플릿 선택
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSaveAsTemplate}
+                className="flex items-center gap-2"
+                disabled={variableMappings.length === 0 || !variableMappings.some(m => m.sourceField)}
+              >
+                <Save className="w-4 h-4" />
+                템플릿 저장
+              </Button>
+              
+              {/* 매핑 이력 관리 */}
+              <MappingHistorySelector
+                currentMappings={variableMappings}
+                templateContent={selectedTemplate.content}
+                onSelect={(mappings) => {
+                  setVariableMappings(mappings);
+                  // 부모에게 알림
+                  setTimeout(() => {
+                    notifyParent(personalizationEnabled, mappings);
+                  }, 0);
+                }}
+                onSave={(template) => {
+                  console.log('매핑 이력이 저장되었습니다:', template.name);
+                }}
+              />
+            </div>
+          )}
         </CardHeader>
       </Card>
 
@@ -336,7 +470,7 @@ export function VariableMapping({
             <div className="text-center py-8 text-muted-foreground">
               <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>이 템플릿에는 변수가 없습니다</p>
-              <p className="text-xs mt-1">변수는 #변수명 형태로 작성됩니다</p>
+              <p className="text-xs mt-1">변수는 {`#{변수명}`} 형태로 작성됩니다</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -474,6 +608,28 @@ export function VariableMapping({
                     </Select>
                   ) : mapping.sourceType === 'query' ? (
                     <div className="space-y-3">
+                      {/* 개별 변수 쿼리 선택기 */}
+                      <VariableQuerySelector
+                        variableName={mapping.templateVariable}
+                        currentQuery={mapping.sourceField}
+                        currentSelectedColumn={
+                          mapping.selectedColumn || 
+                          queryTestResults[index]?.selectedColumn || 
+                          queryTestResults[index]?.columns?.[0] || 
+                          ''
+                        }
+                        onSelect={(query: string, selectedColumn: string) => {
+                          updateMapping(index, { 
+                            sourceField: query,
+                            selectedColumn: selectedColumn
+                          });
+                        }}
+                        onSave={(template) => {
+                          console.log('쿼리 템플릿이 저장되었습니다:', template.name);
+                          // 저장 완료 후 추가 작업이 필요하면 여기에 추가
+                        }}
+                      />
+                      
                       <Textarea
                         value={mapping.sourceField}
                         onChange={(e) => updateMapping(index, { sourceField: e.target.value })}
@@ -624,7 +780,7 @@ export function VariableMapping({
                     <span className="text-sm font-medium">현재 값 미리보기</span>
                   </div>
                   <div className="text-sm font-mono bg-white p-2 rounded border">
-                    {getPreviewValue(mapping)}
+                    {getPreviewValue(mapping, index)}
                   </div>
                 </div>
               </div>
@@ -675,6 +831,43 @@ export function VariableMapping({
           </CardContent>
         </Card>
       )}
+      
+      {/* 템플릿 관리자 모달 */}
+      {showTemplateManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-6 border-b">
+              <h2 className="text-xl font-semibold">변수 매핑 템플릿 선택</h2>
+              <p className="text-gray-600 mt-1">기존 템플릿을 선택하여 빠르게 변수를 매핑하세요</p>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              <MappingTemplateManager
+                mode="select"
+                currentVariables={currentVariables}
+                onApplyTemplate={handleApplyTemplate}
+                onSelectTemplate={() => {}} // 미리보기는 나중에 구현
+              />
+            </div>
+            <div className="p-6 border-t bg-gray-50 flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowTemplateManager(false)}
+              >
+                닫기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 템플릿 저장 모달 */}
+      <TemplateEditorModal
+        isOpen={showTemplateSaveModal}
+        onClose={() => setShowTemplateSaveModal(false)}
+        onSave={handleTemplateSaved}
+        template={null} // 새 템플릿 생성
+        initialMappings={variableMappings} // 현재 매핑 데이터 전달
+      />
     </div>
   );
 } 

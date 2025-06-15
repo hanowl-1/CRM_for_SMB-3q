@@ -1,15 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText, Wrench, Database, Code, Monitor, Zap, Target, TrendingUp } from "lucide-react"
 import Link from "next/link"
+import { Workflow } from "@/lib/types/workflow"
 
 export default function Dashboard() {
-  const [workflows] = useState([
+  const [workflows, setWorkflows] = useState<Array<{
+    id: string;
+    originalId?: string;
+    name: string;
+    status: string;
+    trigger: string;
+    sent: number;
+    lastRun: string;
+    stepsCount?: number;
+  }>>([
     {
-      id: 1,
+      id: "1",
       name: "신규 회원 환영 워크플로우",
       status: "active",
       trigger: "회원가입 완료",
@@ -17,7 +27,7 @@ export default function Dashboard() {
       lastRun: "2024-01-15 14:30",
     },
     {
-      id: 2,
+      id: "2",
       name: "장바구니 미완료 알림",
       status: "paused",
       trigger: "장바구니 추가 후 1시간",
@@ -25,20 +35,104 @@ export default function Dashboard() {
       lastRun: "2024-01-14 16:20",
     },
     {
-      id: 3,
+      id: "3",
       name: "VIP 고객 특별 혜택",
       status: "draft",
       trigger: "구매 금액 100만원 이상",
       sent: 0,
       lastRun: "-",
     },
+    {
+      id: "4",
+      name: "생일 축하 메시지",
+      status: "active",
+      trigger: "생일 당일",
+      sent: 2340,
+      lastRun: "2024-01-15 09:15",
+    },
+    {
+      id: "5",
+      name: "구매 후 리뷰 요청",
+      status: "active",
+      trigger: "구매 완료 후 3일",
+      sent: 4567,
+      lastRun: "2024-01-15 18:45",
+    },
+    {
+      id: "6",
+      name: "재구매 유도 메시지",
+      status: "active",
+      trigger: "마지막 구매 후 30일",
+      sent: 1890,
+      lastRun: "2024-01-15 12:20",
+    },
+    {
+      id: "7",
+      name: "이벤트 참여 안내",
+      status: "active",
+      trigger: "이벤트 시작일",
+      sent: 1513,
+      lastRun: "2024-01-14 10:00",
+    },
   ])
 
+  // localStorage에서 저장된 워크플로우 불러오기
+  useEffect(() => {
+    const loadSavedWorkflows = () => {
+      try {
+        const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
+        console.log("저장된 워크플로우 개수:", savedWorkflows.length)
+        console.log("저장된 워크플로우 목록:", savedWorkflows)
+        
+        if (savedWorkflows.length > 0) {
+          // 저장된 워크플로우를 표시용 형태로 변환
+          const convertedWorkflows = savedWorkflows.map((workflow, index) => ({
+            id: `saved_${workflow.id}_${index}`, // 인덱스를 추가하여 고유성 보장
+            originalId: workflow.id, // 원본 ID 보존
+            name: workflow.name || `저장된 워크플로우 ${index + 1}`, // 이름이 없으면 기본 이름 사용
+            status: workflow.status,
+            trigger: workflow.trigger?.name || workflow.trigger?.type || "수동 실행",
+            sent: workflow.stats?.totalRuns || 0,
+            lastRun: workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('ko-KR', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            }) : "-",
+            stepsCount: workflow.steps?.length || 0, // 단계 수 추가
+          }))
+
+          console.log("변환된 워크플로우:", convertedWorkflows)
+
+          // 기존 샘플 데이터와 저장된 워크플로우 합치기 (중복 제거)
+          setWorkflows(prev => {
+            // 기존에 저장된 워크플로우가 있는지 확인
+            const existingSavedIds = prev.filter(w => w.id.toString().startsWith('saved_')).map(w => w.id);
+            const newWorkflows = convertedWorkflows.filter(w => !existingSavedIds.includes(w.id));
+            
+            return [...prev.filter(w => !w.id.toString().startsWith('saved_')), ...convertedWorkflows];
+          })
+        }
+      } catch (error) {
+        console.error("저장된 워크플로우 로드 실패:", error)
+      }
+    }
+
+    loadSavedWorkflows()
+  }, [])
+
+  // 실제 워크플로우 데이터를 기반으로 통계 계산
+  const activeWorkflowsCount = workflows.filter(w => w.status === 'active').length;
+  const totalSent = workflows.reduce((sum, w) => sum + w.sent, 0);
+  const totalCustomers = 3240; // 대상 고객 수는 별도 계산 필요
+  const successRate = 98.5; // 성공률은 별도 계산 필요
+
   const stats = [
-    { title: "활성 워크플로우", value: "5", icon: Play, color: "text-green-600" },
-    { title: "총 발송 수", value: "12,450", icon: MessageSquare, color: "text-blue-600" },
-    { title: "대상 고객", value: "3,240", icon: Users, color: "text-purple-600" },
-    { title: "성공률", value: "98.5%", icon: BarChart3, color: "text-orange-600" },
+    { title: "활성 워크플로우", value: activeWorkflowsCount.toString(), icon: Play, color: "text-green-600" },
+    { title: "총 발송 수", value: totalSent.toLocaleString(), icon: MessageSquare, color: "text-blue-600" },
+    { title: "대상 고객", value: totalCustomers.toLocaleString(), icon: Users, color: "text-purple-600" },
+    { title: "성공률", value: `${successRate}%`, icon: BarChart3, color: "text-orange-600" },
   ]
 
   const getStatusBadge = (status: string) => {
@@ -63,6 +157,17 @@ export default function Dashboard() {
             
             {/* 주요 액션 버튼 */}
             <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  const saved = localStorage.getItem("workflows");
+                  const count = saved ? JSON.parse(saved).length : 0;
+                  alert(`저장된 워크플로우: ${count}개\n\n${saved ? JSON.stringify(JSON.parse(saved), null, 2) : '없음'}`);
+                }}
+              >
+                저장된 워크플로우 확인
+              </Button>
               <Link href="/workflow/new">
                 <Button size="lg" className="bg-blue-600 hover:bg-blue-700 shadow-lg">
                   <Plus className="w-5 h-5 mr-2" />
@@ -224,11 +329,19 @@ export default function Dashboard() {
                           >
                             {getStatusBadge(workflow.status).label}
                           </span>
+                          {workflow.id.toString().startsWith('saved_') && (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                              새로 저장됨
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-6 text-sm text-gray-600">
                           <span>트리거: {workflow.trigger}</span>
                           <span>발송: {workflow.sent.toLocaleString()}건</span>
                           <span>최근 실행: {workflow.lastRun}</span>
+                          {workflow.id.toString().startsWith('saved_') && workflow.stepsCount !== undefined && (
+                            <span>단계: {workflow.stepsCount}개</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -244,7 +357,7 @@ export default function Dashboard() {
                           시작
                         </Button>
                       )}
-                      <Link href={`/workflow/${workflow.id}`}>
+                      <Link href={`/workflow/${workflow.originalId || workflow.id}`}>
                         <Button variant="ghost" size="sm">
                           <Settings className="w-4 h-4 mr-1" />
                           설정
