@@ -52,6 +52,7 @@ export function VariableMapping({
   const [personalizationEnabled, setPersonalizationEnabled] = useState(false);
   const [variableMappings, setVariableMappings] = useState<VariableMapping[]>([]);
   const [previewContent, setPreviewContent] = useState('');
+  const [queryTestResults, setQueryTestResults] = useState<Record<number, { success: boolean; result: any; error: string }>>({});
   
   // 초기화 상태를 추적하는 ref
   const isInitializedRef = useRef(false);
@@ -88,6 +89,7 @@ export function VariableMapping({
       setVariableMappings([]);
       setPersonalizationEnabled(false);
       setPreviewContent('');
+      setQueryTestResults({});
       isInitializedRef.current = true;
       return;
     }
@@ -109,6 +111,7 @@ export function VariableMapping({
     setVariableMappings(newMappings);
     setPersonalizationEnabled(selectedTemplate.personalization?.enabled || false);
     setPreviewContent(selectedTemplate.content);
+    setQueryTestResults({});
     
     // 초기화 완료 후 부모에게 알림
     setTimeout(() => {
@@ -203,6 +206,37 @@ export function VariableMapping({
       default: return 'text-gray-600';
     }
   }, []);
+
+  const getPreviewValue = useCallback((mapping: VariableMapping) => {
+    if (mapping.sourceType === 'field') {
+      return mapping.sourceField ? memoizedTargetSampleData[mapping.sourceField] || mapping.defaultValue || '[값 없음]' : mapping.defaultValue || '[설정 필요]';
+    } else if (mapping.sourceType === 'query') {
+      const testResult = Object.values(queryTestResults).find(r => r && typeof r === 'object');
+      return testResult ? String(testResult.result) || '[쿼리 테스트 필요]' : '[쿼리 테스트 필요]';
+    } else if (mapping.sourceType === 'function') {
+      return mapping.sourceField ? '[함수 결과]' : '[설정 필요]';
+    }
+    return '[설정 필요]';
+  }, [queryTestResults, memoizedTargetSampleData]);
+
+  const testQuery = useCallback(async (query: string, index: number) => {
+    try {
+      const result = await clientPersonalizationService.testQuery(query, memoizedTargetSampleData);
+      setQueryTestResults(prev => ({
+        ...prev,
+        [index]: { success: result.success, result: result.result, error: result.error || '' }
+      }));
+    } catch (error) {
+      setQueryTestResults(prev => ({
+        ...prev,
+        [index]: { 
+          success: false, 
+          result: null, 
+          error: error instanceof Error ? error.message : '알 수 없는 오류'
+        }
+      }));
+    }
+  }, [memoizedTargetSampleData]);
 
   if (!selectedTemplate) {
     return (
@@ -396,13 +430,31 @@ export function VariableMapping({
                       </SelectContent>
                     </Select>
                   ) : mapping.sourceType === 'query' ? (
-                    <Textarea
-                      value={mapping.sourceField}
-                      onChange={(e) => updateMapping(index, { sourceField: e.target.value })}
-                      placeholder="SELECT COUNT(*) FROM Reviews WHERE companyId = {adId}"
-                      rows={3}
-                      className="font-mono text-sm"
-                    />
+                    <div className="space-y-3">
+                      <Textarea
+                        value={mapping.sourceField}
+                        onChange={(e) => updateMapping(index, { sourceField: e.target.value })}
+                        placeholder="SELECT COUNT(*) FROM Reviews WHERE companyId = {adId}"
+                        rows={4}
+                        className="font-mono text-sm"
+                      />
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <p>• 플레이스홀더 사용법: {`{필드명}`} (예: {`{adId}, {companyName}`})</p>
+                        <p>• 대상자 데이터의 필드를 쿼리에서 사용할 수 있습니다</p>
+                        <p>• 쿼리는 단일 값을 반환해야 합니다</p>
+                      </div>
+                      {mapping.sourceField && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => testQuery(mapping.sourceField || '', index)}
+                          className="w-full"
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          쿼리 테스트
+                        </Button>
+                      )}
+                    </div>
                   ) : (
                     <Select
                       value={mapping.sourceField}
@@ -415,10 +467,43 @@ export function VariableMapping({
                         <SelectItem value="current_date">current_date (오늘 날짜)</SelectItem>
                         <SelectItem value="current_month">current_month (이번 달)</SelectItem>
                         <SelectItem value="company_name_short">company_name_short (회사명 단축)</SelectItem>
+                        <SelectItem value="contact_formatted">contact_formatted (연락처 포맷)</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
                 </div>
+
+                {/* 쿼리 테스트 결과 */}
+                {queryTestResults[index] && (
+                  <div className={`p-3 rounded-md border ${
+                    queryTestResults[index].success 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {queryTestResults[index].success ? (
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                      )}
+                      <span className="text-sm font-medium">
+                        {queryTestResults[index].success ? '쿼리 테스트 성공' : '쿼리 테스트 실패'}
+                      </span>
+                    </div>
+                    {queryTestResults[index].success ? (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">결과: </span>
+                        <span className="font-mono bg-white px-2 py-1 rounded border">
+                          {queryTestResults[index].result !== null ? String(queryTestResults[index].result) : 'null'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-red-600">
+                        {queryTestResults[index].error}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 현재 값 미리보기 */}
                 <div className="bg-gray-50 p-3 rounded-md">
@@ -427,10 +512,7 @@ export function VariableMapping({
                     <span className="text-sm font-medium">현재 값 미리보기</span>
                   </div>
                   <div className="text-sm font-mono bg-white p-2 rounded border">
-                    {mapping.sourceType === 'field' && mapping.sourceField 
-                      ? memoizedTargetSampleData[mapping.sourceField] || mapping.defaultValue || '[값 없음]'
-                      : mapping.defaultValue || '[설정 필요]'
-                    }
+                    {getPreviewValue(mapping)}
                   </div>
                 </div>
               </div>

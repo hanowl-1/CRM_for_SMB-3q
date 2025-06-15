@@ -2,16 +2,17 @@ import type { PersonalizationSettings, VariableMapping, PersonalizationTarget } 
 
 export class ClientPersonalizationService {
   /**
-   * 템플릿에서 변수를 추출합니다 (#변수명 형태)
+   * 템플릿에서 변수를 추출합니다 (#{변수명} 형태)
    */
   extractTemplateVariables(templateContent: string): string[] {
-    const variableRegex = /#([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    const variableRegex = /#{([a-zA-Z_][a-zA-Z0-9_]*)}/g;
     const variables: string[] = [];
     let match;
     
     while ((match = variableRegex.exec(templateContent)) !== null) {
-      if (!variables.includes(match[0])) {
-        variables.push(match[0]);
+      const fullVariable = match[0]; // #{변수명} 전체
+      if (!variables.includes(fullVariable)) {
+        variables.push(fullVariable);
       }
     }
     
@@ -68,60 +69,68 @@ export class ClientPersonalizationService {
   }
 
   /**
-   * 변수 매핑에 따라 실제 값을 해결합니다
+   * 변수 값을 해결합니다 (SQL 쿼리 지원 강화)
    */
-  private async resolveVariableValue(
-    target: PersonalizationTarget,
-    mapping: VariableMapping
-  ): Promise<string> {
+  private async resolveVariableValue(target: PersonalizationTarget, mapping: VariableMapping): Promise<any> {
     switch (mapping.sourceType) {
       case 'field':
-        return this.resolveFieldValue(target, mapping);
-      
+        // 대상자 데이터에서 직접 필드 값 가져오기
+        return target.data?.[mapping.sourceField] || mapping.defaultValue || '';
+
       case 'query':
-        return await this.resolveQueryValue(target, mapping);
-      
+        // SQL 쿼리 실행하여 값 가져오기
+        try {
+          if (!mapping.sourceField) {
+            return mapping.defaultValue || '';
+          }
+          const result = await this.executeSqlQuery(mapping.sourceField, target);
+          return result || mapping.defaultValue || '';
+        } catch (error) {
+          console.error(`SQL 쿼리 실행 실패 (${mapping.templateVariable}):`, error);
+          return mapping.defaultValue || '';
+        }
+
       case 'function':
-        return this.resolveFunctionValue(target, mapping);
-      
+        // 내장 함수 실행
+        return this.executeBuiltinFunction(mapping.sourceField || '', target) || mapping.defaultValue || '';
+
       default:
         return mapping.defaultValue || '';
     }
   }
 
   /**
-   * 필드 기반 값 해결
+   * SQL 쿼리를 실행합니다 (대상자별 개인화 지원)
    */
-  private resolveFieldValue(target: PersonalizationTarget, mapping: VariableMapping): string {
-    const value = target.data[mapping.sourceField];
-    return value !== undefined && value !== null ? String(value) : mapping.defaultValue || '';
-  }
-
-  /**
-   * 쿼리 기반 값 해결 (API 호출)
-   */
-  private async resolveQueryValue(target: PersonalizationTarget, mapping: VariableMapping): Promise<string> {
+  private async executeSqlQuery(query: string, target: PersonalizationTarget): Promise<any> {
     try {
-      // 쿼리에서 {필드명} 형태의 플레이스홀더를 실제 값으로 교체
-      let query = mapping.sourceField;
-      const placeholderRegex = /\{([^}]+)\}/g;
-      let match;
+      // 쿼리에서 플레이스홀더를 대상자 데이터로 치환
+      let processedQuery = query;
       
-      while ((match = placeholderRegex.exec(mapping.sourceField)) !== null) {
-        const fieldName = match[1];
-        const fieldValue = target.data[fieldName];
-        if (fieldValue !== undefined && fieldValue !== null) {
-          query = query.replace(match[0], String(fieldValue));
+      // {필드명} 형태의 플레이스홀더를 실제 값으로 치환
+      const placeholderRegex = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+      processedQuery = processedQuery.replace(placeholderRegex, (match, fieldName) => {
+        const value = target.data?.[fieldName] || (target as any)[fieldName];
+        if (value !== undefined) {
+          // SQL 인젝션 방지를 위한 기본적인 이스케이핑
+          if (typeof value === 'string') {
+            return `'${value.replace(/'/g, "''")}'`;
+          }
+          return String(value);
         }
-      }
+        return match; // 값이 없으면 원본 플레이스홀더 유지
+      });
 
-      // API를 통해 쿼리 실행
+      // API 호출하여 쿼리 실행
       const response = await fetch('/api/mysql/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({
+          query: processedQuery,
+          limit: 1 // 단일 값만 필요
+        }),
       });
 
       if (!response.ok) {
@@ -130,25 +139,25 @@ export class ClientPersonalizationService {
 
       const result = await response.json();
       
-      // 첫 번째 행의 첫 번째 컬럼 값을 반환
-      if (result.data && result.data.length > 0) {
-        const firstRow = result.data[0];
-        const firstValue = Object.values(firstRow)[0];
-        return firstValue !== undefined && firstValue !== null ? String(firstValue) : mapping.defaultValue || '';
+      if (result.success && result.data && result.data.length > 0) {
+        const row = result.data[0];
+        // 첫 번째 컬럼의 값을 반환
+        const firstKey = Object.keys(row)[0];
+        return row[firstKey];
       }
       
-      return mapping.defaultValue || '';
+      return null;
     } catch (error) {
-      console.error('쿼리 실행 중 오류:', error);
-      return mapping.defaultValue || '';
+      console.error('SQL 쿼리 실행 오류:', error);
+      throw error;
     }
   }
 
   /**
-   * 함수 기반 값 해결
+   * 내장 함수를 실행합니다
    */
-  private resolveFunctionValue(target: PersonalizationTarget, mapping: VariableMapping): string {
-    switch (mapping.sourceField) {
+  private executeBuiltinFunction(functionName: string, target: PersonalizationTarget): any {
+    switch (functionName) {
       case 'current_date':
         return new Date().toLocaleDateString('ko-KR');
       
@@ -156,36 +165,48 @@ export class ClientPersonalizationService {
         return new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
       
       case 'company_name_short':
-        const companyName = target.data.companyName || target.data.company_name || '';
+        const companyName = target.data?.companyName || target.data?.name || '';
         return companyName.length > 10 ? companyName.substring(0, 10) + '...' : companyName;
       
+      case 'contact_formatted':
+        const contact = target.contact || '';
+        return contact.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3');
+      
       default:
-        return mapping.defaultValue || '';
+        return '';
     }
   }
 
   /**
-   * 값을 지정된 형식으로 포맷팅합니다
+   * 값을 포맷팅합니다
    */
-  private formatValue(value: string, formatter?: string): string {
-    if (!value) return value;
-    
+  private formatValue(value: any, formatter: string): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    const stringValue = String(value);
+
     switch (formatter) {
       case 'number':
-        const num = parseFloat(value);
-        return isNaN(num) ? value : num.toLocaleString('ko-KR');
-      
+        const num = parseFloat(stringValue);
+        return isNaN(num) ? stringValue : num.toLocaleString('ko-KR');
+
       case 'currency':
-        const currency = parseFloat(value);
-        return isNaN(currency) ? value : currency.toLocaleString('ko-KR') + '원';
-      
+        const currencyNum = parseFloat(stringValue);
+        return isNaN(currencyNum) ? stringValue : `${currencyNum.toLocaleString('ko-KR')}원`;
+
       case 'date':
-        const date = new Date(value);
-        return isNaN(date.getTime()) ? value : date.toLocaleDateString('ko-KR');
-      
+        try {
+          const date = new Date(stringValue);
+          return isNaN(date.getTime()) ? stringValue : date.toLocaleDateString('ko-KR');
+        } catch {
+          return stringValue;
+        }
+
       case 'text':
       default:
-        return value;
+        return stringValue;
     }
   }
 
@@ -222,6 +243,63 @@ export class ClientPersonalizationService {
       isValid: errors.length === 0,
       errors
     };
+  }
+
+  /**
+   * 쿼리 테스트 (미리보기용)
+   */
+  async testQuery(query: string, sampleData: Record<string, any>): Promise<{ success: boolean; result?: any; error?: string }> {
+    try {
+      // 샘플 데이터로 플레이스홀더 치환
+      let processedQuery = query;
+      const placeholderRegex = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+      processedQuery = processedQuery.replace(placeholderRegex, (match, fieldName) => {
+        const value = sampleData[fieldName];
+        if (value !== undefined) {
+          if (typeof value === 'string') {
+            return `'${value.replace(/'/g, "''")}'`;
+          }
+          return String(value);
+        }
+        return match;
+      });
+
+      const response = await fetch('/api/mysql/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: processedQuery,
+          limit: 1
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`쿼리 실행 실패: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.data && result.data.length > 0) {
+        const row = result.data[0];
+        const firstKey = Object.keys(row)[0];
+        return {
+          success: true,
+          result: row[firstKey]
+        };
+      }
+      
+      return {
+        success: true,
+        result: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '알 수 없는 오류'
+      };
+    }
   }
 }
 
