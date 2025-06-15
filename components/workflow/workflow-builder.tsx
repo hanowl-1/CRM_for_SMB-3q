@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings } from '@/lib/types/workflow';
+import { useState, useCallback } from 'react';
+import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
 import { VariableSettings } from '@/components/workflow/variable-settings';
-import { TriggerSettings } from './trigger-settings';
+import { VariableMapping } from '@/components/workflow/variable-mapping';
 import { TargetSelection } from './target-selection';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,20 +43,19 @@ interface WorkflowBuilderProps {
   onTest?: (workflow: Workflow) => void;
 }
 
+// KakaoTemplate을 VariableMapping에서 사용하는 형태로 변환하는 헬퍼 함수
+const convertToVariableMappingTemplate = (template: KakaoTemplate) => ({
+  id: template.id,
+  name: template.templateName,
+  content: template.templateContent,
+  category: template.category || '기타',
+  variables: template.variables || []
+});
+
 export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderProps) {
   const [activeTab, setActiveTab] = useState('basic');
   const [name, setName] = useState(workflow?.name || '');
   const [description, setDescription] = useState(workflow?.description || '');
-  const [trigger, setTrigger] = useState<WorkflowTrigger>(
-    workflow?.trigger || {
-      id: '1',
-      type: 'signup',
-      name: '회원가입',
-      description: '새로운 회원이 가입했을 때',
-      conditions: [],
-      conditionLogic: 'AND'
-    }
-  );
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>(workflow?.targetGroups || []);
   const [selectedTemplates, setSelectedTemplates] = useState<KakaoTemplate[]>([]);
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({
@@ -80,16 +79,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   const [currentStepIndex, setCurrentStepIndex] = useState<number | null>(null);
   const [currentTemplate, setCurrentTemplate] = useState<KakaoTemplate | null>(null);
 
-  const triggerOptions = [
-    { value: 'signup', label: '회원가입', description: '새로운 회원이 가입했을 때' },
-    { value: 'cancel', label: '구독 취소', description: '구독이 취소되었을 때' },
-    { value: 'payment_failed', label: '결제 실패', description: '결제가 실패했을 때' },
-    { value: 'renewal', label: '구독 갱신', description: '구독이 갱신되었을 때' },
-    { value: 'manual', label: '수동 실행', description: '관리자가 수동으로 실행' },
-    { value: 'cart_abandon', label: '장바구니 미완료', description: '장바구니에 상품을 담고 일정 시간이 지났을 때' },
-    { value: 'birthday', label: '생일', description: '고객의 생일일 때' },
-    { value: 'purchase', label: '구매 완료', description: '고객이 구매를 완료했을 때' },
-  ];
+  // 새로운 상태: 템플릿별 개인화 설정
+  const [templatePersonalizations, setTemplatePersonalizations] = useState<Record<string, PersonalizationSettings>>({});
 
   // 탭 완료 상태 체크
   const isTabComplete = (tabId: string) => {
@@ -98,10 +89,10 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         return name.trim() !== '' && description.trim() !== '';
       case 'templates':
         return selectedTemplates.length > 0;
-      case 'schedule':
-        return true; // 스케줄은 기본값이 있으므로 항상 완료
       case 'targets':
         return targetGroups.length > 0;
+      case 'schedule':
+        return true; // 스케줄은 기본값이 있으므로 항상 완료
       case 'test':
         return testSettings.testPhoneNumber.trim() !== '';
       default:
@@ -118,6 +109,10 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   const removeTemplate = (templateId: string) => {
     setSelectedTemplates(selectedTemplates.filter(t => t.id !== templateId));
+    // 해당 템플릿의 개인화 설정도 제거
+    const newPersonalizations = { ...templatePersonalizations };
+    delete newPersonalizations[templateId];
+    setTemplatePersonalizations(newPersonalizations);
   };
 
   const handleVariablesChange = (variables: Record<string, string>) => {
@@ -139,8 +134,16 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     setShowVariableSettings(true);
   };
 
+  // 새로운 함수: 개인화 설정 변경 핸들러를 useCallback으로 메모이제이션
+  const handlePersonalizationChange = useCallback((templateId: string, settings: PersonalizationSettings) => {
+    setTemplatePersonalizations(prev => ({
+      ...prev,
+      [templateId]: settings
+    }));
+  }, []);
+
   const handleSave = () => {
-    // 선택된 템플릿들을 워크플로우 단계로 변환
+    // 선택된 템플릿들을 워크플로우 단계로 변환 (개인화 설정 포함)
     const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
       id: `step_${template.id}_${Date.now()}`,
       name: `${template.templateName} 발송`,
@@ -149,17 +152,28 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         type: 'send_alimtalk',
         templateId: template.id,
         variables: {},
-        scheduleSettings: scheduleSettings
+        scheduleSettings: scheduleSettings,
+        personalization: templatePersonalizations[template.id] // 개인화 설정 추가
       },
       position: { x: 100, y: index * 150 + 100 }
     }));
+
+    // 기본 트리거 설정 (수동 실행)
+    const defaultTrigger: WorkflowTrigger = {
+      id: 'trigger_manual',
+      type: 'manual',
+      name: '수동 실행',
+      description: '관리자가 수동으로 실행하는 워크플로우',
+      conditions: [],
+      conditionLogic: 'AND'
+    };
 
     const workflowData: Workflow = {
       id: workflow?.id || `workflow_${Date.now()}`,
       name,
       description,
       status: 'draft',
-      trigger,
+      trigger: defaultTrigger,
       targetGroups,
       steps: templateSteps,
       testSettings,
@@ -184,17 +198,27 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           type: 'send_alimtalk',
           templateId: template.id,
           variables: {},
-          scheduleSettings: scheduleSettings
+          scheduleSettings: scheduleSettings,
+          personalization: templatePersonalizations[template.id] // 개인화 설정 추가
         },
         position: { x: 100, y: index * 150 + 100 }
       }));
+
+      const defaultTrigger: WorkflowTrigger = {
+        id: 'trigger_manual',
+        type: 'manual',
+        name: '수동 실행',
+        description: '관리자가 수동으로 실행하는 워크플로우',
+        conditions: [],
+        conditionLogic: 'AND'
+      };
 
       const workflowData: Workflow = {
         id: workflow?.id || `workflow_${Date.now()}`,
         name,
         description,
         status: 'draft',
-        trigger,
+        trigger: defaultTrigger,
         targetGroups,
         steps: templateSteps,
         testSettings,
@@ -215,7 +239,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   };
 
   const getNextTab = (currentTab: string) => {
-    const tabs = ['basic', 'templates', 'schedule', 'targets', 'test'];
+    const tabs = ['basic', 'templates', 'targets', 'schedule', 'test'];
     const currentIndex = tabs.indexOf(currentTab);
     return currentIndex < tabs.length - 1 ? tabs[currentIndex + 1] : null;
   };
@@ -234,15 +258,15 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             알림톡 선택
             {isTabComplete('templates') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
-          <TabsTrigger value="schedule" className="flex items-center gap-2">
-            <Calendar className="w-4 h-4" />
-            스케줄러
-            {isTabComplete('schedule') && <CheckCircle className="w-3 h-3 text-green-600" />}
-          </TabsTrigger>
           <TabsTrigger value="targets" className="flex items-center gap-2">
             <Users className="w-4 h-4" />
             대상 선정
             {isTabComplete('targets') && <CheckCircle className="w-3 h-3 text-green-600" />}
+          </TabsTrigger>
+          <TabsTrigger value="schedule" className="flex items-center gap-2">
+            <Calendar className="w-4 h-4" />
+            스케줄러
+            {isTabComplete('schedule') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
           <TabsTrigger value="test" className="flex items-center gap-2">
             <TestTube className="w-4 h-4" />
@@ -256,6 +280,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           <Card>
             <CardHeader>
               <CardTitle>워크플로우 기본 정보</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                워크플로우의 이름과 목적을 설정하세요
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -274,19 +301,6 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="이 워크플로우가 무엇을 하는지 설명해주세요"
                   rows={3}
-                />
-              </div>
-
-              {/* 트리거 설정 */}
-              <div>
-                <label className="text-sm font-medium mb-2 block">트리거 설정</label>
-                <TriggerSettings
-                  trigger={trigger}
-                  onTriggerChange={(newTrigger: WorkflowTrigger) => {
-                    console.log('WorkflowBuilder에서 트리거 변경됨:', newTrigger);
-                    setTrigger(newTrigger);
-                  }}
-                  options={triggerOptions}
                 />
               </div>
             </CardContent>
@@ -332,46 +346,68 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {selectedTemplates.map((template, index) => (
-                    <div key={template.id} className="flex items-start gap-4 p-4 border rounded-lg">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
-                          {index + 1}
-                        </div>
-                      </div>
-                      
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h4 className="font-medium">{template.templateName}</h4>
-                          <Badge variant="outline">{template.templateCode}</Badge>
-                          <Badge variant="secondary">{template.category}</Badge>
+                    <div key={template.id} className="border rounded-lg p-6 space-y-4">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-shrink-0">
+                          <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                            {index + 1}
+                          </div>
                         </div>
                         
-                        <p className="text-sm text-muted-foreground mb-3">
-                          {template.templateContent.substring(0, 100)}...
-                        </p>
-                        
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openVariableSettings(template)}
-                          >
-                            <Zap className="w-4 h-4 mr-1" />
-                            변수 설정
-                          </Button>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium text-lg">{template.templateName}</h4>
+                            <Badge variant="outline">{template.templateCode}</Badge>
+                            <Badge variant="secondary">{template.category}</Badge>
+                          </div>
+                          
+                          <p className="text-sm text-muted-foreground mb-3">
+                            {template.templateContent.substring(0, 100)}...
+                          </p>
+                          
+                          {/* 템플릿 변수 표시 */}
+                          {template.variables && template.variables.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-sm font-medium text-muted-foreground mb-2">템플릿 변수:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {template.variables.map(variable => (
+                                  <Badge key={variable} variant="outline" className="text-xs font-mono">
+                                    {variable}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 개인화 설정 상태 표시 */}
+                          {templatePersonalizations[template.id]?.enabled && (
+                            <div className="mb-3">
+                              <Badge variant="secondary" className="text-xs">
+                                개인화 활성화 ({templatePersonalizations[template.id].variableMappings.length}개 변수 매핑됨)
+                              </Badge>
+                            </div>
+                          )}
                         </div>
+                        
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeTemplate(template.id)}
+                          title="템플릿 제거"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
-                      
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeTemplate(template.id)}
-                        title="템플릿 제거"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+
+                      {/* 변수 매핑 컴포넌트 */}
+                      <div className="border-t pt-4">
+                        <VariableMapping
+                          selectedTemplate={convertToVariableMappingTemplate(template)}
+                          onMappingChange={(settings) => handlePersonalizationChange(template.id, settings)}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -384,8 +420,29 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               이전: 기본정보
             </Button>
             <Button 
-              onClick={() => canProceedToNext('templates') && setActiveTab('schedule')}
+              onClick={() => canProceedToNext('templates') && setActiveTab('targets')}
               disabled={!canProceedToNext('templates')}
+            >
+              다음: 대상 선정
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* 대상 선정 탭 */}
+        <TabsContent value="targets" className="space-y-6">
+          <TargetSelection
+            onTargetsChange={setTargetGroups}
+            currentTargets={targetGroups}
+          />
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setActiveTab('templates')}>
+              이전: 알림톡 선택
+            </Button>
+            <Button 
+              onClick={() => canProceedToNext('targets') && setActiveTab('schedule')}
+              disabled={!canProceedToNext('targets')}
             >
               다음: 스케줄러 설정
               <ArrowRight className="w-4 h-4 ml-2" />
@@ -418,7 +475,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                       }`} />
                       <div>
                         <h4 className="font-medium">즉시 발송</h4>
-                        <p className="text-sm text-muted-foreground">트리거 조건이 만족되면 즉시 발송</p>
+                        <p className="text-sm text-muted-foreground">워크플로우 실행 시 즉시 발송</p>
                       </div>
                     </div>
                   </div>
@@ -614,31 +671,10 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           </Card>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setActiveTab('templates')}>
-              이전: 알림톡 선택
+            <Button variant="outline" onClick={() => setActiveTab('targets')}>
+              이전: 대상 선정
             </Button>
-            <Button onClick={() => setActiveTab('targets')}>
-              다음: 대상 선정
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </div>
-        </TabsContent>
-
-        {/* 대상 선정 탭 */}
-        <TabsContent value="targets" className="space-y-6">
-          <TargetSelection
-            onTargetsChange={setTargetGroups}
-            currentTargets={targetGroups}
-          />
-
-          <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setActiveTab('schedule')}>
-              이전: 스케줄러 설정
-            </Button>
-            <Button 
-              onClick={() => canProceedToNext('targets') && setActiveTab('test')}
-              disabled={!canProceedToNext('targets')}
-            >
+            <Button onClick={() => setActiveTab('test')}>
               다음: 테스트 설정
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -707,8 +743,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           </Card>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setActiveTab('targets')}>
-              이전: 대상 선정
+            <Button variant="outline" onClick={() => setActiveTab('schedule')}>
+              이전: 스케줄러 설정
             </Button>
             <div className="flex gap-3">
               {onTest && (

@@ -23,10 +23,23 @@ export interface FilterCondition {
 export interface TargetGroup {
   id: string;
   name: string;
-  table: string;
-  conditions: FilterCondition[];
-  estimatedCount: number;
+  type: 'static' | 'dynamic'; // 정적 vs 동적 대상 선정
+  
+  // 정적 대상 선정 (기존 방식)
+  table?: string;
+  conditions?: FilterCondition[];
   selectedRecords?: any[];
+  
+  // 동적 대상 선정 (새로운 방식)
+  dynamicQuery?: {
+    sql: string; // 실행할 SQL 쿼리
+    description: string; // 쿼리 설명
+    expectedFields: string[]; // 예상 결과 필드 (contact, name 등)
+    lastExecuted?: string; // 마지막 실행 시간
+    lastCount?: number; // 마지막 실행 시 대상자 수
+  };
+  
+  estimatedCount: number;
 }
 
 // 스케줄러 설정 인터페이스
@@ -44,6 +57,22 @@ export interface ScheduleSettings {
   timezone?: string;
 }
 
+// 템플릿 변수 매핑 설정
+export interface VariableMapping {
+  templateVariable: string; // 템플릿에서 사용되는 변수명 (예: #total_reviews)
+  sourceField: string; // 데이터베이스 필드명 또는 계산식
+  sourceType: 'field' | 'query' | 'function'; // 데이터 소스 타입
+  defaultValue?: string; // 기본값
+  formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
+}
+
+// 개인화 설정
+export interface PersonalizationSettings {
+  enabled: boolean;
+  variableMappings: VariableMapping[];
+  fallbackBehavior: 'use_default' | 'skip_send' | 'send_without_variables';
+}
+
 export interface WorkflowAction {
   id: string;
   type: 'send_alimtalk' | 'send_sms' | 'wait' | 'condition';
@@ -52,6 +81,7 @@ export interface WorkflowAction {
   conditions?: WorkflowCondition[];
   variables?: Record<string, string>; // 사용자 정의 변수
   scheduleSettings?: ScheduleSettings; // 스케줄 설정
+  personalization?: PersonalizationSettings; // 개인화 설정 추가
 }
 
 export interface WorkflowStep {
@@ -109,4 +139,9 @@ export interface WorkflowLog {
   message: string;
   timestamp: string;
   data?: any;
+}
+
+export interface PersonalizationTarget {
+  contact: string;
+  data: Record<string, any>;
 } 

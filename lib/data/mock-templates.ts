@@ -46,7 +46,7 @@ export const mockTemplates: KakaoTemplate[] = Object.values(KakaoAlimtalkTemplat
 
   return {
     id: template.templateId,
-    templateCode: `${template.servicePlatform}_${template.templateNumber.toString().padStart(3, '0')}`,
+    templateCode: `${template.servicePlatform || 'UNKNOWN'}_${template.templateNumber.toString().padStart(3, '0')}`,
     templateName: template.templateName,
     templateContent: template.content,
     templateTitle: template.templateTitle,
@@ -62,7 +62,7 @@ export const mockTemplates: KakaoTemplate[] = Object.values(KakaoAlimtalkTemplat
     channelKey: template.channel,
     variables: template.templateParams.map(param => param.replace(/#{|}/g, '')),
     buttons: generateButtons(template.templateName, template.channel),
-    servicePlatform: template.servicePlatform,
+    servicePlatform: template.servicePlatform || undefined,
     templateNumber: template.templateNumber
   };
 });

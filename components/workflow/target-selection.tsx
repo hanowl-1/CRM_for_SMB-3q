@@ -1,24 +1,25 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { TargetGroup, FilterCondition } from '@/lib/types/workflow';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { 
+  Plus, 
+  Trash2, 
   Users, 
-  Search, 
-  Filter,
-  Target,
-  Building,
-  FileText,
+  Database, 
+  Code, 
+  Play, 
   CheckCircle,
-  AlertTriangle,
-  Download,
-  Upload
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 
 interface TargetSelectionProps {
@@ -26,336 +27,535 @@ interface TargetSelectionProps {
   currentTargets: TargetGroup[];
 }
 
-interface TargetGroup {
-  id: string;
-  name: string;
-  table: string;
-  conditions: FilterCondition[];
-  estimatedCount: number;
-  selectedRecords?: any[];
-}
-
-interface FilterCondition {
-  field: string;
-  operator: 'equals' | 'contains' | 'greater_than' | 'less_than' | 'in_list';
-  value: string;
-}
-
 export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelectionProps) {
-  const [selectedTable, setSelectedTable] = useState<string>('');
-  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
-  const [estimatedCount, setEstimatedCount] = useState<number>(0);
-  const [previewData, setPreviewData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [targets, setTargets] = useState<TargetGroup[]>(currentTargets);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState<'static' | 'dynamic'>('static');
+  
+  // 정적 대상 선정 상태
+  const [staticName, setStaticName] = useState('');
+  const [staticTable, setStaticTable] = useState('');
+  const [staticConditions, setStaticConditions] = useState<FilterCondition[]>([]);
+  
+  // 동적 대상 선정 상태
+  const [dynamicName, setDynamicName] = useState('');
+  const [dynamicDescription, setDynamicDescription] = useState('');
+  const [dynamicSql, setDynamicSql] = useState('');
+  const [dynamicFields, setDynamicFields] = useState('contact, name, id');
+  const [queryTestResult, setQueryTestResult] = useState<any>(null);
+  const [isTestingQuery, setIsTestingQuery] = useState(false);
 
-  const tables = [
-    { value: 'Companies', label: '회사 정보', icon: Building, description: '등록된 회사들' },
-    { value: 'MarketingLead', label: '마케팅 리드', icon: Target, description: '잠재 고객들' },
-    { value: 'Ads', label: '광고 정보', icon: FileText, description: '광고 등록 업체들' },
-    { value: 'Contracts', label: '계약 정보', icon: Users, description: '계약 체결 고객들' },
-    { value: 'Channels', label: '구독 채널 관리', icon: Users, description: '구독 중인 인플루언서 채널들' }
-  ];
+  const [availableTables, setAvailableTables] = useState<string[]>([]);
 
-  const filterFields = {
-    Companies: [
-      { field: 'name', label: '회사명', type: 'text' },
-      { field: 'email', label: '이메일', type: 'text' },
-      { field: 'contacts', label: '연락처', type: 'text' },
-      { field: 'route', label: '유입경로', type: 'select', options: ['BI', 'AA', 'Z'] },
-      { field: 'agree_to_mail', label: '메일수신동의', type: 'boolean' },
-      { field: 'createdAt', label: '가입일', type: 'date' }
-    ],
-    MarketingLead: [
-      { field: 'companyName', label: '회사명', type: 'text' },
-      { field: 'contact', label: '연락처', type: 'text' },
-      { field: 'adCategory', label: '광고카테고리', type: 'text' },
-      { field: 'assignee', label: '담당자', type: 'text' },
-      { field: 'agreeToMarketing', label: '마케팅동의', type: 'boolean' },
-      { field: 'callTemperature', label: '콜온도', type: 'number' }
-    ],
-    Ads: [
-      { field: 'name', label: '광고명', type: 'text' },
-      { field: 'companyName', label: '회사명', type: 'text' },
-      { field: 'category', label: '카테고리', type: 'text' },
-      { field: 'step', label: '진행단계', type: 'number' },
-      { field: 'verified', label: '인증여부', type: 'boolean' }
-    ],
-    Channels: [
-      { field: 'name', label: '채널명', type: 'text' },
-      { field: 'description', label: '채널설명', type: 'text' },
-      { field: 'platform', label: '플랫폼', type: 'text' },
-      { field: 'available', label: '구독상태', type: 'select', options: ['0', '1', '2'] },
-      { field: 'followers', label: '팔로워수', type: 'number' },
-      { field: 'engagement', label: '참여율', type: 'number' },
-      { field: 'location', label: '활동지역', type: 'text' },
-      { field: 'price', label: '제공금액', type: 'number' }
-    ]
-  };
+  useEffect(() => {
+    // 사용 가능한 테이블 목록 로드
+    fetchAvailableTables();
+  }, []);
 
-  const addFilterCondition = () => {
-    setFilterConditions([
-      ...filterConditions,
-      { field: '', operator: 'equals', value: '' }
-    ]);
-  };
+  useEffect(() => {
+    onTargetsChange(targets);
+  }, [targets, onTargetsChange]);
 
-  const updateFilterCondition = (index: number, updates: Partial<FilterCondition>) => {
-    const newConditions = [...filterConditions];
-    newConditions[index] = { ...newConditions[index], ...updates };
-    setFilterConditions(newConditions);
-  };
-
-  const removeFilterCondition = (index: number) => {
-    setFilterConditions(filterConditions.filter((_, i) => i !== index));
-  };
-
-  const previewTargets = async () => {
-    if (!selectedTable) return;
-
-    setLoading(true);
+  const fetchAvailableTables = async () => {
     try {
-      // API 호출로 필터 조건에 맞는 대상 미리보기
+      const response = await fetch('/api/mysql/table-mappings');
+      if (response.ok) {
+        const data = await response.json();
+        // mappings는 객체이므로 Object.values()를 사용하여 배열로 변환
+        if (data.mappings && typeof data.mappings === 'object') {
+          const tableNames = Object.values(data.mappings).map((mapping: any) => mapping.tableName);
+          setAvailableTables(tableNames);
+        } else {
+          console.warn('테이블 매핑 데이터가 객체가 아닙니다:', data);
+          setAvailableTables([]);
+        }
+      }
+    } catch (error) {
+      console.error('테이블 목록 로드 실패:', error);
+      setAvailableTables([]);
+    }
+  };
+
+  const testDynamicQuery = async () => {
+    if (!dynamicSql.trim()) return;
+    
+    setIsTestingQuery(true);
+    try {
       const response = await fetch('/api/mysql/targets/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          table: selectedTable,
-          conditions: filterConditions
+          type: 'custom_query',
+          query: dynamicSql,
+          limit: 5
         })
       });
-
-      const data = await response.json();
-      if (data.success) {
-        setEstimatedCount(data.count);
-        setPreviewData(data.preview);
+      
+      if (response.ok) {
+        const result = await response.json();
+        setQueryTestResult(result);
+      } else {
+        const error = await response.json();
+        setQueryTestResult({ 
+          success: false, 
+          error: error.message || '쿼리 실행 실패' 
+        });
       }
     } catch (error) {
-      console.error('대상 미리보기 오류:', error);
+      setQueryTestResult({ 
+        success: false, 
+        error: '네트워크 오류가 발생했습니다.' 
+      });
     } finally {
-      setLoading(false);
+      setIsTestingQuery(false);
     }
   };
 
-  const saveTargetGroup = () => {
-    if (!selectedTable || filterConditions.length === 0) return;
+  const addStaticTarget = () => {
+    if (!staticName.trim() || !staticTable) return;
 
-    const newTargetGroup: TargetGroup = {
-      id: Date.now().toString(),
-      name: `${tables.find(t => t.value === selectedTable)?.label} 그룹`,
-      table: selectedTable,
-      conditions: filterConditions,
-      estimatedCount
+    const newTarget: TargetGroup = {
+      id: `target_${Date.now()}`,
+      name: staticName,
+      type: 'static',
+      table: staticTable,
+      conditions: staticConditions,
+      estimatedCount: 0
     };
 
-    onTargetsChange([...currentTargets, newTargetGroup]);
-    
-    // 초기화
-    setSelectedTable('');
-    setFilterConditions([]);
-    setEstimatedCount(0);
-    setPreviewData([]);
+    setTargets([...targets, newTarget]);
+    resetStaticForm();
+    setShowAddDialog(false);
   };
+
+  const addDynamicTarget = () => {
+    if (!dynamicName.trim() || !dynamicSql.trim()) return;
+
+    const newTarget: TargetGroup = {
+      id: `target_${Date.now()}`,
+      name: dynamicName,
+      type: 'dynamic',
+      dynamicQuery: {
+        sql: dynamicSql,
+        description: dynamicDescription,
+        expectedFields: dynamicFields.split(',').map(f => f.trim()),
+        lastExecuted: undefined,
+        lastCount: queryTestResult?.totalCount || 0
+      },
+      estimatedCount: queryTestResult?.totalCount || 0
+    };
+
+    setTargets([...targets, newTarget]);
+    resetDynamicForm();
+    setShowAddDialog(false);
+  };
+
+  const resetStaticForm = () => {
+    setStaticName('');
+    setStaticTable('');
+    setStaticConditions([]);
+  };
+
+  const resetDynamicForm = () => {
+    setDynamicName('');
+    setDynamicDescription('');
+    setDynamicSql('');
+    setDynamicFields('contact, name, id');
+    setQueryTestResult(null);
+  };
+
+  const removeTarget = (targetId: string) => {
+    setTargets(targets.filter(t => t.id !== targetId));
+  };
+
+  const addStaticCondition = () => {
+    const newCondition: FilterCondition = {
+      field: '',
+      operator: 'equals',
+      value: ''
+    };
+    setStaticConditions([...staticConditions, newCondition]);
+  };
+
+  const updateStaticCondition = (index: number, updates: Partial<FilterCondition>) => {
+    const updatedConditions = staticConditions.map((condition, i) =>
+      i === index ? { ...condition, ...updates } : condition
+    );
+    setStaticConditions(updatedConditions);
+  };
+
+  const removeStaticCondition = (index: number) => {
+    setStaticConditions(staticConditions.filter((_, i) => i !== index));
+  };
+
+  // 예시 쿼리 템플릿
+  const queryTemplates = [
+    {
+      name: "월간 리포트 대상자",
+      description: "광고 시작일이 오늘인 고객",
+      sql: `SELECT 
+  ad.id as adId,
+  cp.contacts as contact,
+  cp.name as companyName,
+  COUNT(ct.id) as contractCount
+FROM Ads ad
+JOIN Companies cp ON cp.id = ad.companyId 
+  AND cp.contacts IS NOT NULL
+JOIN Ads_Payment ap ON ap.adId = ad.id
+JOIN Contracts ct ON ad.id = ct.company 
+  AND ct.currentState >= 1
+WHERE ap.adsStart = DATE(NOW())
+GROUP BY ad.id, cp.contacts, cp.name`
+    },
+    {
+      name: "VIP 고객",
+      description: "계약 수 10개 이상인 고객",
+      sql: `SELECT 
+  cp.contacts as contact,
+  cp.name as companyName,
+  COUNT(ct.id) as contractCount
+FROM Companies cp
+JOIN Ads ad ON ad.companyId = cp.id
+JOIN Contracts ct ON ct.company = ad.id
+WHERE cp.contacts IS NOT NULL
+  AND ct.currentState >= 1
+GROUP BY cp.id, cp.contacts, cp.name
+HAVING COUNT(ct.id) >= 10`
+    },
+    {
+      name: "신규 가입 고객",
+      description: "최근 7일 내 가입한 고객",
+      sql: `SELECT 
+  contacts as contact,
+  name as companyName,
+  createdAt
+FROM Companies 
+WHERE contacts IS NOT NULL
+  AND createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
+    }
+  ];
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5" />
-            발송 대상 선정
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                발송 대상 선정
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                알림톡을 받을 대상자를 설정하세요
+              </p>
+            </div>
+            <Button onClick={() => setShowAddDialog(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              대상 그룹 추가
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="filter" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="filter">조건 필터</TabsTrigger>
-              <TabsTrigger value="upload">파일 업로드</TabsTrigger>
-              <TabsTrigger value="manual">수동 선택</TabsTrigger>
+          {targets.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg font-medium mb-2">설정된 대상 그룹이 없습니다</p>
+              <p className="text-sm mb-4">알림톡을 받을 대상자 그룹을 추가해주세요</p>
+              <Button onClick={() => setShowAddDialog(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                첫 번째 대상 그룹 추가
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {targets.map((target) => (
+                <div key={target.id} className="flex items-start gap-4 p-4 border rounded-lg">
+                  <div className="flex-shrink-0">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      target.type === 'dynamic' 
+                        ? 'bg-purple-100 text-purple-600' 
+                        : 'bg-blue-100 text-blue-600'
+                    }`}>
+                      {target.type === 'dynamic' ? <Code className="w-4 h-4" /> : <Database className="w-4 h-4" />}
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="font-medium">{target.name}</h4>
+                      <Badge variant={target.type === 'dynamic' ? 'default' : 'secondary'}>
+                        {target.type === 'dynamic' ? '동적 쿼리' : '정적 조건'}
+                      </Badge>
+                      <Badge variant="outline">
+                        약 {target.estimatedCount.toLocaleString()}명
+                      </Badge>
+                    </div>
+                    
+                    {target.type === 'static' ? (
+                      <div className="text-sm text-muted-foreground">
+                        <p>테이블: {target.table}</p>
+                        <p>조건: {target.conditions?.length || 0}개</p>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        <p>{target.dynamicQuery?.description}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Clock className="w-3 h-3" />
+                          <span>
+                            {target.dynamicQuery?.lastExecuted 
+                              ? `마지막 실행: ${new Date(target.dynamicQuery.lastExecuted).toLocaleString()}`
+                              : '아직 실행되지 않음'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTarget(target.id)}
+                    title="대상 그룹 제거"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 대상 그룹 추가 다이얼로그 */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>대상 그룹 추가</DialogTitle>
+          </DialogHeader>
+          
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'static' | 'dynamic')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="static" className="flex items-center gap-2">
+                <Database className="w-4 h-4" />
+                정적 조건
+              </TabsTrigger>
+              <TabsTrigger value="dynamic" className="flex items-center gap-2">
+                <Code className="w-4 h-4" />
+                동적 쿼리
+              </TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="filter" className="space-y-4">
-              {/* 테이블 선택 */}
-              <div className="space-y-2">
-                <Label>대상 테이블</Label>
-                <Select value={selectedTable} onValueChange={setSelectedTable}>
+
+            {/* 정적 조건 탭 */}
+            <TabsContent value="static" className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">그룹 이름 *</label>
+                <Input
+                  value={staticName}
+                  onChange={(e) => setStaticName(e.target.value)}
+                  placeholder="예: VIP 고객"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">테이블 선택 *</label>
+                <Select value={staticTable} onValueChange={setStaticTable}>
                   <SelectTrigger>
                     <SelectValue placeholder="테이블을 선택하세요" />
                   </SelectTrigger>
                   <SelectContent>
-                    {tables.map((table) => {
-                      const Icon = table.icon;
-                      return (
-                        <SelectItem key={table.value} value={table.value}>
-                          <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4" />
-                            <div>
-                              <div className="font-medium">{table.label}</div>
-                              <div className="text-xs text-muted-foreground">{table.description}</div>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      );
-                    })}
+                    {availableTables.map(table => (
+                      <SelectItem key={table} value={table}>{table}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* 필터 조건 */}
-              {selectedTable && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>필터 조건</Label>
-                    <Button onClick={addFilterCondition} variant="outline" size="sm">
-                      <Filter className="h-4 w-4 mr-2" />
-                      조건 추가
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">필터 조건</label>
+                  <Button variant="outline" size="sm" onClick={addStaticCondition}>
+                    <Plus className="w-4 h-4 mr-1" />
+                    조건 추가
+                  </Button>
+                </div>
+                
+                {staticConditions.map((condition, index) => (
+                  <div key={index} className="flex items-center gap-2 p-3 border rounded-lg mb-2">
+                    <Input
+                      placeholder="필드명"
+                      value={condition.field}
+                      onChange={(e) => updateStaticCondition(index, { field: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Select
+                      value={condition.operator}
+                      onValueChange={(value) => updateStaticCondition(index, { operator: value as any })}
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">같음</SelectItem>
+                        <SelectItem value="contains">포함</SelectItem>
+                        <SelectItem value="greater_than">초과</SelectItem>
+                        <SelectItem value="less_than">미만</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="값"
+                      value={condition.value}
+                      onChange={(e) => updateStaticCondition(index, { value: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeStaticCondition(index)}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
+                ))}
+              </div>
 
-                  {filterConditions.map((condition, index) => (
-                    <div key={index} className="flex items-center gap-2 p-3 border rounded-lg">
-                      <Select 
-                        value={condition.field} 
-                        onValueChange={(value) => updateFilterCondition(index, { field: value })}
-                      >
-                        <SelectTrigger className="w-40">
-                          <SelectValue placeholder="필드 선택" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {filterFields[selectedTable as keyof typeof filterFields]?.map((field) => (
-                            <SelectItem key={field.field} value={field.field}>
-                              {field.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+                  취소
+                </Button>
+                <Button onClick={addStaticTarget} disabled={!staticName.trim() || !staticTable}>
+                  추가
+                </Button>
+              </div>
+            </TabsContent>
 
-                      <Select 
-                        value={condition.operator} 
-                        onValueChange={(value) => updateFilterCondition(index, { operator: value as any })}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="equals">같음</SelectItem>
-                          <SelectItem value="contains">포함</SelectItem>
-                          <SelectItem value="greater_than">초과</SelectItem>
-                          <SelectItem value="less_than">미만</SelectItem>
-                        </SelectContent>
-                      </Select>
+            {/* 동적 쿼리 탭 */}
+            <TabsContent value="dynamic" className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">그룹 이름 *</label>
+                <Input
+                  value={dynamicName}
+                  onChange={(e) => setDynamicName(e.target.value)}
+                  placeholder="예: 월간 리포트 대상자"
+                />
+              </div>
 
-                      <Input
-                        placeholder="값 입력"
-                        value={condition.value}
-                        onChange={(e) => updateFilterCondition(index, { value: e.target.value })}
-                        className="flex-1"
-                      />
+              <div>
+                <label className="text-sm font-medium mb-2 block">설명</label>
+                <Input
+                  value={dynamicDescription}
+                  onChange={(e) => setDynamicDescription(e.target.value)}
+                  placeholder="이 쿼리가 어떤 대상자를 선택하는지 설명"
+                />
+              </div>
 
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => removeFilterCondition(index)}
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  ))}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">SQL 쿼리 *</label>
+                  <div className="flex gap-2">
+                    <Select onValueChange={(value) => {
+                      const template = queryTemplates.find(t => t.name === value);
+                      if (template) {
+                        setDynamicSql(template.sql);
+                        setDynamicDescription(template.description);
+                      }
+                    }}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="템플릿 선택" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {queryTemplates.map(template => (
+                          <SelectItem key={template.name} value={template.name}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button 
+                      variant="outline" 
+                      onClick={testDynamicQuery}
+                      disabled={!dynamicSql.trim() || isTestingQuery}
+                    >
+                      <Play className="w-4 h-4 mr-1" />
+                      {isTestingQuery ? '테스트 중...' : '쿼리 테스트'}
+                    </Button>
+                  </div>
+                </div>
+                <Textarea
+                  value={dynamicSql}
+                  onChange={(e) => setDynamicSql(e.target.value)}
+                  placeholder="SELECT contact, name FROM Companies WHERE ..."
+                  rows={8}
+                  className="font-mono text-sm"
+                />
+              </div>
 
-                  {filterConditions.length > 0 && (
-                    <div className="flex gap-2">
-                      <Button onClick={previewTargets} disabled={loading}>
-                        <Search className="h-4 w-4 mr-2" />
-                        {loading ? '조회 중...' : '미리보기'}
-                      </Button>
-                      
-                      {estimatedCount > 0 && (
-                        <Button onClick={saveTargetGroup} variant="default">
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          그룹 저장 ({estimatedCount}명)
-                        </Button>
+              <div>
+                <label className="text-sm font-medium mb-2 block">예상 결과 필드</label>
+                <Input
+                  value={dynamicFields}
+                  onChange={(e) => setDynamicFields(e.target.value)}
+                  placeholder="contact, name, id"
+                  className="text-sm"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  쿼리 결과에 포함될 필드명을 쉼표로 구분하여 입력 (contact 필드는 필수)
+                </p>
+              </div>
+
+              {/* 쿼리 테스트 결과 */}
+              {queryTestResult && (
+                <div className={`p-4 rounded-lg border ${
+                  queryTestResult.success 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    {queryTestResult.success ? (
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                    )}
+                    <span className="font-medium">
+                      {queryTestResult.success ? '쿼리 테스트 성공' : '쿼리 테스트 실패'}
+                    </span>
+                  </div>
+                  
+                  {queryTestResult.success ? (
+                    <div>
+                      <p className="text-sm mb-2">
+                        총 <strong>{queryTestResult.totalCount?.toLocaleString()}</strong>명의 대상자가 검색되었습니다.
+                      </p>
+                      {queryTestResult.preview && queryTestResult.preview.length > 0 && (
+                        <div className="text-xs">
+                          <p className="font-medium mb-1">미리보기 (최대 5개):</p>
+                          <pre className="bg-white p-2 rounded border text-xs overflow-x-auto">
+                            {JSON.stringify(queryTestResult.preview, null, 2)}
+                          </pre>
+                        </div>
                       )}
                     </div>
+                  ) : (
+                    <p className="text-sm text-red-600">{queryTestResult.error}</p>
                   )}
                 </div>
               )}
 
-              {/* 미리보기 결과 */}
-              {previewData.length > 0 && (
-                <div className="space-y-2">
-                  <Label>미리보기 ({estimatedCount}명)</Label>
-                  <div className="border rounded-lg p-3 max-h-40 overflow-y-auto">
-                    {previewData.map((record, index) => (
-                      <div key={index} className="text-sm py-1 border-b last:border-b-0">
-                        {record.name || record.companyName || `ID: ${record.id}`}
-                        {record.email && ` (${record.email})`}
-                        {record.contact && ` - ${record.contact}`}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="upload" className="space-y-4">
-              <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground mb-2">
-                  CSV 파일을 업로드하여 대상을 가져오세요
-                </p>
-                <Button variant="outline">
-                  파일 선택
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+                  취소
+                </Button>
+                <Button 
+                  onClick={addDynamicTarget} 
+                  disabled={!dynamicName.trim() || !dynamicSql.trim()}
+                >
+                  추가
                 </Button>
               </div>
             </TabsContent>
-            
-            <TabsContent value="manual" className="space-y-4">
-              <div className="text-center py-8">
-                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  개별 대상을 수동으로 선택할 수 있습니다
-                </p>
-              </div>
-            </TabsContent>
           </Tabs>
-        </CardContent>
-      </Card>
-
-      {/* 저장된 대상 그룹들 */}
-      {currentTargets.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">선택된 대상 그룹</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {currentTargets.map((group) => (
-                <div key={group.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <div className="font-medium">{group.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {group.table} 테이블 • {group.estimatedCount}명 • {group.conditions.length}개 조건
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{group.estimatedCount}명</Badge>
-                    <Button variant="ghost" size="sm">편집</Button>
-                    <Button variant="ghost" size="sm">삭제</Button>
-                  </div>
-                </div>
-              ))}
-              
-              <div className="pt-3 border-t">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">총 발송 대상</span>
-                  <Badge variant="default" className="text-base px-3 py-1">
-                    {currentTargets.reduce((sum, group) => sum + group.estimatedCount, 0)}명
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 
