@@ -1,0 +1,21 @@
+[
+  {
+    "variableName": "customerName",
+    "displayName": "고객명",
+    "sourceType": "field",
+    "sourceField": "name",
+    "formatter": "text",
+    "category": "personal",
+    "tags": [
+      "고객",
+      "이름"
+    ],
+    "usageCount": 0,
+    "isPublic": false,
+    "isFavorite": false,
+    "createdBy": "system",
+    "id": "var_1750074790380_000vnjqgk",
+    "createdAt": "2025-06-16T11:53:10.380Z",
+    "updatedAt": "2025-06-16T11:53:10.380Z"
+  }
+]
