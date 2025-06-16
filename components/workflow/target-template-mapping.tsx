@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ArrowRight, 
   Database, 
@@ -43,9 +43,11 @@ export function TargetTemplateMapping({
   const [isLoadingPreview, setIsLoadingPreview] = useState<Record<string, boolean>>({});
   const [mappingPreviews, setMappingPreviews] = useState<Record<string, MappingPreview[]>>({});
 
-  // 동적 쿼리가 있는 대상 그룹만 필터링
-  const dynamicTargetGroups = targetGroups.filter(group => 
-    group.type === 'dynamic' && group.dynamicQuery
+  // 동적 쿼리가 있는 대상 그룹만 필터링 (메모이제이션)
+  const dynamicTargetGroups = useMemo(() => 
+    targetGroups.filter(group => 
+      group.type === 'dynamic' && group.dynamicQuery
+    ), [targetGroups]
   );
 
   // 템플릿 변수 추출
@@ -96,12 +98,12 @@ export function TargetTemplateMapping({
     }
   }, []);
 
-  // 초기 미리보기 데이터 로드
+  // 초기 미리보기 데이터 로드 (targetGroups가 변경될 때만)
   useEffect(() => {
     dynamicTargetGroups.forEach(group => {
       loadPreviewData(group);
     });
-  }, [dynamicTargetGroups, loadPreviewData]);
+  }, [targetGroups]);
 
   // 매핑 생성/업데이트
   const updateMapping = useCallback((targetGroupId: string, templateId: string, fieldMappings: FieldMapping[]) => {
