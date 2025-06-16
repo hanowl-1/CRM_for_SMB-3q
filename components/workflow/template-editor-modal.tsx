@@ -132,27 +132,34 @@ export default function TemplateEditorModal({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validateForm()) return;
 
-    const templateData = {
-      ...formData,
-      variableMappings: mappings
-    };
+    try {
+      const templateData = {
+        ...formData,
+        variableMappings: mappings,
+        usageCount: 0 // 새 템플릿의 경우 사용 횟수는 0으로 시작
+      };
 
-    if (template) {
-      // 기존 템플릿 업데이트
-      const updated = MappingTemplateService.updateTemplate(template.id, templateData);
-      if (updated) {
-        onSave(updated);
+      if (template) {
+        // 기존 템플릿 업데이트
+        const updated = await MappingTemplateService.updateTemplate(template.id, templateData);
+        if (updated) {
+          onSave(updated);
+        }
+      } else {
+        // 새 템플릿 생성
+        const created = await MappingTemplateService.saveTemplate(templateData);
+        onSave(created);
       }
-    } else {
-      // 새 템플릿 생성
-      const created = MappingTemplateService.saveTemplate(templateData);
-      onSave(created);
-    }
 
-    onClose();
+      onClose();
+    } catch (error) {
+      console.error('템플릿 저장 실패:', error);
+      // 에러 처리 - 사용자에게 알림
+      alert('템플릿 저장에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
   if (!isOpen) return null;

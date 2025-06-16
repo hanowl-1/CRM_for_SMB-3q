@@ -4,14 +4,32 @@ import type {
   MappingSuggestion,
   MappingTemplateFilter 
 } from '@/lib/types/workflow';
+import supabaseWorkflowService from './supabase-workflow-service';
 
 export class MappingTemplateService {
   private static readonly STORAGE_KEY = 'variable_mapping_templates';
+  // TODO: Supabase 연동 시 사용할 테이블명
+  private static readonly TABLE_NAME = 'variable_mapping_templates';
 
   /**
-   * 모든 매핑 템플릿 조회
+   * 모든 매핑 템플릿 조회 (Supabase 우선, localStorage 백업)
    */
-  static getTemplates(filter?: MappingTemplateFilter): VariableMappingTemplate[] {
+  static async getTemplates(filter?: MappingTemplateFilter): Promise<VariableMappingTemplate[]> {
+    try {
+      // 1. Supabase에서 템플릿 조회 시도
+      const supabaseResult = await supabaseWorkflowService.getVariableMappingTemplates(filter);
+      
+      if (supabaseResult.success && supabaseResult.data) {
+        console.log(`📊 Supabase에서 ${supabaseResult.data.length}개 변수 매핑 템플릿 조회 성공`);
+        return supabaseResult.data;
+      }
+      
+      console.warn('⚠️ Supabase 조회 실패, localStorage 백업 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage 백업 사용:', error);
+    }
+
+    // 2. localStorage 백업 사용
     const templates = this.loadFromStorage();
     let filtered = templates;
 
@@ -41,292 +59,464 @@ export class MappingTemplateService {
       }
     }
 
-    // 정렬
-    if (filter?.sortBy) {
-      filtered.sort((a, b) => {
-        const aVal = a[filter.sortBy!];
-        const bVal = b[filter.sortBy!];
-        const order = filter.sortOrder === 'desc' ? -1 : 1;
-        
-        if (typeof aVal === 'string' && typeof bVal === 'string') {
-          return aVal.localeCompare(bVal) * order;
-        }
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return (aVal - bVal) * order;
-        }
-        return 0;
-      });
-    }
-
+    console.log(`📊 localStorage에서 ${filtered.length}개 변수 매핑 템플릿 조회`);
     return filtered;
   }
 
   /**
    * 특정 템플릿 조회
    */
-  static getTemplate(id: string): VariableMappingTemplate | null {
+  static async getTemplate(id: string): Promise<VariableMappingTemplate | null> {
+    try {
+      // 1. Supabase에서 조회 시도
+      const supabaseResult = await supabaseWorkflowService.getVariableMappingTemplate(id);
+      
+      if (supabaseResult.success && supabaseResult.data) {
+        console.log(`📄 Supabase에서 템플릿 ${id} 조회 성공`);
+        return supabaseResult.data;
+      }
+      
+      console.warn('⚠️ Supabase 조회 실패, localStorage 백업 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage 백업 사용:', error);
+    }
+
+    // 2. localStorage 백업 사용
     const templates = this.loadFromStorage();
-    return templates.find(t => t.id === id) || null;
+    const template = templates.find(t => t.id === id);
+    
+    if (template) {
+      console.log(`📄 localStorage에서 템플릿 ${id} 조회 성공`);
+    }
+    
+    return template || null;
   }
 
   /**
-   * 템플릿 저장
+   * 새 템플릿 저장 (Supabase 우선, localStorage 백업)
    */
-  static saveTemplate(template: Omit<VariableMappingTemplate, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>): VariableMappingTemplate {
-    const templates = this.loadFromStorage();
-    const now = new Date().toISOString();
-    
+  static async saveTemplate(template: Omit<VariableMappingTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<VariableMappingTemplate> {
     const newTemplate: VariableMappingTemplate = {
       ...template,
-      id: this.generateId(),
-      createdAt: now,
-      updatedAt: now,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       usageCount: 0
     };
 
-    templates.push(newTemplate);
-    this.saveToStorage(templates);
+    try {
+      // 1. Supabase에 저장 시도
+      const supabaseResult = await supabaseWorkflowService.createVariableMappingTemplate(newTemplate);
+      
+      if (supabaseResult.success && supabaseResult.data) {
+        console.log(`💾 Supabase에 템플릿 저장 성공:`, supabaseResult.data.id);
+        
+        // localStorage에도 백업 저장
+        this.saveToStorage(newTemplate);
+        
+        return supabaseResult.data;
+      }
+      
+      console.warn('⚠️ Supabase 저장 실패, localStorage만 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
+    }
+
+    // 2. localStorage에만 저장
+    this.saveToStorage(newTemplate);
+    console.log(`💾 localStorage에 템플릿 저장: ${newTemplate.id}`);
     
     return newTemplate;
   }
 
   /**
-   * 템플릿 업데이트
+   * 템플릿 업데이트 (Supabase 우선, localStorage 백업)
    */
-  static updateTemplate(id: string, updates: Partial<VariableMappingTemplate>): VariableMappingTemplate | null {
-    const templates = this.loadFromStorage();
-    const index = templates.findIndex(t => t.id === id);
-    
-    if (index === -1) return null;
-    
-    templates[index] = {
-      ...templates[index],
+  static async updateTemplate(id: string, updates: Partial<VariableMappingTemplate>): Promise<VariableMappingTemplate | null> {
+    const updateData = {
       ...updates,
       updatedAt: new Date().toISOString()
     };
+
+    try {
+      // 1. Supabase에서 업데이트 시도
+      const supabaseResult = await supabaseWorkflowService.updateVariableMappingTemplate(id, updateData);
+      
+      if (supabaseResult.success && supabaseResult.data) {
+        console.log(`🔄 Supabase에서 템플릿 ${id} 업데이트 성공`);
+        
+        // localStorage에도 백업 업데이트
+        this.updateInStorage(id, updateData);
+        
+        return supabaseResult.data;
+      }
+      
+      console.warn('⚠️ Supabase 업데이트 실패, localStorage만 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
+    }
+
+    // 2. localStorage에서만 업데이트
+    const updated = this.updateInStorage(id, updateData);
+    if (updated) {
+      console.log(`🔄 localStorage에서 템플릿 ${id} 업데이트 성공`);
+    }
     
-    this.saveToStorage(templates);
-    return templates[index];
+    return updated;
   }
 
   /**
-   * 템플릿 삭제
+   * 템플릿 삭제 (Supabase 우선, localStorage 백업)
    */
-  static deleteTemplate(id: string): boolean {
-    const templates = this.loadFromStorage();
-    const filtered = templates.filter(t => t.id !== id);
+  static async deleteTemplate(id: string): Promise<boolean> {
+    try {
+      // 1. Supabase에서 삭제 시도
+      const supabaseResult = await supabaseWorkflowService.deleteVariableMappingTemplate(id);
+      
+      if (supabaseResult.success) {
+        console.log(`🗑️ Supabase에서 템플릿 ${id} 삭제 성공`);
+        
+        // localStorage에서도 삭제
+        this.deleteFromStorage(id);
+        
+        return true;
+      }
+      
+      console.warn('⚠️ Supabase 삭제 실패, localStorage만 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
+    }
+
+    // 2. localStorage에서만 삭제
+    const deleted = this.deleteFromStorage(id);
+    if (deleted) {
+      console.log(`🗑️ localStorage에서 템플릿 ${id} 삭제 성공`);
+    }
     
-    if (filtered.length === templates.length) return false;
-    
-    this.saveToStorage(filtered);
-    return true;
+    return deleted;
   }
 
   /**
-   * 템플릿 사용 기록
+   * 템플릿 사용 기록 (Supabase 우선, localStorage 백업)
    */
-  static recordUsage(id: string): void {
-    const templates = this.loadFromStorage();
-    const template = templates.find(t => t.id === id);
-    
-    if (template) {
-      template.usageCount++;
-      template.lastUsedAt = new Date().toISOString();
-      this.saveToStorage(templates);
+  static async recordUsage(id: string): Promise<void> {
+    try {
+      // 1. Supabase에서 사용 기록 시도
+      const supabaseResult = await supabaseWorkflowService.recordVariableMappingTemplateUsage(id);
+      
+      if (supabaseResult.success) {
+        console.log(`📈 Supabase에서 템플릿 ${id} 사용 기록 성공`);
+        
+        // localStorage에도 백업 기록
+        this.recordUsageInStorage(id);
+        
+        return;
+      }
+      
+      console.warn('⚠️ Supabase 사용 기록 실패, localStorage만 사용:', supabaseResult.error);
+    } catch (error) {
+      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
+    }
+
+    // 2. localStorage에서만 기록
+    this.recordUsageInStorage(id);
+    console.log(`📈 localStorage에서 템플릿 ${id} 사용 기록`);
+  }
+
+  // =====================================================
+  // localStorage 백업 메서드들 (기존 유지)
+  // =====================================================
+
+  private static loadFromStorage(): VariableMappingTemplate[] {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch (error) {
+      console.error('localStorage 로드 실패:', error);
+      return [];
     }
   }
 
-  /**
-   * 즐겨찾기 토글
-   */
-  static toggleFavorite(id: string): boolean {
-    const template = this.getTemplate(id);
-    if (!template) return false;
-    
-    const newFavoriteStatus = !template.isFavorite;
-    this.updateTemplate(id, { isFavorite: newFavoriteStatus });
-    return newFavoriteStatus;
+  private static saveToStorage(template: VariableMappingTemplate): void {
+    try {
+      const templates = this.loadFromStorage();
+      const existingIndex = templates.findIndex(t => t.id === template.id);
+      
+      if (existingIndex >= 0) {
+        templates[existingIndex] = template;
+      } else {
+        templates.push(template);
+      }
+      
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
+    } catch (error) {
+      console.error('localStorage 저장 실패:', error);
+    }
   }
 
-  /**
-   * 자동 매핑 제안
-   */
-  static getSuggestions(templateVariables: string[]): MappingSuggestion[] {
-    const templates = this.loadFromStorage();
+  private static updateInStorage(id: string, updates: Partial<VariableMappingTemplate>): VariableMappingTemplate | null {
+    try {
+      const templates = this.loadFromStorage();
+      const index = templates.findIndex(t => t.id === id);
+      
+      if (index >= 0) {
+        templates[index] = { ...templates[index], ...updates };
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
+        return templates[index];
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('localStorage 업데이트 실패:', error);
+      return null;
+    }
+  }
+
+  private static deleteFromStorage(id: string): boolean {
+    try {
+      const templates = this.loadFromStorage();
+      const filteredTemplates = templates.filter(t => t.id !== id);
+      
+      if (filteredTemplates.length < templates.length) {
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filteredTemplates));
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('localStorage 삭제 실패:', error);
+      return false;
+    }
+  }
+
+  private static recordUsageInStorage(id: string): void {
+    try {
+      const templates = this.loadFromStorage();
+      const index = templates.findIndex(t => t.id === id);
+      
+      if (index >= 0) {
+        templates[index].usageCount = (templates[index].usageCount || 0) + 1;
+        templates[index].lastUsedAt = new Date().toISOString();
+        templates[index].updatedAt = new Date().toISOString();
+        
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
+      }
+    } catch (error) {
+      console.error('localStorage 사용 기록 실패:', error);
+    }
+  }
+
+  // =====================================================
+  // 기존 메서드들 (호환성 유지)
+  // =====================================================
+
+  static generateSuggestions(templateVariables: string[], queryResults: any[]): MappingSuggestion[] {
     const suggestions: MappingSuggestion[] = [];
+    
+    if (!queryResults || queryResults.length === 0) {
+      return suggestions;
+    }
 
-    for (const variable of templateVariables) {
+    const sampleRow = queryResults[0];
+    const availableColumns = Object.keys(sampleRow);
+
+    templateVariables.forEach(variable => {
+      const cleanVariable = variable.replace(/^#{|}$/g, '');
       const suggestedMappings: MappingSuggestion['suggestedMappings'] = [];
-
-      // 정확한 변수명 매칭
-      for (const template of templates) {
-        for (const mapping of template.variableMappings) {
-          if (mapping.templateVariable === variable) {
-            suggestedMappings.push({
-              template,
-              mapping,
-              confidence: 1.0,
-              reason: '정확한 변수명 일치'
-            });
-          }
-        }
+      
+      // 정확한 매칭
+      const exactMatch = availableColumns.find(col => 
+        col.toLowerCase() === cleanVariable.toLowerCase()
+      );
+      
+      if (exactMatch) {
+        suggestedMappings.push({
+          template: {
+            id: 'auto-generated',
+            name: '자동 생성 매핑',
+            description: '정확한 이름 매칭',
+            category: 'auto',
+            tags: ['auto'],
+            variableMappings: [],
+            usageCount: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isPublic: false
+          },
+          mapping: {
+            templateVariable: variable,
+            sourceField: exactMatch,
+            sourceType: 'field',
+            defaultValue: '',
+            formatter: 'text'
+          },
+          confidence: 1.0,
+          reason: '정확한 이름 매칭'
+        });
       }
 
-      // 유사한 변수명 매칭 (정확한 매칭이 없을 때만)
-      if (suggestedMappings.length === 0) {
-        for (const template of templates) {
-          for (const mapping of template.variableMappings) {
-            const similarity = this.calculateSimilarity(variable, mapping.templateVariable);
-            if (similarity > 0.7) {
-              suggestedMappings.push({
-                template,
-                mapping,
-                confidence: similarity,
-                reason: `유사한 변수명 (${Math.round(similarity * 100)}% 일치)`
-              });
-            }
-          }
-        }
-      }
+      // 부분 매칭
+      const partialMatches = availableColumns.filter(col =>
+        col.toLowerCase().includes(cleanVariable.toLowerCase()) ||
+        cleanVariable.toLowerCase().includes(col.toLowerCase())
+      );
 
-      // 사용 빈도 기반 정렬
-      suggestedMappings.sort((a, b) => {
-        if (a.confidence !== b.confidence) {
-          return b.confidence - a.confidence;
-        }
-        return b.template.usageCount - a.template.usageCount;
+      partialMatches.forEach(col => {
+        suggestedMappings.push({
+          template: {
+            id: 'auto-generated',
+            name: '자동 생성 매핑',
+            description: '부분 이름 매칭',
+            category: 'auto',
+            tags: ['auto'],
+            variableMappings: [],
+            usageCount: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isPublic: false
+          },
+          mapping: {
+            templateVariable: variable,
+            sourceField: col,
+            sourceType: 'field',
+            defaultValue: '',
+            formatter: 'text'
+          },
+          confidence: 0.7,
+          reason: '부분 이름 매칭'
+        });
+      });
+
+      // 의미적 매칭
+      const semanticMatches = this.getSemanticMatches(cleanVariable, availableColumns);
+      semanticMatches.forEach(match => {
+        suggestedMappings.push({
+          template: {
+            id: 'auto-generated',
+            name: '자동 생성 매핑',
+            description: match.reason,
+            category: 'auto',
+            tags: ['auto'],
+            variableMappings: [],
+            usageCount: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isPublic: false
+          },
+          mapping: {
+            templateVariable: variable,
+            sourceField: match.field,
+            sourceType: 'field',
+            defaultValue: '',
+            formatter: 'text'
+          },
+          confidence: match.confidence,
+          reason: match.reason
+        });
       });
 
       if (suggestedMappings.length > 0) {
         suggestions.push({
           templateVariable: variable,
-          suggestedMappings: suggestedMappings.slice(0, 3) // 최대 3개 제안
+          suggestedMappings: suggestedMappings.slice(0, 3) // 최대 3개까지만
         });
       }
-    }
+    });
 
     return suggestions;
   }
 
-  /**
-   * 변수명 유사도 계산 (간단한 Levenshtein distance 기반)
-   */
-  private static calculateSimilarity(str1: string, str2: string): number {
-    const len1 = str1.length;
-    const len2 = str2.length;
-    const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(null));
+  private static getSemanticMatches(variable: string, columns: string[]): Array<{field: string, confidence: number, reason: string}> {
+    const semanticMap: Record<string, string[]> = {
+      'name': ['이름', 'name', 'user_name', 'username', 'full_name'],
+      'phone': ['전화번호', 'phone', 'mobile', 'tel', 'phone_number'],
+      'email': ['이메일', 'email', 'mail', 'email_address'],
+      'company': ['회사', 'company', 'corp', 'organization'],
+      'amount': ['금액', 'amount', 'price', 'cost', 'fee'],
+      'date': ['날짜', 'date', 'created_at', 'updated_at', 'time'],
+      'status': ['상태', 'status', 'state', 'condition']
+    };
 
-    for (let i = 0; i <= len1; i++) matrix[0][i] = i;
-    for (let j = 0; j <= len2; j++) matrix[j][0] = j;
-
-    for (let j = 1; j <= len2; j++) {
-      for (let i = 1; i <= len1; i++) {
-        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        matrix[j][i] = Math.min(
-          matrix[j][i - 1] + 1,
-          matrix[j - 1][i] + 1,
-          matrix[j - 1][i - 1] + indicator
+    const matches: Array<{field: string, confidence: number, reason: string}> = [];
+    
+    Object.entries(semanticMap).forEach(([key, synonyms]) => {
+      if (synonyms.some(syn => variable.toLowerCase().includes(syn.toLowerCase()))) {
+        const matchingColumns = columns.filter(col =>
+          synonyms.some(syn => col.toLowerCase().includes(syn.toLowerCase()))
         );
+        
+        matchingColumns.forEach(col => {
+          matches.push({
+            field: col,
+            confidence: 0.6,
+            reason: `의미적 매칭 (${key})`
+          });
+        });
       }
-    }
+    });
 
-    const maxLen = Math.max(len1, len2);
-    return maxLen === 0 ? 1 : (maxLen - matrix[len2][len1]) / maxLen;
+    return matches.sort((a, b) => b.confidence - a.confidence);
   }
 
-  /**
-   * 로컬 스토리지에서 로드
-   */
-  private static loadFromStorage(): VariableMappingTemplate[] {
-    if (typeof window === 'undefined') return [];
+  static getPopularTemplates(limit: number = 5): Promise<VariableMappingTemplate[]> {
+    return this.getTemplates().then(templates => 
+      templates
+        .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0))
+        .slice(0, limit)
+    );
+  }
+
+  static getRecentTemplates(limit: number = 5): Promise<VariableMappingTemplate[]> {
+    return this.getTemplates().then(templates =>
+      templates
+        .filter(t => t.lastUsedAt)
+        .sort((a, b) => new Date(b.lastUsedAt!).getTime() - new Date(a.lastUsedAt!).getTime())
+        .slice(0, limit)
+    );
+  }
+
+  static getFavoriteTemplates(): Promise<VariableMappingTemplate[]> {
+    return this.getTemplates({ isFavorite: true });
+  }
+
+  static getTemplatesByCategory(category: string): Promise<VariableMappingTemplate[]> {
+    return this.getTemplates({ category });
+  }
+
+  static searchTemplates(query: string): Promise<VariableMappingTemplate[]> {
+    return this.getTemplates().then(templates =>
+      templates.filter(template =>
+        template.name.toLowerCase().includes(query.toLowerCase()) ||
+        (template.description && template.description.toLowerCase().includes(query.toLowerCase())) ||
+        template.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
+      )
+    );
+  }
+
+  static async toggleFavorite(id: string): Promise<VariableMappingTemplate | null> {
+    const template = await this.getTemplate(id);
+    if (!template) return null;
+
+    return this.updateTemplate(id, {
+      isFavorite: !template.isFavorite
+    });
+  }
+
+  static async duplicateTemplate(id: string, newName?: string): Promise<VariableMappingTemplate | null> {
+    const original = await this.getTemplate(id);
+    if (!original) return null;
+
+    const duplicate = {
+      ...original,
+      name: newName || `${original.name} (복사본)`,
+      isFavorite: false,
+      usageCount: 0,
+      lastUsedAt: undefined
+    };
+
+    // id, createdAt, updatedAt 제거
+    const { id: _, createdAt: __, updatedAt: ___, ...templateData } = duplicate;
     
-    try {
-      const stored = localStorage.getItem(this.STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * 로컬 스토리지에 저장
-   */
-  private static saveToStorage(templates: VariableMappingTemplate[]): void {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
-    } catch (error) {
-      console.error('템플릿 저장 실패:', error);
-    }
-  }
-
-  /**
-   * 고유 ID 생성
-   */
-  private static generateId(): string {
-    return `template_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  /**
-   * 기본 템플릿들 생성 (초기 데이터)
-   */
-  static initializeDefaultTemplates(): void {
-    const existing = this.loadFromStorage();
-    if (existing.length > 0) return; // 이미 데이터가 있으면 스킵
-
-    const defaultTemplates: Omit<VariableMappingTemplate, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>[] = [
-      {
-        name: '성과 리포트 기본 변수',
-        description: '월간/주간 성과 리포트에 자주 사용되는 변수들',
-        category: 'performance',
-        tags: ['성과', '리포트', '리뷰', '순위'],
-        variableMappings: [
-          {
-            templateVariable: '#{total_reviews}',
-            sourceField: 'SELECT COUNT(*) FROM Reviews WHERE companyId = {adId}',
-            sourceType: 'query',
-            defaultValue: '0',
-            formatter: 'number',
-            selectedColumn: 'COUNT(*)'
-          },
-          {
-            templateVariable: '#{monthly_review_count}',
-            sourceField: 'SELECT COUNT(*) FROM Reviews WHERE companyId = {adId} AND createdAt >= DATE_SUB(NOW(), INTERVAL 1 MONTH)',
-            sourceType: 'query',
-            defaultValue: '0',
-            formatter: 'number'
-          }
-        ],
-        isPublic: true
-      },
-      {
-        name: '회사 기본 정보',
-        description: '회사명, 연락처 등 기본 정보 변수들',
-        category: 'general',
-        tags: ['회사', '기본정보', '연락처'],
-        variableMappings: [
-          {
-            templateVariable: '#{companyName}',
-            sourceField: 'companyName',
-            sourceType: 'field',
-            defaultValue: '고객님',
-            formatter: 'text'
-          },
-          {
-            templateVariable: '#{contact}',
-            sourceField: 'contact_formatted',
-            sourceType: 'function',
-            defaultValue: '',
-            formatter: 'text'
-          }
-        ],
-        isPublic: true
-      }
-    ];
-
-    for (const template of defaultTemplates) {
-      this.saveTemplate(template);
-    }
+    return this.saveTemplate(templateData);
   }
 } 

@@ -17,110 +17,80 @@ export default function Dashboard() {
     sent: number;
     lastRun: string;
     stepsCount?: number;
-  }>>([
-    {
-      id: "1",
-      name: "신규 회원 환영 워크플로우",
-      status: "active",
-      trigger: "회원가입 완료",
-      sent: 1250,
-      lastRun: "2024-01-15 14:30",
-    },
-    {
-      id: "2",
-      name: "장바구니 미완료 알림",
-      status: "paused",
-      trigger: "장바구니 추가 후 1시간",
-      sent: 890,
-      lastRun: "2024-01-14 16:20",
-    },
-    {
-      id: "3",
-      name: "VIP 고객 특별 혜택",
-      status: "draft",
-      trigger: "구매 금액 100만원 이상",
-      sent: 0,
-      lastRun: "-",
-    },
-    {
-      id: "4",
-      name: "생일 축하 메시지",
-      status: "active",
-      trigger: "생일 당일",
-      sent: 2340,
-      lastRun: "2024-01-15 09:15",
-    },
-    {
-      id: "5",
-      name: "구매 후 리뷰 요청",
-      status: "active",
-      trigger: "구매 완료 후 3일",
-      sent: 4567,
-      lastRun: "2024-01-15 18:45",
-    },
-    {
-      id: "6",
-      name: "재구매 유도 메시지",
-      status: "active",
-      trigger: "마지막 구매 후 30일",
-      sent: 1890,
-      lastRun: "2024-01-15 12:20",
-    },
-    {
-      id: "7",
-      name: "이벤트 참여 안내",
-      status: "active",
-      trigger: "이벤트 시작일",
-      sent: 1513,
-      lastRun: "2024-01-14 10:00",
-    },
-  ])
+    source: string;
+  }>>([]);
 
-  // localStorage에서 저장된 워크플로우 불러오기
+  // Supabase와 localStorage에서 저장된 워크플로우 불러오기
   useEffect(() => {
-    const loadSavedWorkflows = () => {
+    const loadWorkflows = async () => {
       try {
-        const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
-        console.log("저장된 워크플로우 개수:", savedWorkflows.length)
-        console.log("저장된 워크플로우 목록:", savedWorkflows)
-        
-        if (savedWorkflows.length > 0) {
-          // 저장된 워크플로우를 표시용 형태로 변환
-          const convertedWorkflows = savedWorkflows.map((workflow, index) => ({
-            id: `saved_${workflow.id}_${index}`, // 인덱스를 추가하여 고유성 보장
-            originalId: workflow.id, // 원본 ID 보존
-            name: workflow.name || `저장된 워크플로우 ${index + 1}`, // 이름이 없으면 기본 이름 사용
-            status: workflow.status,
-            trigger: workflow.trigger?.name || workflow.trigger?.type || "수동 실행",
-            sent: workflow.stats?.totalRuns || 0,
-            lastRun: workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('ko-KR', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit'
-            }) : "-",
-            stepsCount: workflow.steps?.length || 0, // 단계 수 추가
-          }))
-
-          console.log("변환된 워크플로우:", convertedWorkflows)
-
-          // 기존 샘플 데이터와 저장된 워크플로우 합치기 (중복 제거)
-          setWorkflows(prev => {
-            // 기존에 저장된 워크플로우가 있는지 확인
-            const existingSavedIds = prev.filter(w => w.id.toString().startsWith('saved_')).map(w => w.id);
-            const newWorkflows = convertedWorkflows.filter(w => !existingSavedIds.includes(w.id));
-            
-            return [...prev.filter(w => !w.id.toString().startsWith('saved_')), ...convertedWorkflows];
-          })
+        // 1. Supabase에서 워크플로우 불러오기
+        let supabaseWorkflows: Workflow[] = [];
+        try {
+          const response = await fetch('/api/supabase/workflows');
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              supabaseWorkflows = result.data;
+              console.log("Supabase에서 불러온 워크플로우:", supabaseWorkflows.length, "개");
+            }
+          }
+        } catch (supabaseError) {
+          console.warn("Supabase 워크플로우 로드 실패:", supabaseError);
         }
-      } catch (error) {
-        console.error("저장된 워크플로우 로드 실패:", error)
-      }
-    }
 
-    loadSavedWorkflows()
-  }, [])
+        // 2. localStorage에서 워크플로우 불러오기 (백업용)
+        let localWorkflows: Workflow[] = [];
+        try {
+          const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[];
+          localWorkflows = savedWorkflows;
+          console.log("localStorage에서 불러온 워크플로우:", localWorkflows.length, "개");
+        } catch (localError) {
+          console.warn("localStorage 워크플로우 로드 실패:", localError);
+        }
+
+        // 3. 두 소스의 워크플로우 합치기 (중복 제거)
+        const allWorkflows = [...supabaseWorkflows];
+        
+        // localStorage의 워크플로우 중 Supabase에 없는 것만 추가
+        localWorkflows.forEach(localWorkflow => {
+          const existsInSupabase = supabaseWorkflows.some(sw => sw.id === localWorkflow.id);
+          if (!existsInSupabase) {
+            allWorkflows.push(localWorkflow);
+          }
+        });
+
+        // 워크플로우를 표시용 형태로 변환
+        const convertedWorkflows = allWorkflows.map((workflow, index) => ({
+          id: workflow.id,
+          originalId: workflow.id,
+          name: workflow.name || `워크플로우 ${index + 1}`,
+          status: workflow.status,
+          trigger: workflow.trigger?.name || workflow.trigger?.type || "수동 실행",
+          sent: workflow.stats?.totalRuns || 0,
+          lastRun: workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : "-",
+          stepsCount: workflow.steps?.length || 0,
+          source: supabaseWorkflows.some(sw => sw.id === workflow.id) ? 'supabase' : 'local'
+        }));
+
+        console.log("변환된 워크플로우:", convertedWorkflows);
+        
+        // DB에서 불러온 워크플로우만 표시 (샘플 데이터 제거)
+        setWorkflows(convertedWorkflows);
+        
+      } catch (error) {
+        console.error("워크플로우 로드 실패:", error);
+      }
+    };
+
+    loadWorkflows();
+  }, []);
 
   // 실제 워크플로우 데이터를 기반으로 통계 계산
   const activeWorkflowsCount = workflows.filter(w => w.status === 'active').length;
@@ -329,7 +299,7 @@ export default function Dashboard() {
                           >
                             {getStatusBadge(workflow.status).label}
                           </span>
-                          {workflow.id.toString().startsWith('saved_') && (
+                          {workflow.source === 'local' && (
                             <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
                               새로 저장됨
                             </span>
@@ -339,7 +309,7 @@ export default function Dashboard() {
                           <span>트리거: {workflow.trigger}</span>
                           <span>발송: {workflow.sent.toLocaleString()}건</span>
                           <span>최근 실행: {workflow.lastRun}</span>
-                          {workflow.id.toString().startsWith('saved_') && workflow.stepsCount !== undefined && (
+                          {workflow.source === 'local' && workflow.stepsCount !== undefined && (
                             <span>단계: {workflow.stepsCount}개</span>
                           )}
                         </div>

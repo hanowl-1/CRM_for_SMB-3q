@@ -113,7 +113,10 @@ export function VariableMapping({
     const templateVariables = clientPersonalizationService.extractTemplateVariables(selectedTemplate.content);
     setCurrentVariables(templateVariables);
     
-    const existingMappings = selectedTemplate.personalization?.variableMappings || [];
+    // 기존 개인화 설정이 있는지 확인 (selectedTemplate.personalization 우선)
+    const existingPersonalization = selectedTemplate.personalization;
+    const existingMappings = existingPersonalization?.variableMappings || [];
+    const isPersonalizationEnabled = existingPersonalization?.enabled || false;
     
     const newMappings = templateVariables.map(variable => {
       const existing = existingMappings.find(m => m.templateVariable === variable);
@@ -127,16 +130,18 @@ export function VariableMapping({
     });
 
     setVariableMappings(newMappings);
-    setPersonalizationEnabled(selectedTemplate.personalization?.enabled || false);
+    setPersonalizationEnabled(isPersonalizationEnabled);
     setPreviewContent(selectedTemplate.content);
     setQueryTestResults({});
     
-    // 초기화 완료 후 부모에게 알림
+    // 초기화 완료 후 부모에게 알림 (기존 설정이 있는 경우에만)
     setTimeout(() => {
       isInitializedRef.current = true;
-      notifyParent(selectedTemplate.personalization?.enabled || false, newMappings);
+      if (existingPersonalization) {
+        notifyParent(isPersonalizationEnabled, newMappings);
+      }
     }, 0);
-  }, [selectedTemplate?.id, selectedTemplate?.content, selectedTemplate?.personalization?.enabled, notifyParent]);
+  }, [selectedTemplate?.id, selectedTemplate?.content, selectedTemplate?.personalization, notifyParent]);
 
   // 미리보기 생성 함수를 useCallback으로 메모이제이션
   const generatePreview = useCallback(async (mappings: VariableMapping[]) => {

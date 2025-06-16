@@ -63,26 +63,30 @@ export default function MappingTemplateManager({
   // 템플릿 로드
   useEffect(() => {
     loadTemplates();
-    MappingTemplateService.initializeDefaultTemplates();
   }, []);
 
   // 자동 제안 생성
   useEffect(() => {
     if (currentVariables.length > 0 && mode === 'select') {
-      const newSuggestions = MappingTemplateService.getSuggestions(currentVariables);
+      // 자동 제안은 동기적으로 처리 (localStorage 기반)
+      const newSuggestions = MappingTemplateService.generateSuggestions(currentVariables, []);
       setSuggestions(newSuggestions);
     }
   }, [currentVariables, mode]);
 
-  const loadTemplates = () => {
-    const currentFilter = {
-      ...filter,
-      searchTerm: searchTerm || undefined,
-      category: selectedCategory || undefined,
-      isFavorite: showFavoritesOnly || undefined
-    };
-    const loadedTemplates = MappingTemplateService.getTemplates(currentFilter);
-    setTemplates(loadedTemplates);
+  const loadTemplates = async () => {
+    try {
+      const currentFilter = {
+        ...filter,
+        searchTerm: searchTerm || undefined,
+        category: selectedCategory || undefined,
+        isFavorite: showFavoritesOnly || undefined
+      };
+      const loadedTemplates = await MappingTemplateService.getTemplates(currentFilter);
+      setTemplates(loadedTemplates);
+    } catch (error) {
+      console.error('템플릿 로드 실패:', error);
+    }
   };
 
   // 필터 변경시 템플릿 재로드
@@ -90,31 +94,45 @@ export default function MappingTemplateManager({
     loadTemplates();
   }, [filter, searchTerm, selectedCategory, showFavoritesOnly]);
 
-  const handleToggleFavorite = (templateId: string) => {
-    MappingTemplateService.toggleFavorite(templateId);
-    loadTemplates();
-  };
-
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm('정말로 이 템플릿을 삭제하시겠습니까?')) {
-      MappingTemplateService.deleteTemplate(templateId);
+  const handleToggleFavorite = async (templateId: string) => {
+    try {
+      await MappingTemplateService.toggleFavorite(templateId);
       loadTemplates();
+    } catch (error) {
+      console.error('즐겨찾기 토글 실패:', error);
     }
   };
 
-  const handleApplyTemplate = (template: VariableMappingTemplate) => {
-    MappingTemplateService.recordUsage(template.id);
-    onApplyTemplate?.(template);
-    loadTemplates(); // 사용 횟수 업데이트 반영
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (confirm('정말로 이 템플릿을 삭제하시겠습니까?')) {
+      try {
+        await MappingTemplateService.deleteTemplate(templateId);
+        loadTemplates();
+      } catch (error) {
+        console.error('템플릿 삭제 실패:', error);
+      }
+    }
   };
 
-  const handleDuplicateTemplate = (template: VariableMappingTemplate) => {
-    const duplicated = MappingTemplateService.saveTemplate({
-      ...template,
-      name: `${template.name} (복사본)`,
-      isPublic: false
-    });
-    loadTemplates();
+  const handleApplyTemplate = async (template: VariableMappingTemplate) => {
+    try {
+      await MappingTemplateService.recordUsage(template.id);
+      onApplyTemplate?.(template);
+      loadTemplates(); // 사용 횟수 업데이트 반영
+    } catch (error) {
+      console.error('템플릿 적용 실패:', error);
+      // 에러가 발생해도 템플릿은 적용
+      onApplyTemplate?.(template);
+    }
+  };
+
+  const handleDuplicateTemplate = async (template: VariableMappingTemplate) => {
+    try {
+      await MappingTemplateService.duplicateTemplate(template.id, `${template.name} (복사본)`);
+      loadTemplates();
+    } catch (error) {
+      console.error('템플릿 복제 실패:', error);
+    }
   };
 
   // 필터링된 템플릿들

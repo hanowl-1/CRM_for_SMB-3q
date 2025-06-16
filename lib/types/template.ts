@@ -31,6 +31,7 @@ export interface KakaoTemplate {
   variables?: string[];
   servicePlatform?: string;
   templateNumber?: number;
+  personalization?: import('./workflow').PersonalizationSettings;
 }
 
 export interface TemplateCategory {

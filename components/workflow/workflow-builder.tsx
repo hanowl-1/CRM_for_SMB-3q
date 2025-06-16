@@ -90,20 +90,40 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     if (workflow && workflow.steps) {
       const variables: Record<string, Record<string, string>> = {};
       const personalizations: Record<string, PersonalizationSettings> = {};
+      const templates: KakaoTemplate[] = [];
       
       workflow.steps.forEach(step => {
-        if (step.action.templateId) {
+        if (step.action.templateId && step.action.type === 'send_alimtalk') {
+          // 변수 저장
           if (step.action.variables) {
             variables[step.action.templateId] = step.action.variables;
           }
+          
+          // 개인화 설정 저장
           if (step.action.personalization) {
             personalizations[step.action.templateId] = step.action.personalization;
+          }
+          
+          // 템플릿 정보 복원 (mockTemplates에서 찾기)
+          const templateInfo = mockTemplates.find(t => t.id === step.action.templateId);
+          if (templateInfo && !templates.find(t => t.id === templateInfo.id)) {
+            templates.push({
+              ...templateInfo,
+              personalization: step.action.personalization
+            });
           }
         }
       });
       
       setTemplateVariables(variables);
       setTemplatePersonalizations(personalizations);
+      setSelectedTemplates(templates);
+      
+      console.log('🔄 워크플로우 로드 완료:', {
+        templates: templates.length,
+        variables: Object.keys(variables).length,
+        personalizations: Object.keys(personalizations).length
+      });
     }
   }, [workflow]);
 
@@ -161,6 +181,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   // 새로운 함수: 개인화 설정 변경 핸들러를 useCallback으로 메모이제이션
   const handlePersonalizationChange = useCallback((templateId: string, settings: PersonalizationSettings) => {
+    console.log(`🔧 템플릿 ${templateId} 개인화 설정 변경:`, settings);
+    
     setTemplatePersonalizations(prev => ({
       ...prev,
       [templateId]: settings
@@ -187,6 +209,13 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       ...prev,
       [templateId]: variables
     }));
+    
+    // 선택된 템플릿 목록에서 해당 템플릿의 개인화 설정도 업데이트
+    setSelectedTemplates(prev => prev.map(template => 
+      template.id === templateId 
+        ? { ...template, personalization: settings }
+        : template
+    ));
     
     console.log(`🔧 템플릿 ${templateId} 변수 저장:`, variables);
   }, []);

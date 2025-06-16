@@ -101,197 +101,37 @@ function validateQuery(query) {
   }
 }
 
+// 기존 API를 새로운 Supabase 기반 API로 리디렉션
 export async function GET(request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const action = searchParams.get('action');
-    const queryName = searchParams.get('query');
-    const limit = parseInt(searchParams.get('limit') || '10');
-
-    if (action === 'list') {
-      // 모든 커스텀 쿼리 목록 반환
-      const queries = await loadCustomQueries();
-      
-      return NextResponse.json({
-        success: true,
-        queries: Object.values(queries).map(q => ({
-          queryName: q.queryName,
-          displayName: q.displayName,
-          description: q.description,
-          variableCount: q.variables?.length || 0,
-          enabled: q.enabled,
-          updatedAt: q.updatedAt
-        })),
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (action === 'get' && queryName) {
-      // 특정 커스텀 쿼리 정보 반환
-      const queries = await loadCustomQueries();
-      const query = queries[queryName];
-      
-      if (!query) {
-        return NextResponse.json({ 
-          error: '해당 쿼리를 찾을 수 없습니다.' 
-        }, { status: 404 });
-      }
-
-      return NextResponse.json({
-        success: true,
-        query,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (action === 'execute' && queryName) {
-      // 커스텀 쿼리 실행
-      const queries = await loadCustomQueries();
-      const queryConfig = queries[queryName];
-      
-      if (!queryConfig || !queryConfig.enabled) {
-        return NextResponse.json({ 
-          error: '해당 쿼리를 찾을 수 없거나 비활성화되어 있습니다.' 
-        }, { status: 404 });
-      }
-
-      // 쿼리 실행
-      const [results] = await pool.execute(`${queryConfig.query} LIMIT ?`, [limit]);
-
-      return NextResponse.json({
-        success: true,
-        queryName,
-        displayName: queryConfig.displayName,
-        results,
-        variables: queryConfig.variables,
-        count: results.length,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (action === 'test' && queryName) {
-      // 쿼리 테스트 실행 (최대 3개 결과만)
-      const queries = await loadCustomQueries();
-      const queryConfig = queries[queryName];
-      
-      if (!queryConfig) {
-        return NextResponse.json({ 
-          error: '해당 쿼리를 찾을 수 없습니다.' 
-        }, { status: 404 });
-      }
-
-      try {
-        validateQuery(queryConfig.query);
-        const [results] = await pool.execute(`${queryConfig.query} LIMIT 3`);
-
-        return NextResponse.json({
-          success: true,
-          queryName,
-          testResults: results,
-          variables: queryConfig.variables,
-          count: results.length,
-          timestamp: new Date().toISOString()
-        });
-      } catch (error) {
-        return NextResponse.json({
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-
-    return NextResponse.json({ 
-      error: '잘못된 액션입니다.' 
-    }, { status: 400 });
-
-  } catch (error) {
-    console.error('커스텀 쿼리 처리 오류:', error);
-    return NextResponse.json({ 
-      success: false,
-      error: error.message 
-    }, { status: 500 });
-  }
+  const url = new URL(request.url);
+  const newUrl = url.toString().replace('/api/mysql/custom-queries', '/api/supabase/custom-queries');
+  
+  return NextResponse.redirect(newUrl, 301);
 }
 
 export async function POST(request) {
+  const url = new URL(request.url);
+  const newUrl = url.toString().replace('/api/mysql/custom-queries', '/api/supabase/custom-queries');
+  
+  // POST 요청은 리디렉션이 복잡하므로 직접 프록시
   try {
     const body = await request.json();
-    const { action, queryName, queryConfig } = body;
-
-    const queries = await loadCustomQueries();
-
-    if (action === 'save') {
-      if (!queryName || !queryConfig) {
-        return NextResponse.json({ 
-          error: 'queryName과 queryConfig가 필요합니다.' 
-        }, { status: 400 });
-      }
-
-      // 쿼리 검증
-      validateQuery(queryConfig.query);
-
-      queries[queryName] = {
-        ...queryConfig,
-        queryName,
-        updatedAt: new Date().toISOString(),
-        createdAt: queries[queryName]?.createdAt || new Date().toISOString()
-      };
-
-      await saveCustomQueries(queries);
-
-      return NextResponse.json({
-        success: true,
-        message: `${queryName} 쿼리가 저장되었습니다.`,
-        query: queries[queryName]
-      });
-    }
-
-    if (action === 'delete') {
-      if (!queryName) {
-        return NextResponse.json({ 
-          error: 'queryName이 필요합니다.' 
-        }, { status: 400 });
-      }
-
-      delete queries[queryName];
-      await saveCustomQueries(queries);
-
-      return NextResponse.json({
-        success: true,
-        message: `${queryName} 쿼리가 삭제되었습니다.`
-      });
-    }
-
-    if (action === 'toggle') {
-      if (!queryName) {
-        return NextResponse.json({ 
-          error: 'queryName이 필요합니다.' 
-        }, { status: 400 });
-      }
-
-      if (queries[queryName]) {
-        queries[queryName].enabled = !queries[queryName].enabled;
-        queries[queryName].updatedAt = new Date().toISOString();
-        await saveCustomQueries(queries);
-
-        return NextResponse.json({
-          success: true,
-          message: `${queryName} 쿼리가 ${queries[queryName].enabled ? '활성화' : '비활성화'}되었습니다.`,
-          enabled: queries[queryName].enabled
-        });
-      }
-    }
-
-    return NextResponse.json({ 
-      error: '잘못된 액션입니다.' 
-    }, { status: 400 });
-
+    
+    const response = await fetch(newUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body)
+    });
+    
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
-    console.error('커스텀 쿼리 저장 오류:', error);
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: false,
-      error: error.message 
+      error: '새로운 API로 요청 전달 중 오류가 발생했습니다.',
+      message: 'API가 Supabase 기반으로 이전되었습니다. /api/supabase/custom-queries를 사용해주세요.'
     }, { status: 500 });
   }
 } 
