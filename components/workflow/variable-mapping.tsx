@@ -141,7 +141,42 @@ export function VariableMapping({
         notifyParent(isPersonalizationEnabled, newMappings);
       }
     }, 0);
-  }, [selectedTemplate?.id, selectedTemplate?.content, selectedTemplate?.personalization, notifyParent]);
+  }, [selectedTemplate?.id, selectedTemplate?.content, notifyParent]);
+
+  // 개인화 설정이 외부에서 변경되었을 때만 업데이트 (초기 로드 시에만)
+  useEffect(() => {
+    if (selectedTemplate?.personalization && isInitializedRef.current) {
+      const existingPersonalization = selectedTemplate.personalization;
+      const existingMappings = existingPersonalization.variableMappings || [];
+      const isPersonalizationEnabled = existingPersonalization.enabled || false;
+      
+      // 현재 변수들과 매칭되는 매핑만 업데이트
+      const templateVariables = clientPersonalizationService.extractTemplateVariables(selectedTemplate.content);
+      const updatedMappings = templateVariables.map(variable => {
+        const existing = existingMappings.find(m => m.templateVariable === variable);
+        const current = variableMappings.find(m => m.templateVariable === variable);
+        
+        // 기존 설정이 있으면 사용, 없으면 현재 설정 유지, 둘 다 없으면 기본값
+        return existing || current || {
+          templateVariable: variable,
+          sourceField: '',
+          sourceType: 'field' as const,
+          defaultValue: '',
+          formatter: 'text' as const
+        };
+      });
+      
+      // 실제로 변경된 경우에만 업데이트
+      const hasChanges = JSON.stringify(updatedMappings) !== JSON.stringify(variableMappings) ||
+                        isPersonalizationEnabled !== personalizationEnabled;
+      
+      if (hasChanges) {
+        console.log('🔄 외부에서 개인화 설정 변경됨, 업데이트 적용');
+        setVariableMappings(updatedMappings);
+        setPersonalizationEnabled(isPersonalizationEnabled);
+      }
+    }
+  }, [selectedTemplate?.personalization]); // 별도 useEffect로 분리
 
   // 미리보기 생성 함수를 useCallback으로 메모이제이션
   const generatePreview = useCallback(async (mappings: VariableMapping[]) => {
@@ -197,9 +232,18 @@ export function VariableMapping({
   }, [variableMappings, notifyParent]);
 
   const updateMapping = useCallback((index: number, updates: Partial<VariableMapping>) => {
+    console.log(`🔧 변수 매핑 업데이트 [${index}]:`, updates);
+    
     setVariableMappings(prev => {
       const updated = [...prev];
+      const oldMapping = updated[index];
       updated[index] = { ...updated[index], ...updates };
+      
+      console.log(`📝 매핑 변경:`, {
+        변수: updated[index].templateVariable,
+        이전: { sourceType: oldMapping?.sourceType, sourceField: oldMapping?.sourceField },
+        이후: { sourceType: updated[index].sourceType, sourceField: updated[index].sourceField }
+      });
       
       // 매핑 변경 시 부모에게 알림 - 디바운싱 적용
       setTimeout(() => {
