@@ -243,4 +243,35 @@ export interface MappingHistoryTemplateFilter {
   isFavorite?: boolean;
   sortBy?: 'name' | 'usageCount' | 'lastUsedAt' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
+}
+
+// 대상 그룹과 알림톡 변수 간의 매핑
+export interface TargetTemplateMapping {
+  id: string;
+  targetGroupId: string; // 대상 그룹 ID
+  templateId: string; // 알림톡 템플릿 ID
+  fieldMappings: FieldMapping[]; // 필드 매핑 배열
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 개별 필드 매핑
+export interface FieldMapping {
+  templateVariable: string; // 알림톡 템플릿의 변수명 (예: #{고객명})
+  targetField: string; // 대상 그룹 쿼리 결과의 필드명 (예: companyName)
+  formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
+  defaultValue?: string; // 기본값
+}
+
+// 매핑 미리보기 결과
+export interface MappingPreview {
+  templateVariable: string;
+  targetField: string;
+  sampleValue: string; // 샘플 데이터에서의 실제 값
+  formattedValue: string; // 포맷터 적용 후 값
+}
+
+// 워크플로우에 매핑 정보 추가
+export interface WorkflowWithMapping extends Workflow {
+  targetTemplateMappings?: TargetTemplateMapping[]; // 대상-템플릿 매핑 정보
 } 

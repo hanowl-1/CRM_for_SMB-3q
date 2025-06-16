@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings } from '@/lib/types/workflow';
+import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings, TargetTemplateMapping as TargetTemplateMappingType } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
 import { VariableSettings } from '@/components/workflow/variable-settings';
@@ -33,9 +33,11 @@ import {
   Users,
   TestTube,
   CheckCircle,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
 import { mockTemplates } from '@/lib/data/mock-templates';
+import { TargetTemplateMapping } from './target-template-mapping';
 
 interface WorkflowBuilderProps {
   workflow?: Workflow;
@@ -85,6 +87,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   
   // 새로운 상태: 템플릿별 변수 저장
   const [templateVariables, setTemplateVariables] = useState<Record<string, Record<string, string>>>({});
+
+  // 새로운 상태: 대상-템플릿 매핑
+  const [targetTemplateMappings, setTargetTemplateMappings] = useState<TargetTemplateMappingType[]>([]);
 
   // 기존 워크플로우 로드 시 변수와 개인화 설정 초기화
   useEffect(() => {
@@ -137,6 +142,29 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         return selectedTemplates.length > 0;
       case 'targets':
         return targetGroups.length > 0;
+      case 'mapping':
+        // 동적 쿼리가 있는 대상 그룹이 있는 경우에만 매핑 필요
+        const hasDynamicTargets = targetGroups.some(group => 
+          group.type === 'dynamic' && group.dynamicQuery
+        );
+        if (!hasDynamicTargets) return true; // 동적 대상이 없으면 매핑 불필요
+        
+        // 모든 동적 대상 그룹과 템플릿 조합에 대해 매핑이 있는지 확인
+        const dynamicTargets = targetGroups.filter(group => 
+          group.type === 'dynamic' && group.dynamicQuery
+        );
+        
+        for (const target of dynamicTargets) {
+          for (const template of selectedTemplates) {
+            const mapping = targetTemplateMappings.find(m => 
+              m.targetGroupId === target.id && m.templateId === template.id
+            );
+            if (!mapping || mapping.fieldMappings.length === 0) {
+              return false; // 매핑이 없으면 미완료
+            }
+          }
+        }
+        return true;
       case 'schedule':
         return true; // 스케줄은 기본값이 있으므로 항상 완료
       case 'test':
@@ -342,15 +370,20 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   };
 
   const getNextTab = (currentTab: string) => {
-    const tabs = ['basic', 'templates', 'targets', 'schedule', 'test'];
+    const tabs = ['basic', 'templates', 'targets', 'mapping', 'schedule', 'test'];
     const currentIndex = tabs.indexOf(currentTab);
     return currentIndex < tabs.length - 1 ? tabs[currentIndex + 1] : null;
   };
 
+  // 매핑 변경 핸들러
+  const handleMappingChange = useCallback((mappings: TargetTemplateMappingType[]) => {
+    setTargetTemplateMappings(mappings);
+  }, []);
+
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="basic" className="flex items-center gap-2">
             <Info className="w-4 h-4" />
             기본정보
@@ -365,6 +398,11 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             <Users className="w-4 h-4" />
             대상 선정
             {isTabComplete('targets') && <CheckCircle className="w-3 h-3 text-green-600" />}
+          </TabsTrigger>
+          <TabsTrigger value="mapping" className="flex items-center gap-2">
+            <Target className="w-4 h-4" />
+            대상-템플릿 매핑
+            {isTabComplete('mapping') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
           <TabsTrigger value="schedule" className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
@@ -544,8 +582,31 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               이전: 알림톡 선택
             </Button>
             <Button 
-              onClick={() => canProceedToNext('targets') && setActiveTab('schedule')}
+              onClick={() => canProceedToNext('targets') && setActiveTab('mapping')}
               disabled={!canProceedToNext('targets')}
+            >
+              다음: 대상-템플릿 매핑
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* 매핑 탭 */}
+        <TabsContent value="mapping" className="space-y-6">
+          <TargetTemplateMapping
+            targetGroups={targetGroups}
+            selectedTemplates={selectedTemplates}
+            currentMappings={targetTemplateMappings}
+            onMappingChange={handleMappingChange}
+          />
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setActiveTab('targets')}>
+              이전: 대상 선정
+            </Button>
+            <Button 
+              onClick={() => canProceedToNext('mapping') && setActiveTab('schedule')}
+              disabled={!canProceedToNext('mapping')}
             >
               다음: 스케줄러 설정
               <ArrowRight className="w-4 h-4 ml-2" />
@@ -774,8 +835,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           </Card>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setActiveTab('targets')}>
-              이전: 대상 선정
+            <Button variant="outline" onClick={() => setActiveTab('mapping')}>
+              이전: 대상-템플릿 매핑
             </Button>
             <Button onClick={() => setActiveTab('test')}>
               다음: 테스트 설정
