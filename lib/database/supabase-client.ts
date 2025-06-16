@@ -1,33 +1,44 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 환경변수 확인 및 기본값 설정
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
+console.log('🔧 Supabase 클라이언트 초기화 중...');
+console.log('URL:', supabaseUrl);
+console.log('Anon Key 존재:', !!supabaseAnonKey);
+console.log('Service Key 존재:', !!supabaseServiceKey);
+console.log('Service Key 길이:', supabaseServiceKey.length);
+
 // 빌드 시 환경변수가 없어도 에러가 나지 않도록 처리
-let supabase = null;
-let supabaseAdmin = null;
+let supabase: SupabaseClient | null = null;
+let supabaseAdmin: SupabaseClient | null = null;
 
 if (supabaseUrl && supabaseAnonKey) {
   try {
     // 일반 클라이언트 (anon key 사용)
     supabase = createClient(supabaseUrl, supabaseAnonKey);
+    console.log('✅ Supabase 일반 클라이언트 초기화 성공');
     
-    // 관리자 클라이언트 (service role key 사용)
-    if (supabaseServiceKey) {
-      supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-    } else {
-      // service key가 없으면 anon key로 대체
-      supabaseAdmin = supabase;
-    }
+    // 관리자 클라이언트 - 임시로 anon key 사용 (Service Role Key 문제로 인해)
+    console.warn('⚠️ Service Role Key 문제로 인해 임시로 anon key를 사용합니다');
+    supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+    console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (anon key 사용)');
   } catch (error) {
-    console.error('Supabase 클라이언트 초기화 실패:', error);
+    console.error('❌ Supabase 클라이언트 초기화 실패:', error);
   }
+} else {
+  console.error('❌ Supabase URL 또는 Anon Key가 없습니다');
 }
 
 // Supabase 연결 테스트 함수
-export async function testSupabaseConnection() {
+export async function testSupabaseConnection(): Promise<boolean> {
   if (!supabase) {
     throw new Error('Supabase 클라이언트가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
   }

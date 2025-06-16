@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { VariableMapping, PersonalizationSettings, VariableMappingTemplate } from '@/lib/types/workflow';
 import { clientPersonalizationService } from '@/lib/services/personalization-service-client';
 import { MappingTemplateService } from '@/lib/services/mapping-template-service';
@@ -33,7 +33,23 @@ import {
   Sparkles,
   Loader2
 } from 'lucide-react';
-import { IndividualVariableService, type IndividualVariableMapping } from '@/lib/services/individual-variable-service';
+
+// 개별 변수 매핑 타입 정의
+interface IndividualVariableMapping {
+  id?: string;
+  variableName: string;
+  displayName: string;
+  sourceType: 'field' | 'query' | 'static';
+  sourceField?: string;
+  selectedColumn?: string;
+  defaultValue?: string;
+  formatter?: 'text' | 'number' | 'currency' | 'date' | 'phone';
+  category?: string;
+  tags?: string[];
+  isPublic?: boolean;
+  isFavorite?: boolean;
+  createdBy?: string;
+}
 
 interface KakaoTemplate {
   id: string;
@@ -434,10 +450,10 @@ export function VariableMapping({
       setSavingVariables(prev => new Set(prev).add(index));
       console.log(`💾 개별 변수 저장 시작: ${mapping.templateVariable}`);
 
-      const individualMapping: IndividualVariableMapping = {
+      const individualMapping = {
         variableName: mapping.templateVariable,
         displayName: mapping.templateVariable.replace(/^#{|}$/g, ''),
-        sourceType: mapping.sourceType,
+        sourceType: mapping.sourceType === 'function' ? 'field' : mapping.sourceType, // function을 field로 변환
         sourceField: mapping.sourceField,
         selectedColumn: mapping.selectedColumn,
         defaultValue: mapping.defaultValue,
@@ -449,8 +465,21 @@ export function VariableMapping({
         createdBy: 'user'
       };
 
-      const saved = await IndividualVariableService.saveVariableMapping(individualMapping);
-      console.log(`✅ 개별 변수 저장 완료: ${mapping.templateVariable}`, saved);
+      const response = await fetch('/api/supabase/individual-variables?action=create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(individualMapping),
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || '저장 실패');
+      }
+
+      console.log(`✅ 개별 변수 저장 완료: ${mapping.templateVariable}`, result.data);
 
       setSavedVariables(prev => new Set(prev).add(mapping.templateVariable));
       
@@ -476,7 +505,14 @@ export function VariableMapping({
     try {
       console.log(`🔍 개별 변수 불러오기: ${mapping.templateVariable}`);
       
-      const saved = await IndividualVariableService.getVariableMapping(mapping.templateVariable);
+      const response = await fetch(`/api/supabase/individual-variables?action=get&variableName=${encodeURIComponent(mapping.templateVariable)}`);
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || '불러오기 실패');
+      }
+
+      const saved = result.data;
       if (saved) {
         console.log(`📋 개별 변수 불러오기 성공: ${mapping.templateVariable}`, saved);
         
@@ -489,7 +525,13 @@ export function VariableMapping({
         });
 
         // 사용 기록
-        await IndividualVariableService.recordUsage(mapping.templateVariable);
+        await fetch('/api/supabase/individual-variables?action=record-usage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ variableName: mapping.templateVariable }),
+        });
         
         alert(`변수 "${mapping.templateVariable}" 설정을 불러왔습니다!`);
       } else {

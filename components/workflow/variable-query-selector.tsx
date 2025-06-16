@@ -49,33 +49,80 @@ export default function VariableQuerySelector({
   });
 
   // 템플릿 로드
-  const loadTemplates = () => {
-    const allTemplates = VariableQueryTemplateService.getTemplatesForVariable(variableName);
-    const filtered = searchTerm 
-      ? allTemplates.filter(t => 
-          t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          t.query.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      : allTemplates;
-    
-    filtered.sort((a, b) => b.usageCount - a.usageCount);
-    setTemplates(filtered);
+  const loadTemplates = async () => {
+    try {
+      // 실제 Supabase API에서 개별 변수 매핑 데이터 가져오기
+      const response = await fetch('/api/supabase/individual-variables?action=list');
+      const result = await response.json();
+      
+      if (result.success) {
+        // 현재 변수명과 일치하는 매핑들만 필터링
+        const matchingMappings = result.data.filter((mapping: any) => 
+          mapping.variableName === variableName
+        );
+        
+        // VariableQueryTemplate 형식으로 변환
+        const convertedTemplates = matchingMappings.map((mapping: any) => ({
+          id: mapping.id,
+          variableName: mapping.variableName,
+          name: mapping.displayName,
+          description: `${mapping.category} - ${mapping.sourceType}`,
+          query: mapping.sourceField || '',
+          selectedColumn: mapping.selectedColumn || '',
+          category: mapping.category,
+          tags: mapping.tags || [],
+          usageCount: mapping.usageCount || 0,
+          lastUsedAt: mapping.lastUsedAt,
+          createdAt: mapping.createdAt,
+          updatedAt: mapping.updatedAt,
+          isPublic: mapping.isPublic,
+          isFavorite: mapping.isFavorite
+        }));
+        
+        // 검색어로 필터링
+        const filtered = searchTerm 
+          ? convertedTemplates.filter((t: any) => 
+              t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              t.query.toLowerCase().includes(searchTerm.toLowerCase())
+            )
+          : convertedTemplates;
+        
+        // 사용 횟수 순으로 정렬
+        filtered.sort((a: any, b: any) => b.usageCount - a.usageCount);
+        setTemplates(filtered);
+      } else {
+        console.error('개별 변수 매핑 로드 실패:', result.error);
+        setTemplates([]);
+      }
+    } catch (error) {
+      console.error('개별 변수 매핑 로드 오류:', error);
+      setTemplates([]);
+    }
   };
 
   useEffect(() => {
     if (showLibrary) {
       loadTemplates();
-      VariableQueryTemplateService.initializeDefaultTemplates();
     }
   }, [showLibrary, variableName, searchTerm]);
 
   // 템플릿 선택
-  const handleSelectTemplate = (template: VariableQueryTemplate) => {
+  const handleSelectTemplate = async (template: VariableQueryTemplate) => {
     console.log('템플릿 선택:', template);
     
-    // 사용 횟수 증가
-    VariableQueryTemplateService.recordUsage(template.id);
+    try {
+      // Supabase API를 사용하여 사용 횟수 증가
+      await fetch('/api/supabase/individual-variables?action=record-usage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ variableName: template.variableName }),
+      });
+    } catch (error) {
+      console.error('사용 기록 저장 실패:', error);
+    }
     
     // 선택된 템플릿의 쿼리와 컬럼 정보를 부모에게 전달
     onSelect?.(template.query, template.selectedColumn || '');
@@ -88,16 +135,53 @@ export default function VariableQuerySelector({
   };
 
   // 즐겨찾기 토글
-  const handleToggleFavorite = (templateId: string) => {
-    VariableQueryTemplateService.toggleFavorite(templateId);
-    loadTemplates();
+  const handleToggleFavorite = async (templateId: string) => {
+    try {
+      // 현재 즐겨찾기 상태 찾기
+      const template = templates.find(t => t.id === templateId);
+      if (!template) return;
+
+      const response = await fetch(`/api/supabase/individual-variables?action=update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: templateId,
+          isFavorite: !template.isFavorite
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        loadTemplates();
+      } else {
+        console.error('즐겨찾기 토글 실패:', result.error);
+      }
+    } catch (error) {
+      console.error('즐겨찾기 토글 오류:', error);
+    }
   };
 
   // 템플릿 삭제
-  const handleDeleteTemplate = (templateId: string) => {
+  const handleDeleteTemplate = async (templateId: string) => {
     if (confirm('정말로 이 쿼리 템플릿을 삭제하시겠습니까?')) {
-      VariableQueryTemplateService.deleteTemplate(templateId);
-      loadTemplates();
+      try {
+        const response = await fetch(`/api/supabase/individual-variables?action=delete&id=${templateId}`, {
+          method: 'DELETE',
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          loadTemplates();
+        } else {
+          console.error('템플릿 삭제 실패:', result.error);
+          alert('삭제에 실패했습니다.');
+        }
+      } catch (error) {
+        console.error('템플릿 삭제 오류:', error);
+        alert('삭제 중 오류가 발생했습니다.');
+      }
     }
   };
 
@@ -121,7 +205,7 @@ export default function VariableQuerySelector({
   };
 
   // 쿼리 저장
-  const handleSaveQuery = () => {
+  const handleSaveQuery = async () => {
     if (!saveForm.name.trim()) {
       alert('템플릿 이름을 입력해주세요.');
       return;
@@ -145,28 +229,43 @@ export default function VariableQuerySelector({
     }
 
     try {
-      const template = VariableQueryTemplateService.saveTemplate({
-        variableName,
-        query: currentQuery,
-        selectedColumn: currentSelectedColumn || '', // 빈 문자열로 저장
-        name: saveForm.name,
-        description: saveForm.description,
-        category: saveForm.category,
-        tags: saveForm.tags,
-        isPublic: saveForm.isPublic
+      // Supabase API를 사용하여 개별 변수 매핑 저장
+      const response = await fetch('/api/supabase/individual-variables?action=create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          variableName,
+          displayName: saveForm.name,
+          sourceType: 'query',
+          sourceField: currentQuery,
+          selectedColumn: currentSelectedColumn || '',
+          formatter: 'text',
+          category: saveForm.category,
+          tags: saveForm.tags,
+          isPublic: saveForm.isPublic,
+          createdBy: 'user'
+        }),
       });
 
-      alert(`쿼리 템플릿이 저장되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
-      onSave?.(template);
-      setShowSaveForm(false);
+      const result = await response.json();
       
-      // 라이브러리가 열려있다면 새로고침
-      if (showLibrary) {
-        loadTemplates();
+      if (result.success) {
+        alert(`쿼리 템플릿이 저장되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
+        onSave?.(result.data);
+        setShowSaveForm(false);
+        
+        // 라이브러리가 열려있다면 새로고침
+        if (showLibrary) {
+          loadTemplates();
+        }
+      } else {
+        throw new Error(result.error || '저장 실패');
       }
     } catch (error) {
       console.error('저장 실패:', error);
-      alert('저장에 실패했습니다.');
+      alert(`저장에 실패했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     }
   };
 

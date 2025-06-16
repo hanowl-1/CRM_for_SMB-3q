@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import individualVariableService from '@/lib/services/individual-variable-service';
+import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
+
+// 디버깅을 위한 환경변수 확인
+console.log('🔍 API 라우트 환경변수 확인:');
+console.log('NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY 존재:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+console.log('SUPABASE_SERVICE_ROLE_KEY 존재:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+console.log('SUPABASE_SERVICE_ROLE_KEY 길이:', process.env.SUPABASE_SERVICE_ROLE_KEY?.length || 0);
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,7 +29,7 @@ export async function GET(request: NextRequest) {
           isFavorite: isFavorite ? isFavorite === 'true' : undefined
         };
         
-        const mappings = individualVariableService.getVariableMappings(filter);
+        const mappings = await supabaseWorkflowService.getIndividualVariableMappings(filter);
         console.log(`📊 개별 변수 매핑 ${mappings.length}개 조회 완료`);
         
         return NextResponse.json({
@@ -39,7 +46,7 @@ export async function GET(request: NextRequest) {
           }, { status: 400 });
         }
 
-        const mapping = individualVariableService.getVariableMapping(variableName);
+        const mapping = await supabaseWorkflowService.getIndividualVariableMapping(variableName);
         console.log(`📋 개별 변수 매핑 조회: ${variableName} - ${mapping ? '성공' : '없음'}`);
         
         return NextResponse.json({
@@ -66,26 +73,52 @@ export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
-    const body = await request.json();
-
-    console.log(`💾 개별 변수 매핑 API 요청: ${action}`, body);
+    
+    console.log(`💾 개별 변수 매핑 POST API 요청: ${action}`);
+    
+    let body;
+    try {
+      body = await request.json();
+      console.log('📝 요청 본문:', JSON.stringify(body, null, 2));
+    } catch (parseError) {
+      console.error('❌ JSON 파싱 오류:', parseError);
+      return NextResponse.json({
+        success: false,
+        error: 'JSON 파싱 오류가 발생했습니다.'
+      }, { status: 400 });
+    }
 
     switch (action) {
       case 'create':
+        console.log('🔧 개별 변수 매핑 생성 시작...');
+        
         if (!body.variableName || !body.sourceType) {
+          console.error('❌ 필수 필드 누락:', { variableName: body.variableName, sourceType: body.sourceType });
           return NextResponse.json({
             success: false,
             error: 'variableName과 sourceType은 필수입니다.'
           }, { status: 400 });
         }
 
-        const created = individualVariableService.saveVariableMapping(body);
-        console.log(`✅ 개별 변수 매핑 생성 완료: ${body.variableName}`);
+        console.log('✅ 필수 필드 검증 통과');
         
-        return NextResponse.json({
-          success: true,
-          data: created
-        });
+        try {
+          const created = await supabaseWorkflowService.createIndividualVariableMapping(body);
+          console.log(`✅ 개별 변수 매핑 생성 완료: ${body.variableName}`, created);
+          
+          return NextResponse.json({
+            success: true,
+            data: created
+          });
+        } catch (serviceError) {
+          console.error('❌ 서비스 레이어 오류:', serviceError);
+          console.error('❌ 서비스 오류 스택:', serviceError instanceof Error ? serviceError.stack : 'No stack');
+          
+          return NextResponse.json({
+            success: false,
+            error: serviceError instanceof Error ? serviceError.message : '서비스 오류가 발생했습니다.'
+          }, { status: 500 });
+        }
 
       case 'update':
         if (!body.id) {
@@ -95,7 +128,7 @@ export async function POST(request: NextRequest) {
           }, { status: 400 });
         }
 
-        const updated = individualVariableService.updateVariableMapping(body.id, body);
+        const updated = await supabaseWorkflowService.updateIndividualVariableMapping(body.id, body);
         console.log(`🔧 개별 변수 매핑 업데이트 완료: ${body.id}`);
         
         return NextResponse.json({
@@ -111,7 +144,7 @@ export async function POST(request: NextRequest) {
           }, { status: 400 });
         }
 
-        individualVariableService.recordUsage(body.variableName);
+        await supabaseWorkflowService.recordIndividualVariableMappingUsage(body.variableName);
         console.log(`📈 개별 변수 매핑 사용 기록 완료: ${body.variableName}`);
         
         return NextResponse.json({
@@ -126,7 +159,9 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
     }
   } catch (error) {
-    console.error('❌ 개별 변수 매핑 생성/업데이트 API 오류:', error);
+    console.error('❌ 개별 변수 매핑 생성/업데이트 API 최상위 오류:', error);
+    console.error('❌ 최상위 오류 스택:', error instanceof Error ? error.stack : 'No stack');
+    
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
@@ -150,7 +185,7 @@ export async function DELETE(request: NextRequest) {
         }, { status: 400 });
       }
 
-      const deleted = individualVariableService.deleteVariableMapping(id);
+      const deleted = await supabaseWorkflowService.deleteIndividualVariableMapping(id);
       console.log(`🗑️ 개별 변수 매핑 삭제 완료: ${id}`);
       
       return NextResponse.json({

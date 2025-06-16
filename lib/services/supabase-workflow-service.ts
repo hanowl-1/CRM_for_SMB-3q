@@ -90,20 +90,33 @@ interface CustomQueryLog {
 }
 
 class SupabaseWorkflowService {
-  private async ensureTables() {
+  private getClient(): SupabaseClient {
     if (!supabaseAdmin) {
-      throw new Error('Supabase admin client가 초기화되지 않았습니다.');
+      throw new Error('Supabase admin client가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
     }
+    return supabaseAdmin;
+  }
+
+  private async ensureTables() {
+    const client = this.getClient();
 
     // 테이블 존재 확인 및 생성은 이미 supabase_hybrid_schema.sql에서 처리됨
     // 여기서는 연결만 확인
-    const { data, error } = await (supabaseAdmin as SupabaseClient)
-      .from('workflows')
-      .select('id')
-      .limit(1);
+    try {
+      const { data, error } = await client
+        .from('workflows')
+        .select('id')
+        .limit(1);
 
-    if (error && error.code === 'PGRST116') {
-      throw new Error('워크플로우 테이블이 존재하지 않습니다. 스키마를 먼저 실행해주세요.');
+      if (error && error.code === 'PGRST116') {
+        throw new Error('워크플로우 테이블이 존재하지 않습니다. 스키마를 먼저 실행해주세요.');
+      }
+    } catch (error: any) {
+      console.error('테이블 확인 중 오류:', error);
+      // 테이블이 없는 경우가 아니라면 다른 오류이므로 그대로 throw
+      if (error.code !== 'PGRST116') {
+        throw error;
+      }
     }
   }
 
@@ -115,20 +128,21 @@ class SupabaseWorkflowService {
   async createWorkflow(workflow: Workflow): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('workflows')
         .insert([{
           name: workflow.name,
           description: workflow.description,
           status: workflow.status || 'draft',
-          trigger_type: workflow.triggerType,
-          trigger_config: workflow.triggerConfig || {},
-          target_config: workflow.targetConfig || {},
-          message_config: workflow.messageConfig || {},
-          variables: workflow.variables || {},
-          schedule_config: workflow.scheduleConfig || {},
-          created_by: workflow.createdBy || 'system'
+          trigger_type: (workflow as any).triggerType,
+          trigger_config: (workflow as any).triggerConfig || {},
+          target_config: (workflow as any).targetConfig || {},
+          message_config: (workflow as any).messageConfig || {},
+          variables: (workflow as any).variables || {},
+          schedule_config: (workflow as any).scheduleConfig || {},
+          created_by: (workflow as any).createdBy || 'system'
         }])
         .select()
         .single();
@@ -149,8 +163,9 @@ class SupabaseWorkflowService {
   async getWorkflows(limit = 50, offset = 0): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('workflows')
         .select(`
           id, name, description, status, trigger_type,
@@ -176,8 +191,9 @@ class SupabaseWorkflowService {
   async getWorkflow(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('workflows')
         .select('*')
         .eq('id', id)
@@ -199,19 +215,20 @@ class SupabaseWorkflowService {
   async updateWorkflow(id: string, updates: Partial<Workflow>): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       const updateData: any = {};
       if (updates.name) updateData.name = updates.name;
       if (updates.description !== undefined) updateData.description = updates.description;
       if (updates.status) updateData.status = updates.status;
-      if (updates.triggerType) updateData.trigger_type = updates.triggerType;
-      if (updates.triggerConfig) updateData.trigger_config = updates.triggerConfig;
-      if (updates.targetConfig) updateData.target_config = updates.targetConfig;
-      if (updates.messageConfig) updateData.message_config = updates.messageConfig;
-      if (updates.variables) updateData.variables = updates.variables;
-      if (updates.scheduleConfig) updateData.schedule_config = updates.scheduleConfig;
+      if ((updates as any).triggerType) updateData.trigger_type = (updates as any).triggerType;
+      if ((updates as any).triggerConfig) updateData.trigger_config = (updates as any).triggerConfig;
+      if ((updates as any).targetConfig) updateData.target_config = (updates as any).targetConfig;
+      if ((updates as any).messageConfig) updateData.message_config = (updates as any).messageConfig;
+      if ((updates as any).variables) updateData.variables = (updates as any).variables;
+      if ((updates as any).scheduleConfig) updateData.schedule_config = (updates as any).scheduleConfig;
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('workflows')
         .update(updateData)
         .eq('id', id)
@@ -234,8 +251,9 @@ class SupabaseWorkflowService {
   async deleteWorkflow(id: string): Promise<{ success: boolean; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
+      const { error } = await client
         .from('workflows')
         .delete()
         .eq('id', id);
@@ -256,9 +274,10 @@ class SupabaseWorkflowService {
   async getWorkflowStats(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       // 전체 통계
-      const { data: totalStats, error: totalError } = await supabaseAdmin
+      const { data: totalStats, error: totalError } = await client
         .from('workflows')
         .select('status')
         .then(result => {
@@ -278,7 +297,7 @@ class SupabaseWorkflowService {
       }
 
       // 최근 실행 기록
-      const { data: recentRuns, error: runsError } = await supabaseAdmin
+      const { data: recentRuns, error: runsError } = await client
         .from('workflow_runs')
         .select('status, started_at, success_count, failed_count')
         .order('started_at', { ascending: false })
@@ -309,8 +328,9 @@ class SupabaseWorkflowService {
   async createCustomQuery(query: CustomQuery): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('custom_queries')
         .insert([{
           query_name: query.query_name,
@@ -341,8 +361,9 @@ class SupabaseWorkflowService {
   async getCustomQueries(limit = 50, offset = 0): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('custom_queries')
         .select(`
           id, query_name, display_name, description, 
@@ -368,8 +389,9 @@ class SupabaseWorkflowService {
   async getCustomQuery(queryName: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('custom_queries')
         .select('*')
         .eq('query_name', queryName)
@@ -391,6 +413,7 @@ class SupabaseWorkflowService {
   async updateCustomQuery(queryName: string, updates: Partial<CustomQuery>): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       const updateData: any = {};
       if (updates.display_name) updateData.display_name = updates.display_name;
@@ -400,7 +423,7 @@ class SupabaseWorkflowService {
       if (updates.enabled !== undefined) updateData.enabled = updates.enabled;
       if (updates.category) updateData.category = updates.category;
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('custom_queries')
         .update(updateData)
         .eq('query_name', queryName)
@@ -423,8 +446,9 @@ class SupabaseWorkflowService {
   async deleteCustomQuery(queryName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
+      const { error } = await client
         .from('custom_queries')
         .delete()
         .eq('query_name', queryName);
@@ -445,8 +469,9 @@ class SupabaseWorkflowService {
   async logCustomQueryExecution(log: CustomQueryLog): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('custom_query_logs')
         .insert([{
           query_id: log.query_id,
@@ -475,9 +500,10 @@ class SupabaseWorkflowService {
   async getCustomQueryStats(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       // 전체 쿼리 통계
-      const { data: totalStats, error: totalError } = await supabaseAdmin
+      const { data: totalStats, error: totalError } = await client
         .from('custom_queries')
         .select('enabled, category')
         .then(result => {
@@ -500,7 +526,7 @@ class SupabaseWorkflowService {
       }
 
       // 최근 실행 로그
-      const { data: recentLogs, error: logsError } = await supabaseAdmin
+      const { data: recentLogs, error: logsError } = await client
         .from('custom_query_logs')
         .select(`
           executed_at, execution_time_ms, result_count, success,
@@ -534,8 +560,9 @@ class SupabaseWorkflowService {
   async createVariableMappingTemplate(template: any): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('variable_mapping_templates')
         .insert([{
           name: template.name,
@@ -568,8 +595,9 @@ class SupabaseWorkflowService {
   async getVariableMappingTemplates(filter?: any): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      let query = supabaseAdmin
+      let query = client
         .from('variable_mapping_templates')
         .select('*')
         .order('created_at', { ascending: false });
@@ -619,8 +647,9 @@ class SupabaseWorkflowService {
   async getVariableMappingTemplate(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('variable_mapping_templates')
         .select('*')
         .eq('id', id)
@@ -658,6 +687,7 @@ class SupabaseWorkflowService {
   async updateVariableMappingTemplate(id: string, updates: any): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       const updateData: any = {};
       if (updates.name) updateData.name = updates.name;
@@ -669,7 +699,7 @@ class SupabaseWorkflowService {
       if (updates.isFavorite !== undefined) updateData.is_favorite = updates.isFavorite;
       if (updates.lastUsedAt) updateData.last_used_at = updates.lastUsedAt;
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('variable_mapping_templates')
         .update(updateData)
         .eq('id', id)
@@ -708,8 +738,9 @@ class SupabaseWorkflowService {
   async deleteVariableMappingTemplate(id: string): Promise<{ success: boolean; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
+      const { error } = await client
         .from('variable_mapping_templates')
         .delete()
         .eq('id', id);
@@ -730,18 +761,42 @@ class SupabaseWorkflowService {
   async recordVariableMappingTemplateUsage(id: string): Promise<{ success: boolean; error?: string }> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
-        .from('variable_mapping_templates')
-        .update({
-          usage_count: supabaseAdmin.raw('usage_count + 1'),
-          last_used_at: new Date().toISOString()
-        })
-        .eq('id', id);
+      // SQL 함수를 사용하여 usage_count 증가
+      const { error } = await client.rpc('increment_usage_count', {
+        table_name: 'variable_mapping_templates',
+        record_id: id
+      });
 
       if (error) {
-        console.error('변수 매핑 템플릿 사용 기록 오류:', error);
-        return { success: false, error: error.message };
+        // RPC 함수가 없는 경우 대안 방법 사용
+        console.warn('RPC 함수를 사용할 수 없어 대안 방법을 사용합니다:', error);
+        
+        // 현재 값을 가져와서 업데이트
+        const { data: current, error: fetchError } = await client
+          .from('variable_mapping_templates')
+          .select('usage_count')
+          .eq('id', id)
+          .single();
+
+        if (fetchError) {
+          console.error('변수 매핑 템플릿 사용 기록 오류:', fetchError);
+          return { success: false, error: fetchError.message };
+        }
+
+        const { error: updateError } = await client
+          .from('variable_mapping_templates')
+          .update({
+            usage_count: (current.usage_count || 0) + 1,
+            last_used_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (updateError) {
+          console.error('변수 매핑 템플릿 사용 기록 오류:', updateError);
+          return { success: false, error: updateError.message };
+        }
       }
 
       return { success: true };
@@ -758,31 +813,44 @@ class SupabaseWorkflowService {
   // 개별 변수 매핑 생성
   async createIndividualVariableMapping(mapping: any): Promise<any> {
     try {
-      await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      console.log('🔧 개별 변수 매핑 생성 시도:', mapping);
+      console.log('🔧 클라이언트 상태:', !!client);
+
+      const insertData = {
+        variable_name: mapping.variableName,
+        display_name: mapping.displayName,
+        source_type: mapping.sourceType,
+        source_field: mapping.sourceField,
+        selected_column: mapping.selectedColumn,
+        default_value: mapping.defaultValue,
+        formatter: mapping.formatter || 'text',
+        category: mapping.category || 'general',
+        tags: mapping.tags || [],
+        is_public: mapping.isPublic || false,
+        is_favorite: mapping.isFavorite || false,
+        created_by: mapping.createdBy || 'system'
+      };
+
+      console.log('🔧 삽입할 데이터:', insertData);
+
+      const { data, error } = await client
         .from('individual_variable_mappings')
-        .insert([{
-          variable_name: mapping.variableName,
-          display_name: mapping.displayName,
-          source_type: mapping.sourceType,
-          source_field: mapping.sourceField,
-          selected_column: mapping.selectedColumn,
-          default_value: mapping.defaultValue,
-          formatter: mapping.formatter || 'text',
-          category: mapping.category || 'general',
-          tags: mapping.tags || [],
-          is_public: mapping.isPublic || false,
-          is_favorite: mapping.isFavorite || false,
-          created_by: mapping.createdBy || 'system'
-        }])
+        .insert([insertData])
         .select()
         .single();
 
       if (error) {
-        console.error('개별 변수 매핑 생성 오류:', error);
-        throw error;
+        console.error('❌ 개별 변수 매핑 생성 Supabase 오류:', error);
+        console.error('❌ 오류 코드:', error.code);
+        console.error('❌ 오류 메시지:', error.message);
+        console.error('❌ 오류 세부사항:', error.details);
+        console.error('❌ 오류 힌트:', error.hint);
+        throw new Error(`Supabase 오류: ${error.message} (코드: ${error.code})`);
       }
+
+      console.log('✅ 개별 변수 매핑 생성 성공:', data);
 
       // 응답 데이터를 클라이언트 형식으로 변환
       return {
@@ -805,7 +873,9 @@ class SupabaseWorkflowService {
         updatedAt: data.updated_at
       };
     } catch (error) {
-      console.error('개별 변수 매핑 생성 실패:', error);
+      console.error('❌ 개별 변수 매핑 생성 최종 실패:', error);
+      console.error('❌ 오류 타입:', typeof error);
+      console.error('❌ 오류 스택:', error instanceof Error ? error.stack : 'No stack');
       throw error;
     }
   }
@@ -814,8 +884,11 @@ class SupabaseWorkflowService {
   async getIndividualVariableMappings(filter?: any): Promise<any[]> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      let query = supabaseAdmin
+      console.log('🔍 개별 변수 매핑 목록 조회 시도, 필터:', filter);
+
+      let query = client
         .from('individual_variable_mappings')
         .select('*')
         .order('usage_count', { ascending: false })
@@ -841,6 +914,8 @@ class SupabaseWorkflowService {
         console.error('개별 변수 매핑 목록 조회 오류:', error);
         throw error;
       }
+
+      console.log('✅ 개별 변수 매핑 목록 조회 성공:', data?.length || 0, '개');
 
       // 응답 데이터를 클라이언트 형식으로 변환
       return (data || []).map(item => ({
@@ -872,8 +947,9 @@ class SupabaseWorkflowService {
   async getIndividualVariableMapping(variableName: string): Promise<any | null> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('individual_variable_mappings')
         .select('*')
         .eq('variable_name', variableName)
@@ -917,6 +993,7 @@ class SupabaseWorkflowService {
   async updateIndividualVariableMapping(id: string, updates: any): Promise<any | null> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
       const updateData: any = {};
       if (updates.displayName !== undefined) updateData.display_name = updates.displayName;
@@ -930,7 +1007,7 @@ class SupabaseWorkflowService {
       if (updates.isPublic !== undefined) updateData.is_public = updates.isPublic;
       if (updates.isFavorite !== undefined) updateData.is_favorite = updates.isFavorite;
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await client
         .from('individual_variable_mappings')
         .update(updateData)
         .eq('id', id)
@@ -972,8 +1049,9 @@ class SupabaseWorkflowService {
   async deleteIndividualVariableMapping(id: string): Promise<boolean> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
+      const { error } = await client
         .from('individual_variable_mappings')
         .delete()
         .eq('id', id);
@@ -994,18 +1072,41 @@ class SupabaseWorkflowService {
   async recordIndividualVariableMappingUsage(variableName: string): Promise<void> {
     try {
       await this.ensureTables();
+      const client = this.getClient();
 
-      const { error } = await supabaseAdmin
-        .from('individual_variable_mappings')
-        .update({
-          usage_count: supabaseAdmin.raw('usage_count + 1'),
-          last_used_at: new Date().toISOString()
-        })
-        .eq('variable_name', variableName);
+      // SQL 함수를 사용하여 usage_count 증가
+      const { error } = await client.rpc('increment_variable_usage_count', {
+        var_name: variableName
+      });
 
       if (error) {
-        console.error('개별 변수 매핑 사용 기록 오류:', error);
-        throw error;
+        // RPC 함수가 없는 경우 대안 방법 사용
+        console.warn('RPC 함수를 사용할 수 없어 대안 방법을 사용합니다:', error);
+        
+        // 현재 값을 가져와서 업데이트
+        const { data: current, error: fetchError } = await client
+          .from('individual_variable_mappings')
+          .select('usage_count')
+          .eq('variable_name', variableName)
+          .single();
+
+        if (fetchError) {
+          console.error('개별 변수 매핑 사용 기록 오류:', fetchError);
+          throw fetchError;
+        }
+
+        const { error: updateError } = await client
+          .from('individual_variable_mappings')
+          .update({
+            usage_count: (current.usage_count || 0) + 1,
+            last_used_at: new Date().toISOString()
+          })
+          .eq('variable_name', variableName);
+
+        if (updateError) {
+          console.error('개별 변수 매핑 사용 기록 오류:', updateError);
+          throw updateError;
+        }
       }
     } catch (error) {
       console.error('개별 변수 매핑 사용 기록 실패:', error);
