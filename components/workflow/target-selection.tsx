@@ -80,7 +80,11 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
     if (!dynamicSql.trim()) return;
     
     setIsTestingQuery(true);
+    setQueryTestResult(null); // 이전 결과 초기화
+    
     try {
+      console.log('동적 쿼리 테스트 시작:', dynamicSql);
+      
       const response = await fetch('/api/mysql/targets/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,20 +95,34 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
         })
       });
       
+      console.log('응답 상태:', response.status, response.statusText);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log('쿼리 테스트 결과:', result);
         setQueryTestResult(result);
       } else {
-        const error = await response.json();
-        setQueryTestResult({ 
-          success: false, 
-          error: error.message || '쿼리 실행 실패' 
-        });
+        const errorText = await response.text();
+        console.error('API 오류 응답:', errorText);
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          setQueryTestResult({ 
+            success: false, 
+            error: errorJson.error || errorJson.message || '쿼리 실행 실패' 
+          });
+        } catch (parseError) {
+          setQueryTestResult({ 
+            success: false, 
+            error: `HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}` 
+          });
+        }
       }
     } catch (error) {
+      console.error('네트워크 오류:', error);
       setQueryTestResult({ 
         success: false, 
-        error: '네트워크 오류가 발생했습니다.' 
+        error: `네트워크 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}` 
       });
     } finally {
       setIsTestingQuery(false);

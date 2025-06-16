@@ -6,12 +6,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { type, table, conditions, query, limit = 10 } = body;
 
+    console.log('대상 미리보기 요청:', { type, table, query: query?.substring(0, 100), limit });
+
     let sql = '';
     let params: any[] = [];
 
     if (type === 'custom_query') {
       // 동적 쿼리 실행
       if (!query || typeof query !== 'string') {
+        console.error('잘못된 쿼리:', query);
         return NextResponse.json(
           { success: false, error: 'SQL 쿼리가 필요합니다.' },
           { status: 400 }
@@ -23,6 +26,7 @@ export async function POST(request: NextRequest) {
       
       // SELECT 문만 허용
       if (!normalizedQuery.startsWith('select')) {
+        console.error('SELECT가 아닌 쿼리 시도:', normalizedQuery.substring(0, 50));
         return NextResponse.json(
           { success: false, error: 'SELECT 문만 허용됩니다.' },
           { status: 400 }
@@ -32,6 +36,7 @@ export async function POST(request: NextRequest) {
       // 위험한 키워드 차단
       const dangerousKeywords = ['drop', 'delete', 'update', 'insert', 'alter', 'create', 'truncate'];
       if (dangerousKeywords.some(keyword => normalizedQuery.includes(keyword))) {
+        console.error('위험한 키워드 포함:', normalizedQuery.substring(0, 50));
         return NextResponse.json(
           { success: false, error: '허용되지 않는 SQL 명령어가 포함되어 있습니다.' },
           { status: 400 }
@@ -42,13 +47,22 @@ export async function POST(request: NextRequest) {
       const previewQuery = `${query} LIMIT ${limit}`;
       const countQuery = `SELECT COUNT(*) as total FROM (${query}) as subquery`;
 
+      console.log('실행할 쿼리들:', {
+        previewQuery: previewQuery.substring(0, 200),
+        countQuery: countQuery.substring(0, 200)
+      });
+
       try {
         // 총 개수 조회
+        console.log('카운트 쿼리 실행 중...');
         const countResult = await executeQuery(countQuery, []) as any[];
         const totalCount = countResult[0]?.total || 0;
+        console.log('총 개수:', totalCount);
 
         // 미리보기 데이터 조회
+        console.log('미리보기 쿼리 실행 중...');
         const previewResult = await executeQuery(previewQuery, []) as any[];
+        console.log('미리보기 결과 개수:', previewResult.length);
 
         return NextResponse.json({
           success: true,
@@ -58,7 +72,13 @@ export async function POST(request: NextRequest) {
         });
 
       } catch (queryError: any) {
-        console.error('쿼리 실행 오류:', queryError);
+        console.error('쿼리 실행 오류 상세:', {
+          message: queryError.message,
+          code: queryError.code,
+          errno: queryError.errno,
+          sqlState: queryError.sqlState,
+          sql: queryError.sql
+        });
         return NextResponse.json(
           { success: false, error: `쿼리 실행 실패: ${queryError.message}` },
           { status: 400 }
