@@ -44,12 +44,13 @@ interface WorkflowBuilderProps {
 }
 
 // KakaoTemplate을 VariableMapping에서 사용하는 형태로 변환하는 헬퍼 함수
-const convertToVariableMappingTemplate = (template: KakaoTemplate) => ({
+const convertToVariableMappingTemplate = (template: KakaoTemplate, existingPersonalization?: PersonalizationSettings) => ({
   id: template.id,
   name: template.templateName,
   content: template.templateContent,
   category: template.category || '기타',
-  variables: template.variables || []
+  variables: template.variables || [],
+  personalization: existingPersonalization || template.personalization
 });
 
 export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderProps) {
@@ -147,7 +148,17 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   const handleTemplateSelect = (template: KakaoTemplate) => {
     if (!selectedTemplates.find(t => t.id === template.id)) {
-      setSelectedTemplates([...selectedTemplates, template]);
+      // 기존 개인화 설정이 있는지 확인
+      const existingPersonalization = templatePersonalizations[template.id];
+      
+      const templateWithPersonalization = {
+        ...template,
+        personalization: existingPersonalization
+      };
+      
+      setSelectedTemplates([...selectedTemplates, templateWithPersonalization]);
+      
+      console.log(`📋 템플릿 ${template.id} 선택됨, 기존 개인화 설정:`, existingPersonalization ? '있음' : '없음');
     }
     setShowTemplateSelector(false);
   };
@@ -181,12 +192,20 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   // 새로운 함수: 개인화 설정 변경 핸들러를 useCallback으로 메모이제이션
   const handlePersonalizationChange = useCallback((templateId: string, settings: PersonalizationSettings) => {
-    console.log(`🔧 템플릿 ${templateId} 개인화 설정 변경:`, settings);
+    console.log(`🔧 템플릿 ${templateId} 개인화 설정 변경:`, {
+      enabled: settings.enabled,
+      mappingsCount: settings.variableMappings.length,
+      mappings: settings.variableMappings
+    });
     
-    setTemplatePersonalizations(prev => ({
-      ...prev,
-      [templateId]: settings
-    }));
+    setTemplatePersonalizations(prev => {
+      const updated = {
+        ...prev,
+        [templateId]: settings
+      };
+      console.log(`💾 개인화 설정 저장 완료:`, updated);
+      return updated;
+    });
     
     // 개인화 설정에서 변수 추출하여 저장 (모든 값 타입 고려)
     const variables: Record<string, string> = {};
@@ -205,19 +224,25 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       }
     });
     
-    setTemplateVariables(prev => ({
-      ...prev,
-      [templateId]: variables
-    }));
+    setTemplateVariables(prev => {
+      const updated = {
+        ...prev,
+        [templateId]: variables
+      };
+      console.log(`🔧 템플릿 ${templateId} 변수 저장:`, variables);
+      return updated;
+    });
     
     // 선택된 템플릿 목록에서 해당 템플릿의 개인화 설정도 업데이트
-    setSelectedTemplates(prev => prev.map(template => 
-      template.id === templateId 
-        ? { ...template, personalization: settings }
-        : template
-    ));
-    
-    console.log(`🔧 템플릿 ${templateId} 변수 저장:`, variables);
+    setSelectedTemplates(prev => {
+      const updated = prev.map(template => 
+        template.id === templateId 
+          ? { ...template, personalization: settings }
+          : template
+      );
+      console.log(`📋 선택된 템플릿 목록 업데이트 완료`);
+      return updated;
+    });
   }, []);
 
   const handleSave = () => {
@@ -482,7 +507,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                       {/* 변수 매핑 컴포넌트 */}
                       <div className="border-t pt-4">
                         <VariableMapping
-                          selectedTemplate={convertToVariableMappingTemplate(template)}
+                          selectedTemplate={convertToVariableMappingTemplate(template, templatePersonalizations[template.id])}
                           onMappingChange={(settings) => handlePersonalizationChange(template.id, settings)}
                         />
                       </div>

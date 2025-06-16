@@ -16,7 +16,8 @@ import {
   Calendar,
   TrendingUp,
   Eye,
-  Settings
+  Settings,
+  Loader2
 } from 'lucide-react';
 import type { 
   VariableMappingTemplate, 
@@ -39,6 +40,8 @@ export default function MappingTemplateManager({
   mode = 'manage'
 }: MappingTemplateManagerProps) {
   const [templates, setTemplates] = useState<VariableMappingTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<MappingTemplateFilter>({
     sortBy: 'lastUsedAt',
     sortOrder: 'desc'
@@ -76,16 +79,31 @@ export default function MappingTemplateManager({
 
   const loadTemplates = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('🔄 템플릿 로딩 시작...');
+      
       const currentFilter = {
         ...filter,
         searchTerm: searchTerm || undefined,
         category: selectedCategory || undefined,
         isFavorite: showFavoritesOnly || undefined
       };
+      
+      console.log('📋 필터 조건:', currentFilter);
+      
       const loadedTemplates = await MappingTemplateService.getTemplates(currentFilter);
+      
+      console.log('✅ 템플릿 로딩 완료:', loadedTemplates.length, '개');
+      console.log('📄 로딩된 템플릿들:', loadedTemplates);
+      
       setTemplates(loadedTemplates);
     } catch (error) {
-      console.error('템플릿 로드 실패:', error);
+      console.error('❌ 템플릿 로드 실패:', error);
+      setError(error instanceof Error ? error.message : '템플릿을 불러오는데 실패했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -93,6 +111,51 @@ export default function MappingTemplateManager({
   useEffect(() => {
     loadTemplates();
   }, [filter, searchTerm, selectedCategory, showFavoritesOnly]);
+
+  // 테스트 데이터 생성 함수
+  const createTestTemplate = async () => {
+    try {
+      const testTemplate = {
+        name: '성과 리포트 기본 템플릿',
+        description: '월간 성과 리포트에 사용되는 기본 변수 매핑 템플릿입니다.',
+        category: 'performance',
+        tags: ['성과', '리포트', '월간'],
+        isPublic: true,
+        usageCount: 0,
+        variableMappings: [
+          {
+            templateVariable: '#{companyName}',
+            sourceField: 'companyName',
+            sourceType: 'field' as const,
+            defaultValue: '회사명',
+            formatter: 'text' as const
+          },
+          {
+            templateVariable: '#{totalReviews}',
+            sourceField: 'totalReviews',
+            sourceType: 'field' as const,
+            defaultValue: '0',
+            formatter: 'number' as const
+          },
+          {
+            templateVariable: '#{monthlyReviews}',
+            sourceField: 'monthlyReviews',
+            sourceType: 'field' as const,
+            defaultValue: '0',
+            formatter: 'number' as const
+          }
+        ]
+      };
+
+      console.log('🧪 테스트 템플릿 생성 중...');
+      const created = await MappingTemplateService.saveTemplate(testTemplate);
+      console.log('✅ 테스트 템플릿 생성 완료:', created);
+      
+      loadTemplates(); // 목록 새로고침
+    } catch (error) {
+      console.error('❌ 테스트 템플릿 생성 실패:', error);
+    }
+  };
 
   const handleToggleFavorite = async (templateId: string) => {
     try {
@@ -226,26 +289,67 @@ export default function MappingTemplateManager({
           <Star className={`w-4 h-4 ${showFavoritesOnly ? 'fill-current' : ''}`} />
           즐겨찾기
         </button>
+
+        {/* 테스트 데이터 생성 버튼 (개발용) */}
+        {mode === 'manage' && (
+          <button
+            onClick={createTestTemplate}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            <Plus className="w-4 h-4" />
+            테스트 데이터
+          </button>
+        )}
       </div>
+
+      {/* 에러 상태 */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-800">
+            <Settings className="w-4 h-4" />
+            <span className="font-medium">오류 발생</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+          <button
+            onClick={loadTemplates}
+            className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded text-sm hover:bg-red-200"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
+
+      {/* 로딩 상태 */}
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-gray-600">템플릿을 불러오는 중...</p>
+          </div>
+        </div>
+      )}
 
       {/* 템플릿 목록 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredTemplates.map((template) => (
-          <TemplateCard
-            key={template.id}
-            template={template}
-            mode={mode}
-            onToggleFavorite={handleToggleFavorite}
-            onEdit={() => setEditingTemplate(template)}
-            onDelete={handleDeleteTemplate}
-            onDuplicate={handleDuplicateTemplate}
-            onSelect={() => onSelectTemplate?.(template)}
-            onApply={() => handleApplyTemplate(template)}
-          />
-        ))}
-      </div>
+      {!loading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTemplates.map((template) => (
+            <TemplateCard
+              key={template.id}
+              template={template}
+              mode={mode}
+              onToggleFavorite={handleToggleFavorite}
+              onEdit={() => setEditingTemplate(template)}
+              onDelete={handleDeleteTemplate}
+              onDuplicate={handleDuplicateTemplate}
+              onSelect={() => onSelectTemplate?.(template)}
+              onApply={() => handleApplyTemplate(template)}
+            />
+          ))}
+        </div>
+      )}
 
-      {filteredTemplates.length === 0 && (
+      {/* 빈 상태 */}
+      {!loading && !error && filteredTemplates.length === 0 && (
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">
             <Settings className="w-12 h-12 mx-auto" />
@@ -256,15 +360,26 @@ export default function MappingTemplateManager({
           <p className="text-gray-600 mb-4">
             새로운 변수 매핑 템플릿을 생성해보세요.
           </p>
-          {mode === 'manage' && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-4 h-4" />
-              첫 번째 템플릿 만들기
-            </button>
-          )}
+          <div className="flex items-center justify-center gap-3">
+            {mode === 'manage' && (
+              <>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  <Plus className="w-4 h-4" />
+                  첫 번째 템플릿 만들기
+                </button>
+                <button
+                  onClick={createTestTemplate}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Plus className="w-4 h-4" />
+                  테스트 데이터 생성
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
