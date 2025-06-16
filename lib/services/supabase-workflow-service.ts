@@ -750,6 +750,268 @@ class SupabaseWorkflowService {
       return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
     }
   }
+
+  // =====================================================
+  // 개별 변수 매핑 관리 메서드 (NEW)
+  // =====================================================
+
+  // 개별 변수 매핑 생성
+  async createIndividualVariableMapping(mapping: any): Promise<any> {
+    try {
+      await this.ensureTables();
+
+      const { data, error } = await supabaseAdmin
+        .from('individual_variable_mappings')
+        .insert([{
+          variable_name: mapping.variableName,
+          display_name: mapping.displayName,
+          source_type: mapping.sourceType,
+          source_field: mapping.sourceField,
+          selected_column: mapping.selectedColumn,
+          default_value: mapping.defaultValue,
+          formatter: mapping.formatter || 'text',
+          category: mapping.category || 'general',
+          tags: mapping.tags || [],
+          is_public: mapping.isPublic || false,
+          is_favorite: mapping.isFavorite || false,
+          created_by: mapping.createdBy || 'system'
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('개별 변수 매핑 생성 오류:', error);
+        throw error;
+      }
+
+      // 응답 데이터를 클라이언트 형식으로 변환
+      return {
+        id: data.id,
+        variableName: data.variable_name,
+        displayName: data.display_name,
+        sourceType: data.source_type,
+        sourceField: data.source_field,
+        selectedColumn: data.selected_column,
+        defaultValue: data.default_value,
+        formatter: data.formatter,
+        category: data.category,
+        tags: data.tags,
+        usageCount: data.usage_count,
+        lastUsedAt: data.last_used_at,
+        isPublic: data.is_public,
+        isFavorite: data.is_favorite,
+        createdBy: data.created_by,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    } catch (error) {
+      console.error('개별 변수 매핑 생성 실패:', error);
+      throw error;
+    }
+  }
+
+  // 개별 변수 매핑 목록 조회
+  async getIndividualVariableMappings(filter?: any): Promise<any[]> {
+    try {
+      await this.ensureTables();
+
+      let query = supabaseAdmin
+        .from('individual_variable_mappings')
+        .select('*')
+        .order('usage_count', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      // 필터 적용
+      if (filter?.category && filter.category !== 'all') {
+        query = query.eq('category', filter.category);
+      }
+      if (filter?.isPublic !== undefined) {
+        query = query.eq('is_public', filter.isPublic);
+      }
+      if (filter?.isFavorite !== undefined) {
+        query = query.eq('is_favorite', filter.isFavorite);
+      }
+      if (filter?.search) {
+        query = query.or(`variable_name.ilike.%${filter.search}%,display_name.ilike.%${filter.search}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('개별 변수 매핑 목록 조회 오류:', error);
+        throw error;
+      }
+
+      // 응답 데이터를 클라이언트 형식으로 변환
+      return (data || []).map(item => ({
+        id: item.id,
+        variableName: item.variable_name,
+        displayName: item.display_name,
+        sourceType: item.source_type,
+        sourceField: item.source_field,
+        selectedColumn: item.selected_column,
+        defaultValue: item.default_value,
+        formatter: item.formatter,
+        category: item.category,
+        tags: item.tags,
+        usageCount: item.usage_count,
+        lastUsedAt: item.last_used_at,
+        isPublic: item.is_public,
+        isFavorite: item.is_favorite,
+        createdBy: item.created_by,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at
+      }));
+    } catch (error) {
+      console.error('개별 변수 매핑 목록 조회 실패:', error);
+      throw error;
+    }
+  }
+
+  // 특정 개별 변수 매핑 조회
+  async getIndividualVariableMapping(variableName: string): Promise<any | null> {
+    try {
+      await this.ensureTables();
+
+      const { data, error } = await supabaseAdmin
+        .from('individual_variable_mappings')
+        .select('*')
+        .eq('variable_name', variableName)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // 데이터 없음
+        }
+        console.error('개별 변수 매핑 조회 오류:', error);
+        throw error;
+      }
+
+      // 응답 데이터를 클라이언트 형식으로 변환
+      return {
+        id: data.id,
+        variableName: data.variable_name,
+        displayName: data.display_name,
+        sourceType: data.source_type,
+        sourceField: data.source_field,
+        selectedColumn: data.selected_column,
+        defaultValue: data.default_value,
+        formatter: data.formatter,
+        category: data.category,
+        tags: data.tags,
+        usageCount: data.usage_count,
+        lastUsedAt: data.last_used_at,
+        isPublic: data.is_public,
+        isFavorite: data.is_favorite,
+        createdBy: data.created_by,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    } catch (error) {
+      console.error('개별 변수 매핑 조회 실패:', error);
+      throw error;
+    }
+  }
+
+  // 개별 변수 매핑 업데이트
+  async updateIndividualVariableMapping(id: string, updates: any): Promise<any | null> {
+    try {
+      await this.ensureTables();
+
+      const updateData: any = {};
+      if (updates.displayName !== undefined) updateData.display_name = updates.displayName;
+      if (updates.sourceType !== undefined) updateData.source_type = updates.sourceType;
+      if (updates.sourceField !== undefined) updateData.source_field = updates.sourceField;
+      if (updates.selectedColumn !== undefined) updateData.selected_column = updates.selectedColumn;
+      if (updates.defaultValue !== undefined) updateData.default_value = updates.defaultValue;
+      if (updates.formatter !== undefined) updateData.formatter = updates.formatter;
+      if (updates.category !== undefined) updateData.category = updates.category;
+      if (updates.tags !== undefined) updateData.tags = updates.tags;
+      if (updates.isPublic !== undefined) updateData.is_public = updates.isPublic;
+      if (updates.isFavorite !== undefined) updateData.is_favorite = updates.isFavorite;
+
+      const { data, error } = await supabaseAdmin
+        .from('individual_variable_mappings')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('개별 변수 매핑 업데이트 오류:', error);
+        throw error;
+      }
+
+      // 응답 데이터를 클라이언트 형식으로 변환
+      return {
+        id: data.id,
+        variableName: data.variable_name,
+        displayName: data.display_name,
+        sourceType: data.source_type,
+        sourceField: data.source_field,
+        selectedColumn: data.selected_column,
+        defaultValue: data.default_value,
+        formatter: data.formatter,
+        category: data.category,
+        tags: data.tags,
+        usageCount: data.usage_count,
+        lastUsedAt: data.last_used_at,
+        isPublic: data.is_public,
+        isFavorite: data.is_favorite,
+        createdBy: data.created_by,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    } catch (error) {
+      console.error('개별 변수 매핑 업데이트 실패:', error);
+      throw error;
+    }
+  }
+
+  // 개별 변수 매핑 삭제
+  async deleteIndividualVariableMapping(id: string): Promise<boolean> {
+    try {
+      await this.ensureTables();
+
+      const { error } = await supabaseAdmin
+        .from('individual_variable_mappings')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('개별 변수 매핑 삭제 오류:', error);
+        throw error;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('개별 변수 매핑 삭제 실패:', error);
+      throw error;
+    }
+  }
+
+  // 개별 변수 매핑 사용 기록
+  async recordIndividualVariableMappingUsage(variableName: string): Promise<void> {
+    try {
+      await this.ensureTables();
+
+      const { error } = await supabaseAdmin
+        .from('individual_variable_mappings')
+        .update({
+          usage_count: supabaseAdmin.raw('usage_count + 1'),
+          last_used_at: new Date().toISOString()
+        })
+        .eq('variable_name', variableName);
+
+      if (error) {
+        console.error('개별 변수 매핑 사용 기록 오류:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('개별 변수 매핑 사용 기록 실패:', error);
+      throw error;
+    }
+  }
 }
 
 // 싱글톤 인스턴스 생성

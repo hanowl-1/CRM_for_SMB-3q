@@ -30,8 +30,10 @@ import {
   Save,
   Download,
   Upload,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react';
+import { IndividualVariableService, type IndividualVariableMapping } from '@/lib/services/individual-variable-service';
 
 interface KakaoTemplate {
   id: string;
@@ -418,6 +420,86 @@ export function VariableMapping({
       return updated;
     });
   }, [personalizationEnabled, notifyParent, queryTestResults]);
+
+  // 개별 변수 저장 상태
+  const [savingVariables, setSavingVariables] = useState<Set<number>>(new Set());
+  const [savedVariables, setSavedVariables] = useState<Set<string>>(new Set());
+
+  // 개별 변수 매핑 저장
+  const saveIndividualVariable = async (index: number) => {
+    const mapping = variableMappings[index];
+    if (!mapping) return;
+
+    try {
+      setSavingVariables(prev => new Set(prev).add(index));
+      console.log(`💾 개별 변수 저장 시작: ${mapping.templateVariable}`);
+
+      const individualMapping: IndividualVariableMapping = {
+        variableName: mapping.templateVariable,
+        displayName: mapping.templateVariable.replace(/^#{|}$/g, ''),
+        sourceType: mapping.sourceType,
+        sourceField: mapping.sourceField,
+        selectedColumn: mapping.selectedColumn,
+        defaultValue: mapping.defaultValue,
+        formatter: mapping.formatter || 'text',
+        category: selectedTemplate?.category || 'general',
+        tags: [selectedTemplate?.name || ''],
+        isPublic: false,
+        isFavorite: false,
+        createdBy: 'user'
+      };
+
+      const saved = await IndividualVariableService.saveVariableMapping(individualMapping);
+      console.log(`✅ 개별 변수 저장 완료: ${mapping.templateVariable}`, saved);
+
+      setSavedVariables(prev => new Set(prev).add(mapping.templateVariable));
+      
+      // 성공 알림
+      alert(`변수 "${mapping.templateVariable}" 저장 완료!`);
+    } catch (error) {
+      console.error(`❌ 개별 변수 저장 실패: ${mapping.templateVariable}`, error);
+      alert(`변수 저장 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    } finally {
+      setSavingVariables(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(index);
+        return newSet;
+      });
+    }
+  };
+
+  // 저장된 개별 변수 불러오기
+  const loadIndividualVariable = async (index: number) => {
+    const mapping = variableMappings[index];
+    if (!mapping) return;
+
+    try {
+      console.log(`🔍 개별 변수 불러오기: ${mapping.templateVariable}`);
+      
+      const saved = await IndividualVariableService.getVariableMapping(mapping.templateVariable);
+      if (saved) {
+        console.log(`📋 개별 변수 불러오기 성공: ${mapping.templateVariable}`, saved);
+        
+        updateMapping(index, {
+          sourceType: saved.sourceType,
+          sourceField: saved.sourceField,
+          selectedColumn: saved.selectedColumn,
+          defaultValue: saved.defaultValue,
+          formatter: saved.formatter
+        });
+
+        // 사용 기록
+        await IndividualVariableService.recordUsage(mapping.templateVariable);
+        
+        alert(`변수 "${mapping.templateVariable}" 설정을 불러왔습니다!`);
+      } else {
+        alert(`저장된 변수 설정을 찾을 수 없습니다.`);
+      }
+    } catch (error) {
+      console.error(`❌ 개별 변수 불러오기 실패: ${mapping.templateVariable}`, error);
+      alert(`변수 불러오기 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    }
+  };
 
   if (!selectedTemplate) {
     return (
@@ -831,6 +913,48 @@ export function VariableMapping({
                   <div className="text-sm font-mono bg-white p-2 rounded border">
                     {getPreviewValue(mapping, index)}
                   </div>
+                </div>
+
+                {/* 개별 변수 저장/불러오기 버튼 */}
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Save className="w-4 h-4" />
+                    <span>개별 저장:</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => saveIndividualVariable(index)}
+                    disabled={savingVariables.has(index)}
+                    className="flex items-center gap-2"
+                  >
+                    {savingVariables.has(index) ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        저장 중...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        저장
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadIndividualVariable(index)}
+                    disabled={savingVariables.size > 0}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    불러오기
+                  </Button>
+                  {savedVariables.has(mapping.templateVariable) && (
+                    <Badge variant="secondary" className="text-xs">
+                      저장됨
+                    </Badge>
+                  )}
                 </div>
               </div>
             ))}

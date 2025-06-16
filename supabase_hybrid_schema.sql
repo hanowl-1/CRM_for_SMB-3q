@@ -253,6 +253,28 @@ CREATE TABLE IF NOT EXISTS variable_query_templates (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 개별 변수 매핑 저장 테이블 (NEW)
+CREATE TABLE IF NOT EXISTS individual_variable_mappings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  variable_name VARCHAR(255) NOT NULL, -- 변수명 (예: #{companyName})
+  display_name VARCHAR(255), -- 표시명 (예: "회사명")
+  source_type VARCHAR(50) NOT NULL CHECK (source_type IN ('field', 'query', 'function')),
+  source_field TEXT, -- 필드명 또는 쿼리 또는 함수명
+  selected_column VARCHAR(255), -- 쿼리 결과에서 선택된 컬럼
+  default_value TEXT, -- 기본값
+  formatter VARCHAR(50) DEFAULT 'text' CHECK (formatter IN ('text', 'number', 'currency', 'date')),
+  category VARCHAR(100) DEFAULT 'general',
+  tags JSONB DEFAULT '[]',
+  usage_count INTEGER DEFAULT 0,
+  last_used_at TIMESTAMP WITH TIME ZONE,
+  is_public BOOLEAN DEFAULT false,
+  is_favorite BOOLEAN DEFAULT false,
+  created_by VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(variable_name, created_by) -- 사용자별로 변수명은 유일
+);
+
 -- =====================================================
 -- 7. 통계 및 분석 테이블
 -- =====================================================
@@ -493,5 +515,6 @@ BEGIN
     RAISE NOTICE '- variable_mapping_templates (변수 매핑 템플릿) - NEW!';
     RAISE NOTICE '- mapping_history_templates (매핑 이력 템플릿) - NEW!';
     RAISE NOTICE '- variable_query_templates (변수 쿼리 템플릿) - NEW!';
+    RAISE NOTICE '- individual_variable_mappings (개별 변수 매핑) - NEW!';
     RAISE NOTICE '==============================================';
 END $$; 
