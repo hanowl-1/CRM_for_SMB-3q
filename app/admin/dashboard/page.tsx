@@ -28,7 +28,6 @@ interface DashboardStats {
   mysql: {
     totalTables: number;
     activeMappings: number;
-    customQueries: number;
     lastSync: string;
   };
   supabase: {
@@ -55,14 +54,9 @@ export default function AdminDashboard() {
     try {
       setRefreshing(true);
 
-      // MySQL 통계 (테이블 매핑, 커스텀 쿼리)
-      const [mappingsRes, queriesRes] = await Promise.all([
-        fetch('/api/mysql/table-mappings'),
-        fetch('/api/mysql/custom-queries?action=list')
-      ]);
-
+      // MySQL 통계 (테이블 매핑)
+      const mappingsRes = await fetch('/api/mysql/table-mappings');
       const mappingsData = await mappingsRes.json();
-      const queriesData = await queriesRes.json();
 
       // Supabase 통계 (워크플로우, 템플릿, 메시지)
       const [workflowsRes, templatesRes, messagesRes] = await Promise.all([
@@ -89,7 +83,6 @@ export default function AdminDashboard() {
         mysql: {
           totalTables: 123, // 고정값 (실제 DB 테이블 수)
           activeMappings,
-          customQueries: queriesData.queries?.length || 0,
           lastSync: new Date().toISOString()
         },
         supabase: {
@@ -245,22 +238,10 @@ export default function AdminDashboard() {
                   <div className="text-2xl font-bold text-blue-600">{stats?.mysql.activeMappings}</div>
                   <div className="text-sm text-gray-600">활성 테이블 매핑</div>
                 </div>
-                <div className="text-center p-3 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{stats?.mysql.customQueries}</div>
-                  <div className="text-sm text-gray-600">커스텀 쿼리</div>
-                </div>
               </div>
               <div className="flex justify-between items-center text-sm text-gray-600">
                 <span>마지막 동기화</span>
                 <span>{new Date(stats?.mysql.lastSync || '').toLocaleString()}</span>
-              </div>
-              <div className="flex gap-2">
-                <Link href="/admin/table-mappings" className="flex-1">
-                  <Button variant="outline" className="w-full">테이블 매핑 관리</Button>
-                </Link>
-                <Link href="/admin/custom-queries" className="flex-1">
-                  <Button variant="outline" className="w-full">커스텀 쿼리 관리</Button>
-                </Link>
               </div>
             </CardContent>
           </Card>
@@ -288,10 +269,6 @@ export default function AdminDashboard() {
               <div className="flex justify-between items-center text-sm text-gray-600">
                 <span>발송 성공률</span>
                 <span className="font-medium">{stats?.supabase.successRate.toFixed(1)}%</span>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1">워크플로우 관리</Button>
-                <Button variant="outline" className="flex-1">템플릿 관리</Button>
               </div>
             </CardContent>
           </Card>

@@ -264,11 +264,6 @@ export default function TableMappingsPage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Link href="/admin/custom-queries">
-            <Button variant="outline" className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200 hover:from-purple-100 hover:to-pink-100">
-              <Code className="w-4 h-4 mr-2" />커스텀 쿼리 관리
-            </Button>
-          </Link>
           <Link href="/">
             <Button variant="ghost">
               <ArrowLeft className="w-4 h-4 mr-2" />

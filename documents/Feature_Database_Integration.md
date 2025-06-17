@@ -23,7 +23,7 @@
 - **✅ 역할**: 고객 데이터, 구독 정보, 결제 이력 (읽기 전용)
 - **✅ 연결 방식**: 읽기 전용 계정으로 안전한 연결
 - **✅ 사용 목적**: 
-  - 동적 대상 선정을 위한 쿼리 실행
+  - 테이블 매핑을 통한 구조화된 데이터 조회
   - 변수 매핑을 위한 데이터 조회
   - 실시간 고객 정보 확인
 
@@ -32,7 +32,7 @@
 - **✅ 관리 데이터**:
   - 워크플로우 설정 및 이력
   - 메시지 템플릿 라이브러리
-  - 변수 매핑 템플릿
+  - 테이블 매핑 설정
   - 발송 기록 및 통계
   - 사용자 설정 및 권한
 
@@ -67,42 +67,56 @@ const supabase = createClient(
 
 #### 3.1 ✅ MySQL 연동 기능
 
-##### 3.1.1 ✅ 실시간 쿼리 실행
+##### 3.1.1 ✅ 테이블 매핑 시스템
 - **✅ 구현된 기능:**
-  - 사용자 정의 SQL 쿼리 실행
-  - 쿼리 결과 실시간 미리보기
-  - 쿼리 구문 검증 및 에러 처리
-  - 대용량 결과 페이지네이션
+  - MySQL 테이블 자동 탐색 및 스키마 분석
+  - 필드별 타입 및 용도 정의
+  - 사용자 친화적 필드명 매핑
+  - 필드별 필터링 및 검색 옵션 설정
 
-- **✅ 지원 쿼리 유형:**
-  - SELECT 문 (읽기 전용)
-  - JOIN 연산 지원
-  - WHERE 조건 복합 설정
-  - ORDER BY, GROUP BY 지원
-  - LIMIT, OFFSET 페이징
+- **✅ 지원 테이블 유형:**
+  - 고객 정보 테이블 (customers)
+  - 구독 정보 테이블 (subscriptions)
+  - 결제 이력 테이블 (payments)
+  - 기타 사용자 정의 테이블
 
-##### 3.1.2 ✅ 쿼리 템플릿 시스템
+##### 3.1.2 ✅ 실시간 데이터 조회
 - **✅ 구현된 기능:**
-  - 자주 사용하는 쿼리 템플릿 저장
-  - 카테고리별 쿼리 분류
-  - 쿼리 매개변수 지원
-  - 템플릿 공유 및 재사용
+  - 매핑된 테이블의 실시간 데이터 검색
+  - 키워드 기반 고객 검색
+  - 결과 미리보기 및 변수 추출
+  - 대용량 데이터 페이지네이션
 
-- **✅ 예제 쿼리 템플릿:**
-```sql
--- 활성 구독자 조회
-SELECT customer_id, name, phone, email, subscription_type 
-FROM customers c 
-JOIN subscriptions s ON c.id = s.customer_id 
-WHERE s.status = 'active' 
-AND s.end_date > NOW()
-
--- 결제 실패 고객 조회
-SELECT c.customer_id, c.name, c.phone, p.amount, p.failed_at
-FROM customers c
-JOIN payments p ON c.id = p.customer_id
-WHERE p.status = 'failed'
-AND p.failed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+- **✅ 예제 테이블 매핑:**
+```json
+{
+  "customers": {
+    "displayName": "고객 정보",
+    "description": "고객 기본 정보 및 연락처",
+    "fields": {
+      "customer_id": {
+        "displayName": "고객ID",
+        "type": "number",
+        "filterable": true
+      },
+      "name": {
+        "displayName": "고객명",
+        "type": "string",
+        "filterable": true
+      },
+      "phone": {
+        "displayName": "휴대폰번호",
+        "type": "string",
+        "filterable": true
+      },
+      "email": {
+        "displayName": "이메일",
+        "type": "string",
+        "filterable": true
+      }
+    }
+  }
+}
 ```
 
 ##### 3.1.3 ✅ 데이터 검증 및 보안
@@ -133,20 +147,12 @@ CREATE TABLE workflows (
 );
 ```
 
-##### 3.2.2 ✅ 변수 매핑 관리
-- **✅ 구현된 테이블:**
+##### 3.2.2 ✅ 테이블 매핑 관리
+- **✅ 구현된 기능:**
 ```sql
--- 개별 변수 매핑 테이블
-CREATE TABLE individual_variable_mappings (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  variable_name VARCHAR(255) NOT NULL,
-  display_name VARCHAR(255),
-  source_type VARCHAR(50) NOT NULL,
-  source_field TEXT,
-  selected_column VARCHAR(255),
-  usage_count INTEGER DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- 테이블 매핑 설정은 JSON 파일로 관리
+-- data/table-mappings.json에서 중앙 관리
+-- 실시간 매핑 수정 및 활성화/비활성화 지원
 ```
 
 ##### 3.2.3 ✅ 템플릿 라이브러리
@@ -169,14 +175,14 @@ CREATE TABLE message_templates (
 
 ##### 3.3.1 ✅ 동적 대상 선정
 - **✅ 구현 방식:**
-  1. 사용자가 MySQL 쿼리 작성
-  2. 실시간 쿼리 실행 및 결과 확인
-  3. 쿼리 결과를 대상 그룹으로 설정
+  1. 사용자가 테이블 매핑을 통해 데이터 소스 선택
+  2. 키워드 검색으로 대상 고객 조회
+  3. 검색 결과를 대상 그룹으로 설정
   4. 워크플로우 실행 시 최신 데이터 조회
 
 ##### 3.3.2 ✅ 변수 매핑 자동화
 - **✅ 구현 방식:**
-  1. MySQL 쿼리 결과 컬럼 분석
+  1. 테이블 매핑에서 정의된 필드 자동 인식
   2. 템플릿 변수와 자동 매칭
   3. 매핑 완성도 실시간 체크
   4. 누락된 매핑 경고 및 안내
@@ -189,14 +195,19 @@ CREATE TABLE message_templates (
 - **목적**: MySQL 연결 테스트
 - **응답**: 연결 상태 및 버전 정보
 
-##### 4.1.2 ✅ `/api/mysql/query` (POST)
-- **목적**: SQL 쿼리 실행
-- **입력**: `{ query: string, limit?: number }`
-- **응답**: 쿼리 결과 및 메타데이터
+##### 4.1.2 ✅ `/api/mysql/table-mappings` (GET/POST)
+- **목적**: 테이블 매핑 설정 관리
+- **GET**: 현재 매핑 설정 조회
+- **POST**: 매핑 설정 저장
 
-##### 4.1.3 ✅ `/api/mysql/targets/preview` (POST)
-- **목적**: 대상 선정 쿼리 미리보기
-- **입력**: 쿼리 설정 객체
+##### 4.1.3 ✅ `/api/mysql/variables` (GET)
+- **목적**: 매핑된 테이블에서 데이터 검색
+- **입력**: `{ table: string, term: string, limit?: number }`
+- **응답**: 검색 결과 및 메타데이터
+
+##### 4.1.4 ✅ `/api/mysql/targets/preview` (POST)
+- **목적**: 대상 선정 미리보기
+- **입력**: 테이블 및 검색 조건
 - **응답**: 대상 목록 및 통계
 
 #### 4.2 ✅ Supabase API 엔드포인트
