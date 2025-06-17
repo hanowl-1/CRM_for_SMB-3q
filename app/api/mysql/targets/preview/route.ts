@@ -21,8 +21,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // 쿼리 정리 (공백 및 세미콜론 제거)
+      const cleanQuery = query.trim().replace(/;+$/, '');
+      
+      if (!cleanQuery) {
+        return NextResponse.json(
+          { success: false, error: '빈 쿼리는 실행할 수 없습니다.' },
+          { status: 400 }
+        );
+      }
+
       // 보안을 위한 기본적인 쿼리 검증
-      const normalizedQuery = query.toLowerCase().trim();
+      const normalizedQuery = cleanQuery.toLowerCase().trim();
       
       // SELECT 문만 허용
       if (!normalizedQuery.startsWith('select')) {
@@ -44,8 +54,8 @@ export async function POST(request: NextRequest) {
       }
 
       // LIMIT 추가 (미리보기용)
-      const previewQuery = `${query} LIMIT ${limit}`;
-      const countQuery = `SELECT COUNT(*) as total FROM (${query}) as subquery`;
+      const previewQuery = `${cleanQuery} LIMIT ${limit}`;
+      const countQuery = `SELECT COUNT(*) as total FROM (${cleanQuery}) as subquery`;
 
       console.log('실행할 쿼리들:', {
         previewQuery: previewQuery.substring(0, 200),

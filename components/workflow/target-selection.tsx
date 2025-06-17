@@ -80,7 +80,7 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
     if (!dynamicSql.trim()) return;
     
     setIsTestingQuery(true);
-    setQueryTestResult(null); // 이전 결과 초기화
+    setQueryTestResult(null); // 이전 결과 완전 초기화
     
     try {
       console.log('동적 쿼리 테스트 시작:', dynamicSql);
@@ -105,24 +105,30 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
         const errorText = await response.text();
         console.error('API 오류 응답:', errorText);
         
+        let errorMessage = '쿼리 실행에 실패했습니다';
         try {
           const errorJson = JSON.parse(errorText);
-          setQueryTestResult({ 
-            success: false, 
-            error: errorJson.error || errorJson.message || '쿼리 실행 실패' 
-          });
+          errorMessage = errorJson.error || errorJson.message || errorMessage;
         } catch (parseError) {
-          setQueryTestResult({ 
-            success: false, 
-            error: `HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}` 
-          });
+          if (response.status === 400) {
+            errorMessage = 'SQL 쿼리 문법을 확인해주세요';
+          } else if (response.status === 500) {
+            errorMessage = '데이터베이스 연결 오류가 발생했습니다';
+          } else {
+            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          }
         }
+        
+        setQueryTestResult({ 
+          success: false, 
+          error: errorMessage
+        });
       }
     } catch (error) {
       console.error('네트워크 오류:', error);
       setQueryTestResult({ 
         success: false, 
-        error: `네트워크 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}` 
+        error: '네트워크 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' 
       });
     } finally {
       setIsTestingQuery(false);
@@ -180,6 +186,7 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
     setDynamicSql('');
     setDynamicFields('contact, name, id');
     setQueryTestResult(null);
+    setIsTestingQuery(false);
   };
 
   const removeTarget = (targetId: string) => {
@@ -501,7 +508,13 @@ WHERE contacts IS NOT NULL
                 </div>
                 <Textarea
                   value={dynamicSql}
-                  onChange={(e) => setDynamicSql(e.target.value)}
+                  onChange={(e) => {
+                    setDynamicSql(e.target.value);
+                    // 쿼리가 변경되면 이전 테스트 결과 초기화
+                    if (queryTestResult) {
+                      setQueryTestResult(null);
+                    }
+                  }}
                   placeholder="SELECT contact, name FROM Companies WHERE ..."
                   rows={8}
                   className="font-mono text-sm"
@@ -523,39 +536,59 @@ WHERE contacts IS NOT NULL
 
               {/* 쿼리 테스트 결과 */}
               {queryTestResult && (
-                <div className={`p-4 rounded-lg border ${
+                <div className={`p-3 rounded-md border ${
                   queryTestResult.success 
                     ? 'bg-green-50 border-green-200' 
                     : 'bg-red-50 border-red-200'
                 }`}>
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-start gap-2">
                     {queryTestResult.success ? (
-                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
                     )}
-                    <span className="font-medium">
-                      {queryTestResult.success ? '쿼리 테스트 성공' : '쿼리 테스트 실패'}
-                    </span>
-                  </div>
-                  
-                  {queryTestResult.success ? (
-                    <div>
-                      <p className="text-sm mb-2">
-                        총 <strong>{queryTestResult.totalCount?.toLocaleString()}</strong>명의 대상자가 검색되었습니다.
-                      </p>
-                      {queryTestResult.preview && queryTestResult.preview.length > 0 && (
-                        <div className="text-xs">
-                          <p className="font-medium mb-1">미리보기 (최대 5개):</p>
-                          <pre className="bg-white p-2 rounded border text-xs overflow-x-auto">
-                            {JSON.stringify(queryTestResult.preview, null, 2)}
-                          </pre>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium">
+                          {queryTestResult.success ? '테스트 성공' : '테스트 실패'}
+                        </span>
+                        {queryTestResult.success && queryTestResult.totalCount !== undefined && (
+                          <span className="text-xs bg-white px-2 py-0.5 rounded-full border">
+                            {queryTestResult.totalCount.toLocaleString()}개 결과
+                          </span>
+                        )}
+                      </div>
+                      
+                      {queryTestResult.success ? (
+                        <div>
+                          {queryTestResult.totalCount !== undefined && (
+                            <p className="text-sm text-gray-600 mb-2">
+                              총 <strong>{queryTestResult.totalCount.toLocaleString()}</strong>명의 대상자가 검색되었습니다.
+                            </p>
+                          )}
+                          {queryTestResult.preview && queryTestResult.preview.length > 0 && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                                미리보기 데이터 보기 ({queryTestResult.preview.length}개)
+                              </summary>
+                              <div className="mt-2 bg-white p-2 rounded border">
+                                <pre className="text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(queryTestResult.preview, null, 2)}
+                                </pre>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-sm text-red-700 mb-1">{queryTestResult.error}</p>
+                          <p className="text-xs text-red-600">
+                            쿼리 문법을 확인하고 다시 시도해주세요.
+                          </p>
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-red-600">{queryTestResult.error}</p>
-                  )}
+                  </div>
                 </div>
               )}
 

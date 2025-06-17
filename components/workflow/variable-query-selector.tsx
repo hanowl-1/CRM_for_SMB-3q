@@ -299,15 +299,13 @@ export default function VariableQuerySelector({
           쿼리 라이브러리
         </button>
         
-        {currentQuery && (
-          <button
-            onClick={handleOpenSaveForm}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100"
-          >
-            <Save className="w-4 h-4" />
-            쿼리 저장
-          </button>
-        )}
+        <button
+          onClick={handleOpenSaveForm}
+          className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100"
+        >
+          <Save className="w-4 h-4" />
+          쿼리 저장
+        </button>
       </div>
 
       {/* 쿼리 라이브러리 */}

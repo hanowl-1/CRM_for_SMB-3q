@@ -21,15 +21,25 @@ if (supabaseUrl && supabaseAnonKey) {
     supabase = createClient(supabaseUrl, supabaseAnonKey);
     console.log('✅ Supabase 일반 클라이언트 초기화 성공');
     
-    // 관리자 클라이언트 - 임시로 anon key 사용 (Service Role Key 문제로 인해)
-    console.warn('⚠️ Service Role Key 문제로 인해 임시로 anon key를 사용합니다');
-    supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-    console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (anon key 사용)');
+    // 관리자 클라이언트 - Service Role Key 사용
+    if (supabaseServiceKey) {
+      supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+      console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (Service Role Key 사용)');
+    } else {
+      console.warn('⚠️ Service Role Key가 없어서 anon key를 사용합니다');
+      supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+      console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (anon key 사용)');
+    }
   } catch (error) {
     console.error('❌ Supabase 클라이언트 초기화 실패:', error);
   }

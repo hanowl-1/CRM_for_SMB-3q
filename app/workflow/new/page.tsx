@@ -15,6 +15,9 @@ export default function NewWorkflowPage() {
 
   const handleSave = async (workflow: Workflow) => {
     setIsLoading(true)
+    let supabaseSuccess = false;
+    let supabaseData = null;
+    
     try {
       console.log("워크플로우 저장 시도:", workflow)
       
@@ -32,30 +35,43 @@ export default function NewWorkflowPage() {
 
       const result = await response.json();
 
-      if (!response.ok || !result.success) {
+      if (response.ok && result.success) {
+        console.log("✅ Supabase 워크플로우 저장 성공:", result.data);
+        supabaseSuccess = true;
+        supabaseData = result.data;
+        
+        // 기존 localStorage 저장도 유지 (호환성을 위해)
+        try {
+          const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
+          savedWorkflows.push(result.data)
+          localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
+          console.log("✅ localStorage 백업 저장 성공");
+        } catch (localError) {
+          console.warn("⚠️ localStorage 백업 저장 실패:", localError);
+        }
+        
+        alert("🎉 워크플로우가 Supabase에 성공적으로 저장되었습니다!")
+        router.push("/")
+        return; // 성공 시 여기서 종료
+      } else {
+        console.error("❌ Supabase 저장 실패:", result);
         throw new Error(result.message || '워크플로우 저장에 실패했습니다.');
       }
 
-      console.log("워크플로우 저장 성공:", result.data);
-      
-      // 기존 localStorage 저장도 유지 (호환성을 위해)
-      const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
-      savedWorkflows.push(result.data)
-      localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
-      
-      alert("워크플로우가 Supabase에 성공적으로 저장되었습니다!")
-      router.push("/")
     } catch (error) {
-      console.error("워크플로우 저장 실패:", error)
+      console.error("❌ 워크플로우 저장 실패:", error)
       
-      // Supabase 저장 실패 시 localStorage에라도 저장
-      try {
-        const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
-        savedWorkflows.push(workflow)
-        localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
-        alert("Supabase 저장에 실패했지만 로컬에 임시 저장되었습니다.")
-      } catch (localError) {
-        alert("저장에 완전히 실패했습니다.")
+      // Supabase 저장 실패 시에만 localStorage에 저장
+      if (!supabaseSuccess) {
+        try {
+          const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
+          savedWorkflows.push(workflow)
+          localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
+          alert("⚠️ Supabase 저장에 실패했지만 로컬에 임시 저장되었습니다.\n\n오류: " + (error instanceof Error ? error.message : String(error)))
+        } catch (localError) {
+          console.error("❌ localStorage 저장도 실패:", localError);
+          alert("❌ 저장에 완전히 실패했습니다.\n\nSupabase 오류: " + (error instanceof Error ? error.message : String(error)) + "\nLocalStorage 오류: " + (localError instanceof Error ? localError.message : String(localError)))
+        }
       }
     } finally {
       setIsLoading(false)

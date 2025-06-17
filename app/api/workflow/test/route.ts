@@ -265,41 +265,39 @@ async function sendAlimtalk({
 
     const messageService = new coolsms(COOLSMS_API_KEY, COOLSMS_API_SECRET);
     
+    // 기본 메시지 옵션
+    const baseMessageOptions: any = {
+      to: phoneNumber,
+      from: SMS_SENDER_NUMBER,
+      type: 'ATA', // 알림톡
+      kakaoOptions: {
+        senderKey: KAKAO_SENDER_KEY,
+        templateCode: templateCode,
+        // CoolSMS API는 variables 속성 사용, 변수명을 #{변수명} 형식으로 변환
+        variables: Object.entries(variables).reduce((acc, [key, value]) => {
+          acc[`#{${key}}`] = value;
+          return acc;
+        }, {} as Record<string, string>)
+      }
+    };
+    
     // 첫 번째 시도: 현재 templateCode 사용 (MEMBERS_113 형식)
     let result;
     try {
-      result = await messageService.sendOne({
-        to: phoneNumber,
-        from: SMS_SENDER_NUMBER,
-        type: 'ATA', // 알림톡
-        kakaoOptions: {
-          senderKey: KAKAO_SENDER_KEY,
-          templateCode: templateCode, // 원래 templateCode 사용 (MEMBERS_113 형식)
-          // CoolSMS API는 variables 속성 사용, 변수명을 #{변수명} 형식으로 변환
-          variables: Object.entries(variables).reduce((acc, [key, value]) => {
-            acc[`#{${key}}`] = value;
-            return acc;
-          }, {} as Record<string, string>)
-        }
-      });
+      result = await messageService.sendOne(baseMessageOptions);
     } catch (firstError) {
       console.log('첫 번째 시도 실패 (templateCode:', templateCode, '), 두 번째 시도: 실제 템플릿 ID 사용');
       
       // 두 번째 시도: 실제 템플릿 ID를 templateCode로 사용
-      result = await messageService.sendOne({
-        to: phoneNumber,
-        from: SMS_SENDER_NUMBER,
-        type: 'ATA', // 알림톡
+      const fallbackOptions = {
+        ...baseMessageOptions,
         kakaoOptions: {
-          senderKey: KAKAO_SENDER_KEY,
-          templateCode: testTemplateId, // 테스트 템플릿 ID 사용
-          // CoolSMS API는 variables 속성 사용, 변수명을 #{변수명} 형식으로 변환
-          variables: Object.entries(variables).reduce((acc, [key, value]) => {
-            acc[`#{${key}}`] = value;
-            return acc;
-          }, {} as Record<string, string>)
+          ...baseMessageOptions.kakaoOptions,
+          templateCode: testTemplateId // 테스트 템플릿 ID 사용
         }
-      });
+      };
+      
+      result = await messageService.sendOne(fallbackOptions);
     }
 
     console.log('✅ 알림톡 발송 성공:', result);

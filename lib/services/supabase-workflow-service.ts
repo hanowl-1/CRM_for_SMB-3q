@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/database/supabase-client';
+import { supabase } from '@/lib/database/supabase-client';
 import type { Workflow, WorkflowExecution, WorkflowLog } from '@/lib/types/workflow';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -91,10 +91,10 @@ interface CustomQueryLog {
 
 class SupabaseWorkflowService {
   private getClient(): SupabaseClient {
-    if (!supabaseAdmin) {
-      throw new Error('Supabase admin client가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
+    if (!supabase) {
+      throw new Error('Supabase client가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
     }
-    return supabaseAdmin;
+    return supabase;
   }
 
   private async ensureTables() {
@@ -130,19 +130,34 @@ class SupabaseWorkflowService {
       await this.ensureTables();
       const client = this.getClient();
 
+      console.log('📝 워크플로우 생성 요청 데이터:', workflow);
+
       const { data, error } = await client
         .from('workflows')
         .insert([{
           name: workflow.name,
           description: workflow.description,
           status: workflow.status || 'draft',
-          trigger_type: (workflow as any).triggerType,
-          trigger_config: (workflow as any).triggerConfig || {},
-          target_config: (workflow as any).targetConfig || {},
-          message_config: (workflow as any).messageConfig || {},
-          variables: (workflow as any).variables || {},
-          schedule_config: (workflow as any).scheduleConfig || {},
-          created_by: (workflow as any).createdBy || 'system'
+          trigger_type: workflow.trigger?.type || 'manual',
+          trigger_config: {
+            id: workflow.trigger?.id,
+            name: workflow.trigger?.name,
+            description: workflow.trigger?.description,
+            conditions: workflow.trigger?.conditions || [],
+            conditionLogic: workflow.trigger?.conditionLogic || 'AND'
+          },
+          target_config: {
+            targetGroups: workflow.targetGroups || []
+          },
+          message_config: {
+            steps: workflow.steps || []
+          },
+          variables: {
+            testSettings: workflow.testSettings || {},
+            scheduleSettings: workflow.scheduleSettings || {}
+          },
+          schedule_config: workflow.scheduleSettings || {},
+          created_by: 'system'
         }])
         .select()
         .single();
@@ -152,6 +167,7 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
+      console.log('✅ 워크플로우 생성 성공:', data);
       return { success: true, data };
     } catch (error) {
       console.error('워크플로우 생성 실패:', error);

@@ -125,10 +125,14 @@ export function TargetTemplateMapping({
         ? prev.map((m, i) => i === existingIndex ? newMapping : m)
         : [...prev, newMapping];
 
-      onMappingChange(updated);
       return updated;
     });
-  }, [onMappingChange]);
+  }, []);
+
+  // mappings 변경 시 부모에게 알림 (useEffect로 분리)
+  useEffect(() => {
+    onMappingChange(mappings);
+  }, [mappings, onMappingChange]);
 
   // 필드 매핑 업데이트
   const updateFieldMapping = useCallback((
