@@ -233,16 +233,64 @@ class SupabaseWorkflowService {
       await this.ensureTables();
       const client = this.getClient();
 
+      console.log('📝 워크플로우 업데이트 요청:', { id, updates });
+
       const updateData: any = {};
+      
+      // 기본 필드들
       if (updates.name) updateData.name = updates.name;
       if (updates.description !== undefined) updateData.description = updates.description;
       if (updates.status) updateData.status = updates.status;
+      
+      // 트리거 설정
+      if (updates.trigger) {
+        updateData.trigger_type = updates.trigger.type;
+        updateData.trigger_config = {
+          id: updates.trigger.id,
+          name: updates.trigger.name,
+          description: updates.trigger.description,
+          conditions: updates.trigger.conditions || [],
+          conditionLogic: updates.trigger.conditionLogic || 'AND'
+        };
+      }
+      
+      // 대상 설정
+      if (updates.targetGroups) {
+        updateData.target_config = {
+          targetGroups: updates.targetGroups
+        };
+      }
+      
+      // 메시지 설정
+      if (updates.steps) {
+        updateData.message_config = {
+          steps: updates.steps
+        };
+      }
+      
+      // 스케줄 설정 (가장 중요한 부분)
+      if (updates.scheduleSettings) {
+        console.log('⏰ 스케줄 설정 업데이트:', updates.scheduleSettings);
+        updateData.schedule_config = updates.scheduleSettings;
+      }
+      
+      // 변수 설정
+      if (updates.testSettings || updates.scheduleSettings) {
+        updateData.variables = {
+          testSettings: updates.testSettings || {},
+          scheduleSettings: updates.scheduleSettings || {}
+        };
+      }
+      
+      // 레거시 필드들 (호환성을 위해)
       if ((updates as any).triggerType) updateData.trigger_type = (updates as any).triggerType;
       if ((updates as any).triggerConfig) updateData.trigger_config = (updates as any).triggerConfig;
       if ((updates as any).targetConfig) updateData.target_config = (updates as any).targetConfig;
       if ((updates as any).messageConfig) updateData.message_config = (updates as any).messageConfig;
       if ((updates as any).variables) updateData.variables = (updates as any).variables;
       if ((updates as any).scheduleConfig) updateData.schedule_config = (updates as any).scheduleConfig;
+
+      console.log('📝 Supabase 업데이트 데이터:', updateData);
 
       const { data, error } = await client
         .from('workflows')
@@ -256,6 +304,7 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
+      console.log('✅ 워크플로우 업데이트 성공:', data);
       return { success: true, data };
     } catch (error) {
       console.error('워크플로우 업데이트 실패:', error);

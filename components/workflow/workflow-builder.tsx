@@ -189,8 +189,16 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       
       // 스케줄 설정도 복원
       if (workflow.scheduleSettings) {
+        console.log('⏰ 스케줄 설정 복원 시작:', {
+          원본설정: workflow.scheduleSettings,
+          타입: workflow.scheduleSettings.type,
+          예약시간: workflow.scheduleSettings.scheduledTime,
+          반복패턴: workflow.scheduleSettings.recurringPattern
+        });
         setScheduleSettings(workflow.scheduleSettings);
-        console.log('⏰ 스케줄 설정 복원:', workflow.scheduleSettings);
+        console.log('⏰ 스케줄 설정 복원 완료:', workflow.scheduleSettings);
+      } else {
+        console.log('⏰ 워크플로우에 스케줄 설정이 없음, 기본값 사용');
       }
       
       // 테스트 설정도 복원
@@ -725,6 +733,22 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* 디버그 정보 (개발 중에만 표시) */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="p-3 bg-gray-100 rounded-lg text-xs">
+                  <div className="font-medium text-gray-700 mb-1">🔧 디버그 정보:</div>
+                  <div className="text-gray-600">
+                    <div>현재 타입: <span className="font-mono">{scheduleSettings.type}</span></div>
+                    <div>타임존: <span className="font-mono">{scheduleSettings.timezone}</span></div>
+                    {scheduleSettings.delay && <div>지연 시간: <span className="font-mono">{scheduleSettings.delay}분</span></div>}
+                    {scheduleSettings.scheduledTime && <div>예약 시간: <span className="font-mono">{scheduleSettings.scheduledTime}</span></div>}
+                    {scheduleSettings.recurringPattern && (
+                      <div>반복 패턴: <span className="font-mono">{JSON.stringify(scheduleSettings.recurringPattern)}</span></div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
               <div>
                 <label className="text-sm font-medium mb-3 block">발송 시점</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -732,7 +756,13 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       scheduleSettings.type === 'immediate' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'
                     }`}
-                    onClick={() => setScheduleSettings({...scheduleSettings, type: 'immediate'})}
+                    onClick={() => {
+                      console.log('🔄 스케줄 타입 변경: immediate');
+                      setScheduleSettings({
+                        type: 'immediate',
+                        timezone: 'Asia/Seoul'
+                      });
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-4 h-4 rounded-full border-2 ${
@@ -749,7 +779,14 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       scheduleSettings.type === 'delay' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'
                     }`}
-                    onClick={() => setScheduleSettings({...scheduleSettings, type: 'delay'})}
+                    onClick={() => {
+                      console.log('🔄 스케줄 타입 변경: delay');
+                      setScheduleSettings({
+                        type: 'delay',
+                        delay: scheduleSettings.delay || 60,
+                        timezone: 'Asia/Seoul'
+                      });
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-4 h-4 rounded-full border-2 ${
@@ -766,7 +803,14 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       scheduleSettings.type === 'scheduled' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'
                     }`}
-                    onClick={() => setScheduleSettings({...scheduleSettings, type: 'scheduled'})}
+                    onClick={() => {
+                      console.log('🔄 스케줄 타입 변경: scheduled');
+                      setScheduleSettings({
+                        type: 'scheduled',
+                        scheduledTime: scheduleSettings.scheduledTime || '',
+                        timezone: 'Asia/Seoul'
+                      });
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-4 h-4 rounded-full border-2 ${
@@ -783,7 +827,18 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       scheduleSettings.type === 'recurring' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'
                     }`}
-                    onClick={() => setScheduleSettings({...scheduleSettings, type: 'recurring'})}
+                    onClick={() => {
+                      console.log('🔄 스케줄 타입 변경: recurring');
+                      setScheduleSettings({
+                        type: 'recurring',
+                        recurringPattern: scheduleSettings.recurringPattern || {
+                          frequency: 'daily',
+                          interval: 1,
+                          time: '09:00'
+                        },
+                        timezone: 'Asia/Seoul'
+                      });
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-4 h-4 rounded-full border-2 ${

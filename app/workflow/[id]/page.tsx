@@ -31,12 +31,15 @@ function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
       enableRealSending: false,
       fallbackToSMS: false
     },
-    scheduleSettings: supabaseWorkflow.schedule_config || {
+    scheduleSettings: supabaseWorkflow.schedule_config ? {
+      type: supabaseWorkflow.schedule_config.type || 'immediate',
+      timezone: supabaseWorkflow.schedule_config.timezone || 'Asia/Seoul',
+      delay: supabaseWorkflow.schedule_config.delay,
+      scheduledTime: supabaseWorkflow.schedule_config.scheduledTime,
+      recurringPattern: supabaseWorkflow.schedule_config.recurringPattern
+    } : {
       type: 'immediate',
-      delayMinutes: 0,
-      scheduledTime: '',
-      repeatType: 'none',
-      repeatValue: 1
+      timezone: 'Asia/Seoul'
     },
     stats: supabaseWorkflow.statistics || {
       totalRuns: 0,
