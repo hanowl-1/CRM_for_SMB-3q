@@ -271,10 +271,13 @@ async function sendAlimtalk({
       from: SMS_SENDER_NUMBER,
       type: 'ATA', // 알림톡
       kakaoOptions: {
-        pfId: KAKAO_SENDER_KEY, // 발신프로필 ID (senderKey -> pfId로 변경)
+        pfId: getPfIdForTemplate(templateId),
         templateId: templateId, // 실제 템플릿 ID 사용
-        // CoolSMS API는 variables 속성 사용
-        variables: variables
+        // CoolSMS API는 variables 속성에서 #{변수명} 형식 사용
+        variables: Object.entries(variables).reduce((acc, [key, value]) => {
+          acc[`#{${key}}`] = value;
+          return acc;
+        }, {} as Record<string, string>)
       }
     };
     
@@ -282,9 +285,9 @@ async function sendAlimtalk({
       to: phoneNumber,
       from: SMS_SENDER_NUMBER,
       type: 'ATA',
-      pfId: KAKAO_SENDER_KEY,
+      pfId: getPfIdForTemplate(templateId),
       templateId: templateId,
-      variables: variables
+      variables: baseMessageOptions.kakaoOptions.variables
     });
     
     // 실제 템플릿 ID로 발송 시도
@@ -368,6 +371,38 @@ function findTemplateIdByCode(templateCode: string): string | null {
   
   console.log('❌ 템플릿을 찾을 수 없음:', templateCode);
   return null;
+}
+
+// 템플릿에 맞는 발신프로필 키 선택 함수
+function getPfIdForTemplate(templateId: string): string {
+  // KakaoAlimtalkTemplateById에서 템플릿 정보 찾기
+  const templateInfo = KakaoAlimtalkTemplateById[templateId as keyof typeof KakaoAlimtalkTemplateById];
+  
+  if (templateInfo) {
+    const channel = templateInfo.channel;
+    console.log('🔍 템플릿 정보:', {
+      templateId,
+      templateName: templateInfo.templateName,
+      channel,
+      channelId: templateInfo.channelId
+    });
+    
+    // channel 속성에 따라 발신프로필 선택
+    if (channel === 'CEO') {
+      const pfId = process.env.PFID_CEO || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      console.log('🔑 CEO 채널 발신프로필 사용:', pfId);
+      return pfId;
+    } else if (channel === 'BLOGGER') {
+      const pfId = process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      console.log('🔑 BLOGGER 채널 발신프로필 사용:', pfId);
+      return pfId;
+    }
+  }
+  
+  // 템플릿 정보를 찾을 수 없는 경우 기본값 사용
+  const pfId = KAKAO_SENDER_KEY || '';
+  console.log('⚠️ 템플릿 정보 없음, 기본 발신프로필 사용:', pfId);
+  return pfId;
 }
 
 // SMS 발송 함수
