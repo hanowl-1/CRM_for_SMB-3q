@@ -321,7 +321,14 @@ export default function Dashboard() {
                           {schedulerStatus.nextJob.workflow.name}
                         </div>
                         <div className="text-blue-500">
-                          {new Date(schedulerStatus.nextJob.scheduledTime).toLocaleString('ko-KR')}
+                          {new Date(schedulerStatus.nextJob.scheduledTime).toLocaleString('ko-KR', { 
+                            timeZone: 'Asia/Seoul',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })} (KST)
                         </div>
                       </div>
                     )}

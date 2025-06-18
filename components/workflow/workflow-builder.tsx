@@ -820,7 +820,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               {/* 예약 발송 설정 */}
               {scheduleSettings.type === 'scheduled' && (
                 <div>
-                  <label className="text-sm font-medium mb-2 block">예약 일시</label>
+                  <label className="text-sm font-medium mb-2 block">예약 일시 (한국시간 KST)</label>
                   <Input
                     type="datetime-local"
                     value={scheduleSettings.scheduledTime || ''}
@@ -829,6 +829,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                       scheduledTime: e.target.value
                     })}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    설정된 시간은 한국시간(KST) 기준으로 실행됩니다
+                  </p>
                 </div>
               )}
 
@@ -863,7 +866,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium mb-2 block">발송 시간</label>
+                    <label className="text-sm font-medium mb-2 block">발송 시간 (한국시간 KST)</label>
                     <Input
                       type="time"
                       value={scheduleSettings.recurringPattern?.time || '09:00'}
@@ -875,6 +878,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                         }
                       })}
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      설정된 시간은 한국시간(KST) 기준으로 실행됩니다
+                    </p>
                   </div>
 
                   {scheduleSettings.recurringPattern?.frequency === 'weekly' && (

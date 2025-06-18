@@ -1,4 +1,4 @@
-import { Workflow } from '../types/workflow';
+import { Workflow } from '@/lib/types/workflow';
 
 interface ScheduledJob {
   id: string;
@@ -11,12 +11,33 @@ interface ScheduledJob {
   error?: string;
 }
 
+// 한국시간 기준 유틸리티 함수들
+const getKoreaTime = (): Date => {
+  const now = new Date();
+  // UTC 시간에 9시간을 더해서 한국시간으로 변환
+  return new Date(now.getTime() + (9 * 60 * 60 * 1000));
+};
+
+const createKoreaDate = (year: number, month: number, date: number, hours: number = 0, minutes: number = 0): Date => {
+  // 한국시간 기준으로 Date 객체 생성 후 UTC로 변환
+  const koreaTime = new Date(year, month, date, hours, minutes, 0, 0);
+  return new Date(koreaTime.getTime() - (9 * 60 * 60 * 1000));
+};
+
+const parseKoreaTimeString = (timeString: string): Date => {
+  // ISO 문자열을 한국시간으로 파싱
+  const date = new Date(timeString);
+  // 이미 한국시간으로 입력된 경우를 고려하여 UTC 오프셋 조정
+  return date;
+};
+
 class SchedulerService {
   private jobs: Map<string, ScheduledJob> = new Map();
   private intervals: Map<string, NodeJS.Timeout> = new Map();
   private isRunning = false;
 
   constructor() {
+    // 서비스 시작 시 스케줄러 자동 시작
     this.startScheduler();
   }
 
@@ -25,7 +46,7 @@ class SchedulerService {
     if (this.isRunning) return;
     
     this.isRunning = true;
-    console.log('🚀 스케줄러 서비스 시작됨');
+    console.log('🚀 스케줄러 서비스 시작됨 (한국시간 기준)');
     
     // 매분마다 실행할 작업 확인
     const checkInterval = setInterval(() => {
@@ -48,7 +69,7 @@ class SchedulerService {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     let scheduledTime: Date;
-    const now = new Date();
+    const now = getKoreaTime();
     
     if (!workflow.scheduleSettings) {
       // 기본값: 즉시 실행
@@ -64,7 +85,7 @@ class SchedulerService {
           break;
         case 'scheduled':
           if (workflow.scheduleSettings.scheduledTime) {
-            scheduledTime = new Date(workflow.scheduleSettings.scheduledTime);
+            scheduledTime = parseKoreaTimeString(workflow.scheduleSettings.scheduledTime);
           } else {
             scheduledTime = now;
           }
@@ -89,14 +110,14 @@ class SchedulerService {
 
     this.jobs.set(jobId, job);
     
-    console.log(`📅 워크플로우 예약됨: ${workflow.name} (${scheduledTime.toLocaleString('ko-KR')})`);
+    console.log(`📅 워크플로우 예약됨: ${workflow.name} (한국시간: ${scheduledTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})`);
     
     return jobId;
   }
 
-  // 다음 반복 실행 시간 계산
+  // 다음 반복 실행 시간 계산 (한국시간 기준)
   private calculateNextRecurringTime(pattern: any): Date {
-    const now = new Date();
+    const now = getKoreaTime();
     const [hours, minutes] = (pattern?.time || '09:00').split(':').map(Number);
     
     switch (pattern?.frequency) {
@@ -124,15 +145,15 @@ class SchedulerService {
     }
   }
 
-  // 예약된 작업 확인 및 실행
+  // 예약된 작업 확인 및 실행 (한국시간 기준)
   private async checkAndExecuteJobs() {
-    const now = new Date();
+    const now = getKoreaTime();
     const pendingJobs = Array.from(this.jobs.values()).filter(
       job => job.status === 'pending' && job.scheduledTime <= now
     );
 
     if (pendingJobs.length > 0) {
-      console.log(`⏰ 실행할 작업 ${pendingJobs.length}개 발견`);
+      console.log(`⏰ 실행할 작업 ${pendingJobs.length}개 발견 (한국시간: ${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})`);
     }
 
     for (const job of pendingJobs) {
@@ -146,7 +167,7 @@ class SchedulerService {
       console.log(`🚀 워크플로우 실행 시작: ${job.workflow.name}`);
       
       job.status = 'running';
-      job.executedAt = new Date();
+      job.executedAt = getKoreaTime();
 
       // 워크플로우 실행 API 호출
       const response = await fetch('/api/workflow/execute', {

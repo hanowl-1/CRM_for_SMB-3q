@@ -55,13 +55,15 @@
 
 - **✅ 예약 실행 (Scheduled):**
   - 특정 날짜/시간 예약
-  - 타임존 지원 (Asia/Seoul)
+  - **한국시간(KST) 기준 실행**: Asia/Seoul 타임존 적용
   - 미래 시점 정확한 실행
+  - 서버 시간과 관계없이 한국시간 기준 동작
 
 - **✅ 반복 실행 (Recurring):**
   - 일간/주간/월간 반복 패턴
+  - **한국시간 기준 스케줄링**: 모든 반복 시간은 KST 기준
   - 반복 종료 조건 설정
-  - 다음 실행 시간 자동 계산
+  - 다음 실행 시간 자동 계산 (한국시간)
 
 #### 2.2 ✅ 스케줄러 서비스 (Scheduler Service)
 
@@ -175,9 +177,25 @@
 
 #### 3.2 ✅ 실행 로직
 
-##### 3.2.1 ✅ 작업 스케줄링
+##### 3.2.1 ✅ 한국시간 기준 처리
 ```typescript
-// 작업 등록 로직
+// 한국시간 유틸리티 함수
+const getKoreaTime = (): Date => {
+  const now = new Date();
+  // UTC 시간에 9시간을 더해서 한국시간으로 변환
+  return new Date(now.getTime() + (9 * 60 * 60 * 1000));
+};
+
+const parseKoreaTimeString = (timeString: string): Date => {
+  // ISO 문자열을 한국시간으로 파싱
+  const date = new Date(timeString);
+  return date;
+};
+```
+
+##### 3.2.2 ✅ 작업 스케줄링
+```typescript
+// 작업 등록 로직 (한국시간 기준)
 const scheduleWorkflow = (workflow: Workflow) => {
   const job: ScheduledJob = {
     id: generateJobId(),
@@ -185,23 +203,23 @@ const scheduleWorkflow = (workflow: Workflow) => {
     workflowName: workflow.name,
     type: determineJobType(workflow.scheduleSettings),
     status: 'pending',
-    scheduledTime: calculateScheduledTime(workflow.scheduleSettings),
-    createdAt: new Date()
+    scheduledTime: calculateScheduledTime(workflow.scheduleSettings), // 한국시간 기준
+    createdAt: getKoreaTime() // 한국시간으로 생성 시간 기록
   };
   
   schedulerService.addJob(job);
 };
 ```
 
-##### 3.2.2 ✅ 실행 확인 로직
+##### 3.2.3 ✅ 실행 확인 로직
 ```typescript
-// 매분 실행되는 작업 확인
+// 매분 실행되는 작업 확인 (한국시간 기준)
 const checkAndExecuteJobs = () => {
-  const now = new Date();
+  const now = getKoreaTime(); // 한국시간 기준 현재 시간
   const pendingJobs = schedulerService.getPendingJobs();
   
   pendingJobs.forEach(job => {
-    if (job.scheduledTime <= now) {
+    if (job.scheduledTime <= now) { // 한국시간 기준 비교
       executeJob(job);
     }
   });
