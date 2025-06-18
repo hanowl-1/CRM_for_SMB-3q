@@ -1030,9 +1030,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">상태</label>
-                    <p className="text-sm mt-1">
+                    <div className="text-sm mt-1">
                       <Badge variant="outline">Draft</Badge>
-                    </p>
+                    </div>
                   </div>
                 </div>
                 <div className="mt-3">
