@@ -9,6 +9,49 @@ import { ArrowLeft, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
+// Supabase 워크플로우 데이터를 Workflow 타입으로 변환하는 함수
+function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
+  return {
+    id: supabaseWorkflow.id,
+    name: supabaseWorkflow.name,
+    description: supabaseWorkflow.description || '',
+    status: supabaseWorkflow.status,
+    trigger: {
+      id: supabaseWorkflow.trigger_config?.id || '',
+      name: supabaseWorkflow.trigger_config?.name || '',
+      type: supabaseWorkflow.trigger_type || 'manual',
+      description: supabaseWorkflow.trigger_config?.description || '',
+      conditions: supabaseWorkflow.trigger_config?.conditions || [],
+      conditionLogic: supabaseWorkflow.trigger_config?.conditionLogic || 'AND'
+    },
+    targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
+    steps: supabaseWorkflow.message_config?.steps || [],
+    testSettings: supabaseWorkflow.variables?.testSettings || {
+      phoneNumber: '',
+      enableRealSending: false,
+      fallbackToSMS: false
+    },
+    scheduleSettings: supabaseWorkflow.schedule_config || {
+      type: 'immediate',
+      delayMinutes: 0,
+      scheduledTime: '',
+      repeatType: 'none',
+      repeatValue: 1
+    },
+    stats: supabaseWorkflow.statistics || {
+      totalRuns: 0,
+      successfulRuns: 0,
+      failedRuns: 0,
+      totalMessagesSent: 0,
+      totalCost: 0,
+      lastRunAt: null,
+      averageExecutionTime: 0
+    },
+    createdAt: supabaseWorkflow.created_at,
+    updatedAt: supabaseWorkflow.updated_at
+  }
+}
+
 export default function WorkflowDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -18,35 +61,58 @@ export default function WorkflowDetailPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    const loadWorkflow = () => {
+    const loadWorkflow = async () => {
       try {
         const workflowId = params.id as string
         
-        // localStorage에서 저장된 워크플로우 찾기
+        // 1. localStorage에서 저장된 워크플로우 찾기
         const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
         const foundWorkflow = savedWorkflows.find(w => w.id === workflowId || `saved_${w.id}` === workflowId)
         
         if (foundWorkflow) {
           setWorkflow(foundWorkflow)
-        } else {
-          // 샘플 워크플로우인지 확인 (실제로는 없지만 UI에서 링크가 있음)
-          const sampleWorkflows = [
-            { id: "1", name: "신규 회원 환영 워크플로우" },
-            { id: "2", name: "장바구니 미완료 알림" },
-            { id: "3", name: "VIP 고객 특별 혜택" },
-            { id: "4", name: "생일 축하 메시지" },
-            { id: "5", name: "구매 후 리뷰 요청" },
-            { id: "6", name: "재구매 유도 메시지" },
-            { id: "7", name: "이벤트 참여 안내" },
-          ]
+          setIsLoading(false)
+          return
+        }
+
+        // 2. Supabase에서 워크플로우 조회
+        try {
+          console.log("📊 Supabase에서 워크플로우 조회 중...", workflowId);
           
-          const sampleWorkflow = sampleWorkflows.find(w => w.id === workflowId)
-          if (sampleWorkflow) {
-            // 샘플 워크플로우는 편집할 수 없음을 알림
-            setNotFound(true)
-          } else {
-            setNotFound(true)
+          const response = await fetch(`/api/supabase/workflows/${workflowId}`);
+          
+          if (response.ok) {
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+              console.log("✅ Supabase에서 워크플로우 찾음:", result.data.name);
+              const convertedWorkflow = convertSupabaseToWorkflow(result.data);
+              setWorkflow(convertedWorkflow);
+              setIsLoading(false);
+              return;
+            }
           }
+        } catch (supabaseError) {
+          console.error("Supabase 워크플로우 조회 실패:", supabaseError);
+        }
+
+        // 3. 샘플 워크플로우인지 확인 (실제로는 없지만 UI에서 링크가 있음)
+        const sampleWorkflows = [
+          { id: "1", name: "신규 회원 환영 워크플로우" },
+          { id: "2", name: "장바구니 미완료 알림" },
+          { id: "3", name: "VIP 고객 특별 혜택" },
+          { id: "4", name: "생일 축하 메시지" },
+          { id: "5", name: "구매 후 리뷰 요청" },
+          { id: "6", name: "재구매 유도 메시지" },
+          { id: "7", name: "이벤트 참여 안내" },
+        ]
+        
+        const sampleWorkflow = sampleWorkflows.find(w => w.id === workflowId)
+        if (sampleWorkflow) {
+          // 샘플 워크플로우는 편집할 수 없음을 알림
+          setNotFound(true)
+        } else {
+          setNotFound(true)
         }
       } catch (error) {
         console.error("워크플로우 로드 실패:", error)
@@ -62,19 +128,57 @@ export default function WorkflowDetailPage() {
   const handleSave = async (updatedWorkflow: Workflow) => {
     setIsSaving(true)
     try {
-      // localStorage에서 기존 워크플로우 업데이트
+      // 1. localStorage에서 기존 워크플로우 업데이트 시도
       const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
-      const updatedWorkflows = savedWorkflows.map(w => 
-        w.id === updatedWorkflow.id ? { ...updatedWorkflow, updatedAt: new Date().toISOString() } : w
-      )
+      const localWorkflowIndex = savedWorkflows.findIndex(w => w.id === updatedWorkflow.id)
       
-      localStorage.setItem("workflows", JSON.stringify(updatedWorkflows))
+      if (localWorkflowIndex !== -1) {
+        // localStorage 워크플로우 업데이트
+        savedWorkflows[localWorkflowIndex] = { ...updatedWorkflow, updatedAt: new Date().toISOString() }
+        localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
+        
+        alert("워크플로우가 업데이트되었습니다!")
+        router.push("/")
+        return
+      }
+
+      // 2. Supabase 워크플로우 업데이트 시도
+      try {
+        console.log("📊 Supabase 워크플로우 업데이트 중...", updatedWorkflow.id);
+        
+        const response = await fetch(`/api/supabase/workflows/${encodeURIComponent(updatedWorkflow.id)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ...updatedWorkflow,
+            updatedAt: new Date().toISOString()
+          })
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          
+          if (result.success) {
+            console.log("✅ Supabase 워크플로우 업데이트 성공");
+            alert("워크플로우가 업데이트되었습니다!");
+            router.push("/");
+            return;
+          } else {
+            throw new Error(result.message || 'Supabase 업데이트 실패');
+          }
+        } else {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+      } catch (supabaseError) {
+        console.error("Supabase 워크플로우 업데이트 실패:", supabaseError);
+        throw new Error(`Supabase 업데이트 실패: ${supabaseError instanceof Error ? supabaseError.message : '알 수 없는 오류'}`);
+      }
       
-      alert("워크플로우가 업데이트되었습니다!")
-      router.push("/")
     } catch (error) {
       console.error("워크플로우 업데이트 실패:", error)
-      alert("업데이트에 실패했습니다.")
+      alert(`업데이트에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
     } finally {
       setIsSaving(false)
     }

@@ -337,6 +337,62 @@ class SupabaseWorkflowService {
   }
 
   // =====================================================
+  // 워크플로우 실행 기록 관리 메서드
+  // =====================================================
+
+  // 워크플로우 실행 기록 생성
+  async createWorkflowRun(workflowRun: {
+    id: string;
+    workflowId: string;
+    status: string;
+    triggerType?: string;
+    targetCount: number;
+    successCount: number;
+    failedCount: number;
+    totalCost: number;
+    executionTimeMs?: number;
+    startedAt: string;
+    completedAt?: string;
+    errorMessage?: string;
+    logs: any[];
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      await this.ensureTables();
+      const client = this.getClient();
+
+      const { data, error } = await client
+        .from('workflow_runs')
+        .insert([{
+          id: workflowRun.id,
+          workflow_id: workflowRun.workflowId,
+          status: workflowRun.status,
+          trigger_type: workflowRun.triggerType,
+          target_count: workflowRun.targetCount,
+          success_count: workflowRun.successCount,
+          failed_count: workflowRun.failedCount,
+          total_cost: workflowRun.totalCost,
+          execution_time_ms: workflowRun.executionTimeMs,
+          started_at: workflowRun.startedAt,
+          completed_at: workflowRun.completedAt,
+          error_message: workflowRun.errorMessage,
+          logs: workflowRun.logs
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('워크플로우 실행 기록 생성 오류:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('워크플로우 실행 기록 생성 실패:', error);
+      return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
+    }
+  }
+
+  // =====================================================
   // 커스텀 쿼리 관리 메서드 (NEW)
   // =====================================================
 

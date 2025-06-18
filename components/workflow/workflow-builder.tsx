@@ -341,7 +341,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     });
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // 선택된 템플릿들을 워크플로우 단계로 변환 (개인화 설정 포함)
     const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
       id: `step_${template.id}_${Date.now()}`,
@@ -386,7 +386,36 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         successRate: 0
       }
     };
+
+    // 워크플로우 저장
     onSave(workflowData);
+
+    // 스케줄 설정이 있고 즉시 실행이 아닌 경우 스케줄러에 등록
+    if (scheduleSettings.type !== 'immediate' && workflowData.status === 'active') {
+      try {
+        const response = await fetch('/api/scheduler', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'schedule',
+            workflow: workflowData
+          })
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+          console.log('✅ 워크플로우가 스케줄러에 등록되었습니다:', result.data.jobId);
+          // 성공 알림 표시 (선택사항)
+        } else {
+          console.error('❌ 스케줄러 등록 실패:', result.message);
+        }
+      } catch (error) {
+        console.error('❌ 스케줄러 등록 중 오류:', error);
+      }
+    }
   };
 
   const handleTest = () => {

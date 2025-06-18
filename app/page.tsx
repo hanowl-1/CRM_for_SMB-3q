@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText, Wrench, Database, Code, Monitor, Zap, Target, TrendingUp, RefreshCw } from "lucide-react"
+import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText, Wrench, Database, Code, Monitor, Zap, Target, TrendingUp, RefreshCw, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { Workflow } from "@/lib/types/workflow"
+import { Badge } from "@/components/ui/badge"
 
 export default function Dashboard() {
   const [workflows, setWorkflows] = useState<Array<{
@@ -20,6 +21,17 @@ export default function Dashboard() {
   }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // 스케줄러 상태 추가
+  const [schedulerStatus, setSchedulerStatus] = useState<{
+    isRunning: boolean;
+    totalJobs: number;
+    pendingJobs: number;
+    runningJobs: number;
+    completedJobs: number;
+    failedJobs: number;
+    nextJob?: any;
+  } | null>(null);
 
   // Supabase에서 워크플로우 불러오기 (DB 기반만)
   const loadWorkflows = async () => {
@@ -73,8 +85,28 @@ export default function Dashboard() {
     }
   };
 
+  // 스케줄러 상태 로드
+  const loadSchedulerStatus = async () => {
+    try {
+      const response = await fetch('/api/scheduler?action=status');
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setSchedulerStatus(result.data);
+        }
+      }
+    } catch (error) {
+      console.error('스케줄러 상태 로드 실패:', error);
+    }
+  };
+
   useEffect(() => {
     loadWorkflows();
+    loadSchedulerStatus();
+    
+    // 30초마다 스케줄러 상태 업데이트
+    const interval = setInterval(loadSchedulerStatus, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // 실제 워크플로우 데이터를 기반으로 통계 계산
@@ -229,6 +261,77 @@ export default function Dashboard() {
                     단순 SMS 발송
                   </Button>
                 </Link>
+              </CardContent>
+            </Card>
+
+            {/* 스케줄러 상태 카드 추가 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Clock className="h-5 w-5 text-orange-600" />
+                  <span>스케줄러 상태</span>
+                </CardTitle>
+                <CardDescription>
+                  자동 실행 스케줄러 모니터링
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {schedulerStatus ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">상태</span>
+                      <Badge variant={schedulerStatus.isRunning ? "default" : "secondary"}>
+                        {schedulerStatus.isRunning ? (
+                          <>
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            실행 중
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-3 h-3 mr-1" />
+                            중지됨
+                          </>
+                        )}
+                      </Badge>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">총 작업:</span>
+                        <span className="font-medium">{schedulerStatus.totalJobs}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">대기 중:</span>
+                        <span className="font-medium text-blue-600">{schedulerStatus.pendingJobs}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">실행 중:</span>
+                        <span className="font-medium text-orange-600">{schedulerStatus.runningJobs}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">완료:</span>
+                        <span className="font-medium text-green-600">{schedulerStatus.completedJobs}</span>
+                      </div>
+                    </div>
+
+                    {schedulerStatus.nextJob && (
+                      <div className="mt-3 p-2 bg-blue-50 rounded text-xs">
+                        <div className="font-medium text-blue-800">다음 실행 예정:</div>
+                        <div className="text-blue-600">
+                          {schedulerStatus.nextJob.workflow.name}
+                        </div>
+                        <div className="text-blue-500">
+                          {new Date(schedulerStatus.nextJob.scheduledTime).toLocaleString('ko-KR')}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center py-4">
+                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                    <span className="text-sm text-gray-500">상태 확인 중...</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
