@@ -243,7 +243,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         return true;
       case 'schedule':
         return true; // 스케줄은 기본값이 있으므로 항상 완료
-      case 'test':
+      case 'review':
         return testSettings.testPhoneNumber.trim() !== '';
       default:
         return false;
@@ -479,7 +479,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   };
 
   const getNextTab = (currentTab: string) => {
-    const tabs = ['basic', 'templates', 'targets', 'mapping', 'schedule', 'test'];
+    const tabs = ['basic', 'templates', 'targets', 'mapping', 'schedule', 'review'];
     const currentIndex = tabs.indexOf(currentTab);
     return currentIndex < tabs.length - 1 ? tabs[currentIndex + 1] : null;
   };
@@ -518,10 +518,10 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             스케줄러
             {isTabComplete('schedule') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
-          <TabsTrigger value="test" className="flex items-center gap-2">
-            <TestTube className="w-4 h-4" />
-            테스트 설정
-            {isTabComplete('test') && <CheckCircle className="w-3 h-3 text-green-600" />}
+          <TabsTrigger value="review" className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
+            최종 확인
+            {isTabComplete('review') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
         </TabsList>
 
@@ -1000,76 +1000,212 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             <Button variant="outline" onClick={() => setActiveTab('mapping')}>
               이전: 대상-템플릿 매핑
             </Button>
-            <Button onClick={() => setActiveTab('test')}>
-              다음: 테스트 설정
+            <Button onClick={() => setActiveTab('review')}>
+              다음: 최종 확인
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
         </TabsContent>
 
-        {/* 테스트 설정 탭 */}
-        <TabsContent value="test" className="space-y-6">
+        {/* 최종 확인 탭 */}
+        <TabsContent value="review" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>테스트 설정</CardTitle>
+              <CardTitle>워크플로우 전체 설정 요약</CardTitle>
               <p className="text-sm text-muted-foreground">
-                워크플로우를 테스트하기 위한 설정을 구성하세요
+                설정한 워크플로우의 모든 정보를 확인하고 테스트를 진행하세요
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">테스트 수신 번호 *</label>
-                <Input
-                  value={testSettings.testPhoneNumber}
-                  onChange={(e) => setTestSettings({
-                    ...testSettings,
-                    testPhoneNumber: e.target.value
-                  })}
-                  placeholder="010-1234-5678"
-                />
+            <CardContent className="space-y-6">
+              {/* 기본 정보 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <Info className="w-5 h-5" />
+                  기본 정보
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">워크플로우 이름</label>
+                    <p className="text-sm mt-1">{name || '미설정'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">상태</label>
+                    <p className="text-sm mt-1">
+                      <Badge variant="outline">Draft</Badge>
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label className="text-sm font-medium text-muted-foreground">설명</label>
+                  <p className="text-sm mt-1">{description || '미설정'}</p>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="real-sending"
-                  checked={testSettings.enableRealSending}
-                  onCheckedChange={(checked) => setTestSettings({
-                    ...testSettings,
-                    enableRealSending: checked
-                  })}
-                />
-                <Label htmlFor="real-sending">실제 메시지 발송 (체크 해제 시 시뮬레이션만)</Label>
+              {/* 대상 그룹 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  대상 그룹 ({targetGroups.length}개)
+                </h4>
+                {targetGroups.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">선택된 대상 그룹이 없습니다</p>
+                ) : (
+                  <div className="space-y-2">
+                    {targetGroups.map((group, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Badge variant="secondary">{group.type === 'static' ? '정적' : '동적'}</Badge>
+                        <span className="text-sm">{group.name}</span>
+                        {group.estimatedCount && (
+                          <span className="text-xs text-muted-foreground">({group.estimatedCount}명)</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="fallback-sms"
-                  checked={testSettings.fallbackToSMS}
-                  onCheckedChange={(checked) => setTestSettings({
-                    ...testSettings,
-                    fallbackToSMS: checked
-                  })}
-                />
-                <Label htmlFor="fallback-sms">알림톡 실패 시 SMS로 대체 발송</Label>
+              {/* 알림톡 템플릿 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5" />
+                  알림톡 템플릿 ({selectedTemplates.length}개)
+                </h4>
+                {selectedTemplates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">선택된 템플릿이 없습니다</p>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedTemplates.map((template, index) => (
+                      <div key={template.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-medium">
+                          {index + 1}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-sm">{template.templateName}</span>
+                            <Badge variant="outline" className="text-xs">{template.templateCode}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            {template.templateContent.substring(0, 80)}...
+                          </p>
+                          {template.variables && template.variables.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {template.variables.slice(0, 3).map(variable => (
+                                <Badge key={variable} variant="outline" className="text-xs font-mono">
+                                  {variable}
+                                </Badge>
+                              ))}
+                              {template.variables.length > 3 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{template.variables.length - 3}개 더
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="text-sm font-medium mb-2 block">테스트 메모</label>
-                <Textarea
-                  value={testSettings.testNotes || ''}
-                  onChange={(e) => setTestSettings({
-                    ...testSettings,
-                    testNotes: e.target.value
-                  })}
-                  placeholder="테스트에 대한 메모를 작성하세요"
-                  rows={3}
-                />
+              {/* 스케줄러 설정 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <Calendar className="w-5 h-5" />
+                  스케줄러 설정
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">발송 타입</label>
+                    <p className="text-sm mt-1">
+                      {scheduleSettings.type === 'immediate' && '즉시 발송'}
+                      {scheduleSettings.type === 'delay' && `지연 발송 (${scheduleSettings.delay}분 후)`}
+                      {scheduleSettings.type === 'scheduled' && `예약 발송 (${scheduleSettings.scheduledTime})`}
+                      {scheduleSettings.type === 'recurring' && '반복 발송'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">타임존</label>
+                    <p className="text-sm mt-1">{scheduleSettings.timezone}</p>
+                  </div>
+                </div>
+                {scheduleSettings.type === 'recurring' && scheduleSettings.recurringPattern && (
+                  <div className="mt-3">
+                    <label className="text-sm font-medium text-muted-foreground">반복 패턴</label>
+                    <p className="text-sm mt-1">
+                      {scheduleSettings.recurringPattern.frequency === 'daily' && '매일'}
+                      {scheduleSettings.recurringPattern.frequency === 'weekly' && '매주'}
+                      {scheduleSettings.recurringPattern.frequency === 'monthly' && '매월'}
+                      {' '}
+                      {scheduleSettings.recurringPattern.time}에 발송
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* 테스트 설정 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <TestTube className="w-5 h-5" />
+                  테스트 설정
+                </h4>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">테스트 수신 번호 *</label>
+                    <Input
+                      value={testSettings.testPhoneNumber}
+                      onChange={(e) => setTestSettings({
+                        ...testSettings,
+                        testPhoneNumber: e.target.value
+                      })}
+                      placeholder="010-1234-5678"
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="real-sending"
+                      checked={testSettings.enableRealSending}
+                      onCheckedChange={(checked) => setTestSettings({
+                        ...testSettings,
+                        enableRealSending: checked
+                      })}
+                    />
+                    <Label htmlFor="real-sending">실제 메시지 발송 (체크 해제 시 시뮬레이션만)</Label>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="fallback-sms"
+                      checked={testSettings.fallbackToSMS}
+                      onCheckedChange={(checked) => setTestSettings({
+                        ...testSettings,
+                        fallbackToSMS: checked
+                      })}
+                    />
+                    <Label htmlFor="fallback-sms">알림톡 실패 시 SMS로 대체 발송</Label>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">테스트 메모</label>
+                    <Textarea
+                      value={testSettings.testNotes || ''}
+                      onChange={(e) => setTestSettings({
+                        ...testSettings,
+                        testNotes: e.target.value
+                      })}
+                      placeholder="테스트에 대한 메모를 작성하세요"
+                      rows={3}
+                    />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setActiveTab('schedule')}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
               이전: 스케줄러 설정
             </Button>
             <div className="flex gap-3">
