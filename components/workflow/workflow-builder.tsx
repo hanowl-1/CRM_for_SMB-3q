@@ -94,29 +94,78 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   // 기존 워크플로우 로드 시 변수와 개인화 설정 초기화
   useEffect(() => {
     if (workflow && workflow.steps) {
+      console.log('🔄 워크플로우 로드 시작:', {
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        stepsCount: workflow.steps.length
+      });
+      
       const variables: Record<string, Record<string, string>> = {};
       const personalizations: Record<string, PersonalizationSettings> = {};
       const templates: KakaoTemplate[] = [];
       
-      workflow.steps.forEach(step => {
+      workflow.steps.forEach((step, index) => {
+        console.log(`🔍 Step ${index + 1} 분석:`, {
+          stepId: step.id,
+          actionType: step.action.type,
+          templateId: step.action.templateId
+        });
+        
         if (step.action.templateId && step.action.type === 'send_alimtalk') {
           // 변수 저장
           if (step.action.variables) {
             variables[step.action.templateId] = step.action.variables;
+            console.log(`📝 변수 복원 (${step.action.templateId}):`, step.action.variables);
           }
           
           // 개인화 설정 저장
           if (step.action.personalization) {
             personalizations[step.action.templateId] = step.action.personalization;
+            console.log(`⚙️ 개인화 설정 복원 (${step.action.templateId}):`, step.action.personalization);
           }
           
           // 템플릿 정보 복원 (mockTemplates에서 찾기)
-          const templateInfo = mockTemplates.find(t => t.id === step.action.templateId);
+          let templateInfo = mockTemplates.find(t => t.id === step.action.templateId);
+          
+          // 템플릿을 찾지 못한 경우, templateCode로도 시도
+          if (!templateInfo && step.action.templateCode) {
+            templateInfo = mockTemplates.find(t => t.templateCode === step.action.templateCode);
+            console.log(`🔍 templateCode로 재검색 (${step.action.templateCode}):`, templateInfo ? '성공' : '실패');
+          }
+          
+          // 여전히 찾지 못한 경우, 템플릿 번호로 시도
+          if (!templateInfo && step.action.templateId.includes('_')) {
+            const parts = step.action.templateId.split('_');
+            const templateNumber = parseInt(parts[parts.length - 1]);
+            if (!isNaN(templateNumber)) {
+              templateInfo = mockTemplates.find(t => t.templateNumber === templateNumber);
+              console.log(`🔍 templateNumber로 재검색 (${templateNumber}):`, templateInfo ? '성공' : '실패');
+            }
+          }
+          
           if (templateInfo && !templates.find(t => t.id === templateInfo.id)) {
-            templates.push({
+            const templateWithPersonalization = {
               ...templateInfo,
               personalization: step.action.personalization
+            };
+            templates.push(templateWithPersonalization);
+            console.log(`✅ 템플릿 복원 성공:`, {
+              templateId: templateInfo.id,
+              templateName: templateInfo.templateName,
+              templateCode: templateInfo.templateCode
             });
+          } else if (!templateInfo) {
+            console.error(`❌ 템플릿을 찾을 수 없음:`, {
+              templateId: step.action.templateId,
+              templateCode: step.action.templateCode,
+              templateName: step.action.templateName,
+              availableTemplates: mockTemplates.length
+            });
+            
+            // 사용 가능한 템플릿 ID들을 로그로 출력 (디버깅용)
+            console.log('📋 사용 가능한 템플릿 ID 목록 (처음 5개):', 
+              mockTemplates.slice(0, 5).map(t => ({ id: t.id, code: t.templateCode, name: t.templateName }))
+            );
           }
         }
       });
@@ -128,8 +177,27 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       console.log('🔄 워크플로우 로드 완료:', {
         templates: templates.length,
         variables: Object.keys(variables).length,
-        personalizations: Object.keys(personalizations).length
+        personalizations: Object.keys(personalizations).length,
+        loadedTemplates: templates.map(t => ({ id: t.id, name: t.templateName }))
       });
+      
+      // 대상 그룹도 복원
+      if (workflow.targetGroups) {
+        setTargetGroups(workflow.targetGroups);
+        console.log('👥 대상 그룹 복원:', workflow.targetGroups.length);
+      }
+      
+      // 스케줄 설정도 복원
+      if (workflow.scheduleSettings) {
+        setScheduleSettings(workflow.scheduleSettings);
+        console.log('⏰ 스케줄 설정 복원:', workflow.scheduleSettings);
+      }
+      
+      // 테스트 설정도 복원
+      if (workflow.testSettings) {
+        setTestSettings(workflow.testSettings);
+        console.log('🧪 테스트 설정 복원:', workflow.testSettings);
+      }
     }
   }, [workflow]);
 
@@ -282,6 +350,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         id: `action_${template.id}_${Date.now()}`,
         type: 'send_alimtalk',
         templateId: template.id,
+        templateCode: template.templateCode,
+        templateName: template.templateName,
         variables: templateVariables[template.id] || {},
         scheduleSettings: scheduleSettings,
         personalization: templatePersonalizations[template.id]
@@ -328,6 +398,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           id: `action_${template.id}_${Date.now()}`,
           type: 'send_alimtalk',
           templateId: template.id,
+          templateCode: template.templateCode,
+          templateName: template.templateName,
           variables: templateVariables[template.id] || {},
           scheduleSettings: scheduleSettings,
           personalization: templatePersonalizations[template.id]

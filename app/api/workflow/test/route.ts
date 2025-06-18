@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
 import { mockTemplates } from '@/lib/data/mock-templates';
-import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
+import { KakaoAlimtalkTemplateById, KakaoAlimtalkTemplateByNumber } from '@/lib/data/kakao-templates';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -271,34 +271,24 @@ async function sendAlimtalk({
       from: SMS_SENDER_NUMBER,
       type: 'ATA', // 알림톡
       kakaoOptions: {
-        senderKey: KAKAO_SENDER_KEY,
-        templateCode: templateCode,
-        // CoolSMS API는 variables 속성 사용, 변수명을 #{변수명} 형식으로 변환
-        variables: Object.entries(variables).reduce((acc, [key, value]) => {
-          acc[`#{${key}}`] = value;
-          return acc;
-        }, {} as Record<string, string>)
+        pfId: KAKAO_SENDER_KEY, // 발신프로필 ID (senderKey -> pfId로 변경)
+        templateId: templateId, // 실제 템플릿 ID 사용
+        // CoolSMS API는 variables 속성 사용
+        variables: variables
       }
     };
     
-    // 첫 번째 시도: 현재 templateCode 사용 (MEMBERS_113 형식)
-    let result;
-    try {
-      result = await messageService.sendOne(baseMessageOptions);
-    } catch (firstError) {
-      console.log('첫 번째 시도 실패 (templateCode:', templateCode, '), 두 번째 시도: 실제 템플릿 ID 사용');
-      
-      // 두 번째 시도: 실제 템플릿 ID를 templateCode로 사용
-      const fallbackOptions = {
-        ...baseMessageOptions,
-        kakaoOptions: {
-          ...baseMessageOptions.kakaoOptions,
-          templateCode: testTemplateId // 테스트 템플릿 ID 사용
-        }
-      };
-      
-      result = await messageService.sendOne(fallbackOptions);
-    }
+    console.log('📤 CoolSMS API 호출 옵션:', {
+      to: phoneNumber,
+      from: SMS_SENDER_NUMBER,
+      type: 'ATA',
+      pfId: KAKAO_SENDER_KEY,
+      templateId: templateId,
+      variables: variables
+    });
+    
+    // 실제 템플릿 ID로 발송 시도
+    const result = await messageService.sendOne(baseMessageOptions);
 
     console.log('✅ 알림톡 발송 성공:', result);
 
@@ -359,13 +349,24 @@ function findTemplateIdByCode(templateCode: string): string | null {
   const [servicePlatform, templateNumber] = parts;
   const templateNum = parseInt(templateNumber);
   
+  console.log('🔍 템플릿 검색:', { servicePlatform, templateNum });
+  
+  // 113번 템플릿의 경우 직접 ID 반환
+  if (servicePlatform === 'MEMBERS' && templateNum === 113) {
+    const templateId = 'KA01TP250610072652095M0BPif67w7I';
+    console.log('✅ 113번 템플릿 발견:', templateId);
+    return templateId;
+  }
+  
   // KakaoAlimtalkTemplateById에서 해당 조건에 맞는 템플릿 찾기
   for (const [templateId, template] of Object.entries(KakaoAlimtalkTemplateById)) {
     if (template.servicePlatform === servicePlatform && template.templateNumber === templateNum) {
+      console.log('✅ 템플릿 매칭 성공:', { templateId, templateName: template.templateName });
       return templateId;
     }
   }
   
+  console.log('❌ 템플릿을 찾을 수 없음:', templateCode);
   return null;
 }
 

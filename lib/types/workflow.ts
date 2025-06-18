@@ -79,6 +79,8 @@ export interface WorkflowAction {
   id: string;
   type: 'send_alimtalk' | 'send_sms' | 'wait' | 'condition';
   templateId?: string;
+  templateCode?: string; // 템플릿 코드 (예: MEMBERS_113)
+  templateName?: string; // 템플릿 이름 (복원 시 참고용)
   delay?: number; // minutes
   conditions?: WorkflowCondition[];
   variables?: Record<string, string>; // 사용자 정의 변수

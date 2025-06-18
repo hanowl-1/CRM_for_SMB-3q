@@ -5,28 +5,28 @@ export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Supabase 연결 테스트 시작...');
     
-    // 환경변수 확인
+    // 환경변수 확인 (Anon 키 사용)
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     
     console.log('환경변수 확인:');
     console.log('- URL:', url);
-    console.log('- Service Key 존재:', !!serviceKey);
-    console.log('- Service Key 길이:', serviceKey?.length || 0);
+    console.log('- Anon Key 존재:', !!anonKey);
+    console.log('- Anon Key 길이:', anonKey?.length || 0);
     
-    if (!url || !serviceKey) {
+    if (!url || !anonKey) {
       return NextResponse.json({
         success: false,
         error: '환경변수가 설정되지 않았습니다.',
         debug: {
           hasUrl: !!url,
-          hasServiceKey: !!serviceKey
+          hasAnonKey: !!anonKey
         }
       });
     }
 
-    // 직접 Supabase 클라이언트 생성
-    const supabase = createClient(url, serviceKey, {
+    // Anon 키로 Supabase 클라이언트 생성
+    const supabase = createClient(url, anonKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     console.log('테이블 접근 시도...');
     const { data, error } = await supabase
-      .from('individual_variable_mappings')
+      .from('workflows')
       .select('*')
       .limit(5);
 

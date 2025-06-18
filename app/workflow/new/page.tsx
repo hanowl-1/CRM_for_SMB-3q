@@ -64,10 +64,18 @@ export default function NewWorkflowPage() {
       // Supabase 저장 실패 시에만 localStorage에 저장
       if (!supabaseSuccess) {
         try {
+          const workflowWithId = {
+            ...workflow,
+            id: workflow.id || `workflow_${Date.now()}`,
+            createdAt: workflow.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          
           const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
-          savedWorkflows.push(workflow)
+          savedWorkflows.push(workflowWithId)
           localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
           alert("⚠️ Supabase 저장에 실패했지만 로컬에 임시 저장되었습니다.\n\n오류: " + (error instanceof Error ? error.message : String(error)))
+          router.push("/")
         } catch (localError) {
           console.error("❌ localStorage 저장도 실패:", localError);
           alert("❌ 저장에 완전히 실패했습니다.\n\nSupabase 오류: " + (error instanceof Error ? error.message : String(error)) + "\nLocalStorage 오류: " + (localError instanceof Error ? localError.message : String(localError)))
