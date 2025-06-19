@@ -428,6 +428,20 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   const handleTest = () => {
     if (onTest) {
+      // 스케줄 테스트 모드가 활성화되어 있고, 즉시 발송이 아닌 경우
+      if (testSettings.testMode && scheduleSettings.type !== 'immediate') {
+        // 스케줄 테스트 확인 메시지
+        const confirmMessage = `스케줄 설정대로 테스트를 진행하시겠습니까?\n\n` +
+          `${scheduleSettings.type === 'delay' ? `${scheduleSettings.delay}분 후에` : 
+            scheduleSettings.type === 'scheduled' ? `${scheduleSettings.scheduledTime}에` : 
+            '다음 반복 시간에'} 테스트 메시지가 발송됩니다.\n\n` +
+          `즉시 테스트를 원하시면 "스케줄 설정대로 테스트" 옵션을 해제해주세요.`;
+        
+        if (!confirm(confirmMessage)) {
+          return;
+        }
+      }
+
       const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
         id: `step_${template.id}_${Date.now()}`,
         name: `${template.templateName} 발송`,
@@ -438,7 +452,10 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           templateCode: template.templateCode,
           templateName: template.templateName,
           variables: templateVariables[template.id] || {},
-          scheduleSettings: scheduleSettings,
+          // 스케줄 테스트 모드가 활성화된 경우 스케줄 설정 사용, 아니면 즉시 발송
+          scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
+            ? scheduleSettings 
+            : { type: 'immediate', timezone: 'Asia/Seoul' },
           personalization: templatePersonalizations[template.id]
         },
         position: { x: 100, y: index * 150 + 100 }
@@ -454,15 +471,18 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       };
 
       const workflowData: Workflow = {
-        id: workflow?.id || `workflow_${Date.now()}`,
-        name,
-        description,
+        id: workflow?.id || `workflow_test_${Date.now()}`,
+        name: `${name} (테스트)`,
+        description: `${description} - 테스트 실행`,
         status: 'draft',
         trigger: defaultTrigger,
         targetGroups,
         steps: templateSteps,
         testSettings,
-        scheduleSettings,
+        // 스케줄 테스트 모드에 따라 스케줄 설정 적용
+        scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
+          ? scheduleSettings 
+          : { type: 'immediate', timezone: 'Asia/Seoul' },
         createdAt: workflow?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         stats: {
@@ -1186,6 +1206,38 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     <Label htmlFor="fallback-sms">알림톡 실패 시 SMS로 대체 발송</Label>
                   </div>
 
+                  {/* 스케줄 테스트 옵션 추가 */}
+                  {scheduleSettings.type !== 'immediate' && (
+                    <div className="border-t pt-4">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Switch
+                          id="test-schedule"
+                          checked={testSettings.testMode}
+                          onCheckedChange={(checked) => setTestSettings({
+                            ...testSettings,
+                            testMode: checked
+                          })}
+                        />
+                        <Label htmlFor="test-schedule">스케줄 설정대로 테스트 (체크 해제 시 즉시 테스트)</Label>
+                      </div>
+                      {testSettings.testMode && (
+                        <div className="ml-6 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Calendar className="w-4 h-4" />
+                            <span>
+                              {scheduleSettings.type === 'delay' && `${scheduleSettings.delay}분 후에 테스트 메시지가 발송됩니다`}
+                              {scheduleSettings.type === 'scheduled' && `${scheduleSettings.scheduledTime}에 테스트 메시지가 발송됩니다`}
+                              {scheduleSettings.type === 'recurring' && '다음 반복 시간에 테스트 메시지가 발송됩니다'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-orange-600">
+                            ⚠️ 스케줄 테스트는 실제 스케줄러에 등록되어 설정된 시간에 발송됩니다.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <label className="text-sm font-medium mb-2 block">테스트 메모</label>
                     <Textarea
@@ -1212,7 +1264,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               {onTest && (
                 <Button onClick={handleTest} variant="outline">
                   <Play className="w-4 h-4 mr-2" />
-                  테스트 실행
+                  {testSettings.testMode && scheduleSettings.type !== 'immediate' 
+                    ? '스케줄 테스트 실행' 
+                    : '즉시 테스트 실행'}
                 </Button>
               )}
               <Button onClick={handleSave}>
