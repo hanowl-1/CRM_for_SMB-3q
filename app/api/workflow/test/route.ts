@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
 import { mockTemplates } from '@/lib/data/mock-templates';
 import { KakaoAlimtalkTemplateById, KakaoAlimtalkTemplateByNumber } from '@/lib/data/kakao-templates';
+import schedulerService from '@/lib/services/scheduler-service';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -62,49 +63,37 @@ export async function POST(request: NextRequest) {
       try {
         console.log('⏰ 스케줄 테스트 모드: 스케줄러에 등록 중...');
         
-        const schedulerResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/scheduler`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        // 직접 스케줄러 서비스 호출
+        const testWorkflow = {
+          ...workflow,
+          // 테스트용 워크플로우임을 표시
+          name: `${workflow.name} (스케줄 테스트)`,
+          id: `${workflow.id}_schedule_test_${Date.now()}`
+        };
+
+        const jobId = schedulerService.scheduleWorkflow(testWorkflow);
+
+        return NextResponse.json({
+          success: true,
+          message: '스케줄 테스트가 등록되었습니다.',
+          scheduledTest: true,
+          scheduleInfo: {
+            type: scheduleSettings.type,
+            scheduledTime: scheduleSettings.scheduledTime,
+            delay: scheduleSettings.delay,
+            recurringPattern: scheduleSettings.recurringPattern,
+            timezone: scheduleSettings.timezone
           },
-          body: JSON.stringify({
-            action: 'schedule',
-            workflow: {
-              ...workflow,
-              // 테스트용 워크플로우임을 표시
-              name: `${workflow.name} (스케줄 테스트)`,
-              id: `${workflow.id}_schedule_test_${Date.now()}`
-            }
-          })
+          jobId: jobId,
+          executionTime: new Date().toISOString(),
+          testSettings: {
+            enableRealSending,
+            fallbackToSMS,
+            phoneNumber
+          },
+          envStatus,
+          realSendingStatus: '스케줄러에 등록됨 - 설정된 시간에 발송 예정'
         });
-
-        const schedulerResult = await schedulerResponse.json();
-
-        if (schedulerResult.success) {
-          return NextResponse.json({
-            success: true,
-            message: '스케줄 테스트가 등록되었습니다.',
-            scheduledTest: true,
-            scheduleInfo: {
-              type: scheduleSettings.type,
-              scheduledTime: scheduleSettings.scheduledTime,
-              delay: scheduleSettings.delay,
-              recurringPattern: scheduleSettings.recurringPattern,
-              timezone: scheduleSettings.timezone
-            },
-            jobId: schedulerResult.data?.jobId,
-            executionTime: new Date().toISOString(),
-            testSettings: {
-              enableRealSending,
-              fallbackToSMS,
-              phoneNumber
-            },
-            envStatus,
-            realSendingStatus: '스케줄러에 등록됨 - 설정된 시간에 발송 예정'
-          });
-        } else {
-          throw new Error(`스케줄러 등록 실패: ${schedulerResult.message}`);
-        }
       } catch (schedulerError) {
         console.error('❌ 스케줄러 등록 실패:', schedulerError);
         return NextResponse.json({

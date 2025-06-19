@@ -169,16 +169,39 @@ class SchedulerService {
       job.status = 'running';
       job.executedAt = getKoreaTime();
 
-      // 워크플로우 실행 API 호출
-      const response = await fetch('/api/workflow/execute', {
+      // 스케줄된 워크플로우 실행을 위해 테스트 API 호출
+      // (스케줄된 실행은 실제 발송으로 처리)
+      const testWorkflow = {
+        ...job.workflow,
+        testSettings: {
+          ...job.workflow.testSettings,
+          enableRealSending: true, // 스케줄된 실행은 실제 발송
+          testMode: false // 즉시 실행으로 변경
+        },
+        scheduleSettings: {
+          type: 'immediate' as const,
+          timezone: 'Asia/Seoul'
+        }
+      };
+
+      console.log('📤 테스트 API 호출 중...', {
+        workflowName: testWorkflow.name,
+        enableRealSending: testWorkflow.testSettings?.enableRealSending
+      });
+
+      // 테스트 API를 직접 import하여 호출하는 대신 fetch 사용
+      // 하지만 절대 URL로 호출
+      const baseUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+      const response = await fetch(`${baseUrl}/api/workflow/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workflow: job.workflow,
-          scheduledExecution: true,
-          jobId: job.id
+          workflow: testWorkflow
         })
       });
 
@@ -192,7 +215,8 @@ class SchedulerService {
           this.scheduleWorkflow(job.workflow);
         }
       } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
     } catch (error) {
