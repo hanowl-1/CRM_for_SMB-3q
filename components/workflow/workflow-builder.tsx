@@ -1252,6 +1252,134 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
                 </div>
               </div>
+
+              {/* 발송 미리보기 */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  발송 미리보기
+                </h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  실제 발송될 메시지 내용을 샘플 데이터로 미리 확인하세요
+                </p>
+                
+                {selectedTemplates.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>선택된 템플릿이 없습니다</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {selectedTemplates.map((template, templateIndex) => {
+                      // 샘플 변수 데이터 생성
+                      const sampleVariables = templateVariables[template.id] || {};
+                      const defaultSampleData: Record<string, string> = {
+                        '고객명': '김철수',
+                        '회사명': '테스트 회사',
+                        '취소일': '2024-01-20',
+                        '구독상태': '활성',
+                        '실패사유': '결제 완료',
+                        '다음결제일': '2024-02-20',
+                        '블로그제목': '마케팅 성공 사례',
+                        '콘텐츠제목': '고객 만족도 향상 가이드',
+                        '콘텐츠설명': '실전에서 바로 활용할 수 있는 마케팅 전략',
+                        'total_reviews': '1,234',
+                        'monthly_review_count': '156',
+                        'top_5p_reviewers_count': '23',
+                        'total_post_views': '45,678',
+                        'naver_place_rank': '3',
+                        'blog_post_rank': '7'
+                      };
+
+                      // 변수가 설정되지 않은 경우 기본값 사용
+                      const finalVariables: Record<string, string> = { ...defaultSampleData, ...sampleVariables };
+
+                      // 템플릿 내용에 변수 치환
+                      let processedContent = template.templateContent;
+                      Object.entries(finalVariables).forEach(([key, value]) => {
+                        processedContent = processedContent.replace(new RegExp(`#{${key}}`, 'g'), value);
+                      });
+
+                      // 샘플 수신자 목록 생성
+                      const sampleRecipients = [
+                        { name: '김철수', phone: '010-1234-5678', group: '신규 고객' },
+                        { name: '이영희', phone: '010-2345-6789', group: 'VIP 고객' },
+                        { name: '박민수', phone: '010-3456-7890', group: '일반 고객' }
+                      ];
+
+                      return (
+                        <div key={template.id} className="border rounded-lg p-4 bg-gray-50">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-medium">
+                              {templateIndex + 1}
+                            </div>
+                            <h5 className="font-medium">{template.templateName}</h5>
+                            <Badge variant="outline" className="text-xs">{template.templateCode}</Badge>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {/* 메시지 미리보기 */}
+                            <div>
+                              <label className="text-sm font-medium text-muted-foreground mb-2 block">메시지 내용</label>
+                              <div className="bg-white border rounded-lg p-3 min-h-[120px]">
+                                <div className="text-sm whitespace-pre-wrap">{processedContent}</div>
+                              </div>
+                              <div className="mt-2 text-xs text-muted-foreground">
+                                글자 수: {processedContent.length}자
+                              </div>
+                            </div>
+
+                            {/* 수신자 미리보기 */}
+                            <div>
+                              <label className="text-sm font-medium text-muted-foreground mb-2 block">
+                                예상 수신자 (샘플)
+                              </label>
+                              <div className="space-y-2">
+                                {sampleRecipients.slice(0, 3).map((recipient, index) => (
+                                  <div key={index} className="bg-white border rounded-lg p-2 text-sm">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <span className="font-medium">{recipient.name}</span>
+                                        <span className="text-muted-foreground ml-2">({recipient.group})</span>
+                                      </div>
+                                      <span className="text-xs text-muted-foreground">{recipient.phone}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                                {targetGroups.length > 0 && (
+                                  <div className="text-xs text-muted-foreground mt-2">
+                                    총 예상 수신자: {targetGroups.reduce((total, group) => total + (group.estimatedCount || 0), 0)}명
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 사용된 변수 표시 */}
+                          {template.variables && template.variables.length > 0 && (
+                            <div className="mt-3 pt-3 border-t">
+                              <label className="text-xs font-medium text-muted-foreground mb-2 block">사용된 변수</label>
+                              <div className="flex flex-wrap gap-1">
+                                {template.variables.map(variable => {
+                                  const variableName = variable.replace(/^#{|}$/g, '');
+                                  const variableValue = finalVariables[variableName] || '미설정';
+                                  return (
+                                    <div key={variable} className="bg-white border rounded px-2 py-1 text-xs">
+                                      <span className="font-mono text-blue-600">{variable}</span>
+                                      <span className="text-muted-foreground mx-1">→</span>
+                                      <span>{variableValue}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
