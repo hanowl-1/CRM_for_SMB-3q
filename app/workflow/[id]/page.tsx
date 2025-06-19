@@ -204,7 +204,61 @@ export default function WorkflowDetailPage() {
       if (response.ok) {
         const result = await response.json()
         
-        // 결과를 더 자세히 표시
+        // 스케줄 테스트인 경우
+        if (result.scheduledTest) {
+          let message = `⏰ 스케줄 테스트가 등록되었습니다!\n\n`;
+          
+          // 스케줄 정보
+          if (result.scheduleInfo) {
+            message += `📅 스케줄 정보:\n`;
+            message += `• 타입: ${
+              result.scheduleInfo.type === 'delay' ? '지연 발송' :
+              result.scheduleInfo.type === 'scheduled' ? '예약 발송' :
+              result.scheduleInfo.type === 'recurring' ? '반복 발송' : '즉시 발송'
+            }\n`;
+            
+            if (result.scheduleInfo.type === 'delay') {
+              message += `• 지연 시간: ${result.scheduleInfo.delay}분\n`;
+            } else if (result.scheduleInfo.type === 'scheduled') {
+              message += `• 예약 시간: ${new Date(result.scheduleInfo.scheduledTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n`;
+            } else if (result.scheduleInfo.type === 'recurring') {
+              const pattern = result.scheduleInfo.recurringPattern;
+              if (pattern) {
+                message += `• 반복 주기: ${
+                  pattern.frequency === 'daily' ? '매일' :
+                  pattern.frequency === 'weekly' ? '매주' :
+                  pattern.frequency === 'monthly' ? '매월' : '기타'
+                }\n`;
+                message += `• 발송 시간: ${pattern.time}\n`;
+              }
+            }
+            
+            message += `• 타임존: ${result.scheduleInfo.timezone}\n\n`;
+          }
+          
+          // 테스트 설정 정보
+          message += `📋 테스트 설정:\n`;
+          message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
+          message += `• 실제 발송: ${result.testSettings.enableRealSending ? '✅ 활성화' : '❌ 비활성화'}\n`;
+          message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n\n`;
+          
+          // 스케줄러 등록 정보
+          if (result.jobId) {
+            message += `🔧 스케줄러 정보:\n`;
+            message += `• Job ID: ${result.jobId}\n`;
+          }
+          message += `• 등록 시간: ${new Date(result.executionTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n\n`;
+          
+          // 발송 상태
+          message += `📡 상태: ${result.realSendingStatus}\n\n`;
+          
+          message += `✨ 설정된 시간에 테스트 메시지가 자동으로 발송됩니다.`;
+          
+          alert(message);
+          return;
+        }
+        
+        // 즉시 테스트 결과 (기존 로직)
         let message = `🎯 워크플로우 테스트 완료!\n\n`;
         
         // 테스트 설정 정보

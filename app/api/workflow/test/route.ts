@@ -27,6 +27,16 @@ export async function POST(request: NextRequest) {
     const enableRealSending = testSettings?.enableRealSending ?? false;
     const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
+    // 스케줄 설정 확인
+    const scheduleSettings = workflow.scheduleSettings;
+    const isScheduledTest = scheduleSettings && scheduleSettings.type !== 'immediate';
+
+    console.log('📅 스케줄 설정 확인:', {
+      scheduleType: scheduleSettings?.type,
+      isScheduledTest,
+      scheduleSettings
+    });
+
     // 환경변수 설정 상태 확인
     const envStatus = {
       COOLSMS_API_KEY: !!COOLSMS_API_KEY,
@@ -43,8 +53,71 @@ export async function POST(request: NextRequest) {
       stepsCount: workflow.steps.length,
       phoneNumber,
       enableRealSending,
-      fallbackToSMS
+      fallbackToSMS,
+      isScheduledTest
     });
+
+    // 스케줄 테스트인 경우 스케줄러에 등록
+    if (isScheduledTest) {
+      try {
+        console.log('⏰ 스케줄 테스트 모드: 스케줄러에 등록 중...');
+        
+        const schedulerResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/scheduler`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'schedule',
+            workflow: {
+              ...workflow,
+              // 테스트용 워크플로우임을 표시
+              name: `${workflow.name} (스케줄 테스트)`,
+              id: `${workflow.id}_schedule_test_${Date.now()}`
+            }
+          })
+        });
+
+        const schedulerResult = await schedulerResponse.json();
+
+        if (schedulerResult.success) {
+          return NextResponse.json({
+            success: true,
+            message: '스케줄 테스트가 등록되었습니다.',
+            scheduledTest: true,
+            scheduleInfo: {
+              type: scheduleSettings.type,
+              scheduledTime: scheduleSettings.scheduledTime,
+              delay: scheduleSettings.delay,
+              recurringPattern: scheduleSettings.recurringPattern,
+              timezone: scheduleSettings.timezone
+            },
+            jobId: schedulerResult.data?.jobId,
+            executionTime: new Date().toISOString(),
+            testSettings: {
+              enableRealSending,
+              fallbackToSMS,
+              phoneNumber
+            },
+            envStatus,
+            realSendingStatus: '스케줄러에 등록됨 - 설정된 시간에 발송 예정'
+          });
+        } else {
+          throw new Error(`스케줄러 등록 실패: ${schedulerResult.message}`);
+        }
+      } catch (schedulerError) {
+        console.error('❌ 스케줄러 등록 실패:', schedulerError);
+        return NextResponse.json({
+          success: false,
+          message: `스케줄 테스트 등록에 실패했습니다: ${schedulerError instanceof Error ? schedulerError.message : '알 수 없는 오류'}`,
+          scheduledTest: true,
+          error: schedulerError
+        }, { status: 500 });
+      }
+    }
+
+    // 즉시 테스트 실행 (기존 로직)
+    console.log('🚀 즉시 테스트 모드: 바로 실행 중...');
 
     // 실제 발송이 활성화되었지만 필수 환경변수가 없는 경우 경고
     if (enableRealSending) {
