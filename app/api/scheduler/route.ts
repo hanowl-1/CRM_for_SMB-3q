@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import schedulerService from '@/lib/services/scheduler-service';
-// import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
+// import schedulerService from '@/lib/services/scheduler-service';
+import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
 import { Workflow } from '@/lib/types/workflow';
 
 // GET: 스케줄러 상태 조회
@@ -11,15 +11,16 @@ export async function GET(request: NextRequest) {
 
     switch (action) {
       case 'status':
-        const status = await schedulerService.getStatus();
+        const status = await persistentSchedulerService.getStatus();
         return NextResponse.json({
           success: true,
           data: status,
-          message: '스케줄러 상태를 조회했습니다.'
+          message: '영구 스케줄러 상태를 조회했습니다.'
         });
 
       case 'jobs':
-        const jobs = schedulerService.getScheduledJobs();
+        // 영구 스케줄러에서는 DB에서 직접 조회
+        const jobs = await persistentSchedulerService.getStatus();
         return NextResponse.json({
           success: true,
           data: jobs,
@@ -34,10 +35,10 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('스케줄러 조회 실패:', error);
+    console.error('영구 스케줄러 조회 실패:', error);
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '스케줄러 조회에 실패했습니다.',
+      message: error instanceof Error ? error.message : '영구 스케줄러 조회에 실패했습니다.',
       error: error
     }, { status: 500 });
   }
@@ -60,12 +61,12 @@ export async function POST(request: NextRequest) {
           }, { status: 400 });
         }
 
-        const jobId = schedulerService.scheduleWorkflow(workflow);
+        const jobId = await persistentSchedulerService.scheduleWorkflow(workflow);
         
         return NextResponse.json({
           success: true,
           data: { jobId },
-          message: `워크플로우 "${workflow.name}"가 예약되었습니다.`
+          message: `워크플로우 "${workflow.name}"가 영구 스케줄러에 예약되었습니다.`
         });
       }
 
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest) {
           }, { status: 400 });
         }
 
-        const cancelled = schedulerService.cancelJob(jobId);
+        const cancelled = await persistentSchedulerService.cancelJob(jobId);
         
         if (cancelled) {
           return NextResponse.json({
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
           }, { status: 400 });
         }
 
-        const cancelledCount = schedulerService.cancelWorkflowJobs(workflowId);
+        const cancelledCount = await persistentSchedulerService.cancelWorkflowJobs(workflowId);
         
         return NextResponse.json({
           success: true,
@@ -114,18 +115,18 @@ export async function POST(request: NextRequest) {
       }
 
       case 'start': {
-        schedulerService.startScheduler();
+        persistentSchedulerService.startScheduler();
         return NextResponse.json({
           success: true,
-          message: '스케줄러가 시작되었습니다.'
+          message: '영구 스케줄러가 시작되었습니다.'
         });
       }
 
       case 'stop': {
-        schedulerService.stopScheduler();
+        persistentSchedulerService.stopScheduler();
         return NextResponse.json({
           success: true,
-          message: '스케줄러가 중지되었습니다.'
+          message: '영구 스케줄러가 중지되었습니다.'
         });
       }
 
@@ -137,10 +138,10 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('스케줄러 작업 실패:', error);
+    console.error('영구 스케줄러 작업 실패:', error);
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '스케줄러 작업에 실패했습니다.',
+      message: error instanceof Error ? error.message : '영구 스케줄러 작업에 실패했습니다.',
       error: error
     }, { status: 500 });
   }

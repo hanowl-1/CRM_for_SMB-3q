@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
-import { mockTemplates } from '@/lib/data/mock-templates';
+import { MessageTemplate } from '@/lib/types/message-template';
+import { sendKakaoAlimtalk } from '@/lib/services/kakao-service';
+import { supabaseWorkflowService } from '@/lib/services/supabase-workflow-service';
 import { KakaoAlimtalkTemplateById, KakaoAlimtalkTemplateByNumber } from '@/lib/data/kakao-templates';
-import schedulerService from '@/lib/services/scheduler-service';
+import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
+import { formatPhoneNumber } from '@/lib/utils/format';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -111,7 +114,7 @@ export async function POST(request: NextRequest) {
           id: `${workflow.id}_schedule_test_${Date.now()}`
         };
 
-        const jobId = schedulerService.scheduleWorkflow(testWorkflow);
+        const jobId = await persistentSchedulerService.scheduleWorkflow(testWorkflow);
 
         return NextResponse.json({
           success: true,
