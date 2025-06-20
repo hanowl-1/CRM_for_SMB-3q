@@ -141,31 +141,64 @@ class SchedulerService {
   // 다음 반복 실행 시간 계산 (한국시간 기준)
   private calculateNextRecurringTime(pattern: any): Date {
     const now = getKoreaTime();
-    const [hours, minutes] = (pattern?.time || '09:00').split(':').map(Number);
+    console.log('🕐 현재 한국시간:', now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+    console.log('📋 반복 패턴:', pattern);
     
-    switch (pattern?.frequency) {
+    if (!pattern || !pattern.time) {
+      console.log('⚠️ 반복 패턴이 없어서 기본값(1시간 후) 사용');
+      return new Date(now.getTime() + 60 * 60 * 1000); // 1시간 후
+    }
+    
+    const [hours, minutes] = pattern.time.split(':').map(Number);
+    console.log('⏰ 설정된 시간:', `${hours}:${minutes.toString().padStart(2, '0')}`);
+    
+    let nextTime: Date;
+    
+    switch (pattern.frequency) {
       case 'daily':
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + (pattern.interval || 1));
-        tomorrow.setHours(hours, minutes, 0, 0);
-        return tomorrow;
+        nextTime = new Date(now);
+        nextTime.setHours(hours, minutes, 0, 0);
+        
+        // 오늘 해당 시간이 이미 지났으면 내일로 설정
+        if (nextTime <= now) {
+          nextTime.setDate(nextTime.getDate() + (pattern.interval || 1));
+        }
+        
+        console.log('📅 매일 반복:', nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+        break;
         
       case 'weekly':
-        const nextWeek = new Date(now);
-        nextWeek.setDate(nextWeek.getDate() + 7 * (pattern.interval || 1));
-        nextWeek.setHours(hours, minutes, 0, 0);
-        return nextWeek;
+        nextTime = new Date(now);
+        nextTime.setHours(hours, minutes, 0, 0);
+        
+        // 이번 주 해당 시간이 이미 지났으면 다음 주로 설정
+        if (nextTime <= now) {
+          nextTime.setDate(nextTime.getDate() + 7 * (pattern.interval || 1));
+        }
+        
+        console.log('📅 매주 반복:', nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+        break;
         
       case 'monthly':
-        const nextMonth = new Date(now);
-        nextMonth.setMonth(nextMonth.getMonth() + (pattern.interval || 1));
-        nextMonth.setDate(pattern.dayOfMonth || 1);
-        nextMonth.setHours(hours, minutes, 0, 0);
-        return nextMonth;
+        nextTime = new Date(now);
+        nextTime.setDate(pattern.dayOfMonth || 1);
+        nextTime.setHours(hours, minutes, 0, 0);
+        
+        // 이번 달 해당 시간이 이미 지났으면 다음 달로 설정
+        if (nextTime <= now) {
+          nextTime.setMonth(nextTime.getMonth() + (pattern.interval || 1));
+        }
+        
+        console.log('📅 매월 반복:', nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+        break;
         
       default:
-        return new Date(now.getTime() + 24 * 60 * 60 * 1000); // 기본 24시간 후
+        console.log('⚠️ 알 수 없는 반복 주기, 기본값(24시간 후) 사용');
+        nextTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24시간 후
     }
+    
+    console.log('✅ 계산된 다음 실행 시간:', nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+    return nextTime;
   }
 
   // 예약된 작업 확인 및 실행 (한국시간 기준)
@@ -306,9 +339,25 @@ class SchedulerService {
         });
         
         // 반복 작업인 경우 다음 실행 예약
-        if (job.workflow.scheduleSettings?.type === 'recurring') {
+        if (supabaseWorkflow.schedule_config?.type === 'recurring') {
           console.log('🔄 반복 작업이므로 다음 실행 예약 중...');
-          this.scheduleWorkflow(job.workflow);
+          
+          // 최신 Supabase 데이터를 기반으로 새로운 워크플로우 객체 생성
+          const nextWorkflow = {
+            ...job.workflow,
+            scheduleSettings: {
+              type: 'recurring' as const,
+              timezone: 'Asia/Seoul',
+              recurringPattern: supabaseWorkflow.schedule_config.recurringPattern
+            }
+          };
+          
+          console.log('📅 다음 반복 실행 설정:', {
+            type: nextWorkflow.scheduleSettings.type,
+            pattern: nextWorkflow.scheduleSettings.recurringPattern
+          });
+          
+          this.scheduleWorkflow(nextWorkflow);
         }
       } else {
         const errorText = await response.text();
