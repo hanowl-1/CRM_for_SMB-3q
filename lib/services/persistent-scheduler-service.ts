@@ -151,51 +151,67 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
 
   // 다음 반복 실행 시간 계산
   private calculateNextRecurringTime(pattern: any): Date {
-    const now = new Date();
-    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
-    
     if (!pattern || !pattern.time) {
-      return new Date(koreaTime.getTime() + 60 * 60 * 1000); // 1시간 후
+      return new Date(Date.now() + 60 * 60 * 1000); // 1시간 후
     }
     
     const [hours, minutes] = pattern.time.split(':').map(Number);
+    console.log(`⏰ 설정된 시간: ${hours}:${minutes.toString().padStart(2, '0')}`);
+    
+    // 현재 한국시간 (데이터베이스가 한국시간으로 설정됨)
+    const now = new Date();
+    console.log(`🇰🇷 현재 시간: ${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
+    console.log(`🌍 현재 시간 (ISO): ${now.toISOString()}`);
+    
     let nextTime: Date;
     
     switch (pattern.frequency) {
       case 'daily':
-        nextTime = new Date(koreaTime);
+        // 오늘 목표 시간 설정
+        nextTime = new Date();
         nextTime.setHours(hours, minutes, 0, 0);
         
-        if (nextTime <= koreaTime) {
+        console.log(`📅 오늘 목표 시간: ${nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
+        
+        // 만약 오늘의 해당 시간이 이미 지났다면 내일로 설정
+        if (nextTime <= now) {
           nextTime.setDate(nextTime.getDate() + (pattern.interval || 1));
+          console.log(`➡️ 내일로 설정됨: ${nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
         }
         break;
         
       case 'weekly':
-        nextTime = new Date(koreaTime);
+        // 주간 반복
+        nextTime = new Date();
         nextTime.setHours(hours, minutes, 0, 0);
         
-        if (nextTime <= koreaTime) {
+        if (nextTime <= now) {
           nextTime.setDate(nextTime.getDate() + 7 * (pattern.interval || 1));
         }
         break;
         
       case 'monthly':
-        nextTime = new Date(koreaTime);
+        // 월간 반복
+        nextTime = new Date();
         nextTime.setDate(pattern.dayOfMonth || 1);
         nextTime.setHours(hours, minutes, 0, 0);
         
-        if (nextTime <= koreaTime) {
+        if (nextTime <= now) {
           nextTime.setMonth(nextTime.getMonth() + (pattern.interval || 1));
         }
         break;
         
       default:
-        nextTime = new Date(koreaTime.getTime() + 24 * 60 * 60 * 1000);
+        return new Date(Date.now() + 24 * 60 * 60 * 1000);
     }
     
-    // 한국시간을 UTC로 변환
-    return new Date(nextTime.getTime() - (9 * 60 * 60 * 1000));
+    console.log(`🌍 최종 다음 실행 시간: ${nextTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
+    console.log(`🌍 최종 다음 실행 시간 (ISO): ${nextTime.toISOString()}`);
+    
+    // 검증: 설정된 시간과 일치하는지 확인
+    console.log(`✅ 검증 - 시간 일치: ${nextTime.getHours() === hours && nextTime.getMinutes() === minutes}`);
+    
+    return nextTime;
   }
 
   // 스케줄러 시작
