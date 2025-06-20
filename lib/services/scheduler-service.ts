@@ -13,21 +13,34 @@ interface ScheduledJob {
 
 // 한국시간 기준 유틸리티 함수들
 const getKoreaTime = (): Date => {
+  // 현재 UTC 시간을 기준으로 한국시간 계산
   const now = new Date();
-  // UTC 시간에 9시간을 더해서 한국시간으로 변환
-  return new Date(now.getTime() + (9 * 60 * 60 * 1000));
+  
+  // 한국시간(KST)은 UTC+9이므로, 로컬 시간대에 관계없이 정확한 한국시간 계산
+  const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const koreaTime = new Date(utcTime + (9 * 60 * 60 * 1000));
+  
+  return koreaTime;
 };
 
 const createKoreaDate = (year: number, month: number, date: number, hours: number = 0, minutes: number = 0): Date => {
-  // 한국시간 기준으로 Date 객체 생성 후 UTC로 변환
-  const koreaTime = new Date(year, month, date, hours, minutes, 0, 0);
-  return new Date(koreaTime.getTime() - (9 * 60 * 60 * 1000));
+  // 한국시간 기준으로 Date 객체 생성
+  // month는 0부터 시작하므로 주의
+  const koreaTime = new Date();
+  koreaTime.setFullYear(year, month - 1, date);
+  koreaTime.setHours(hours, minutes, 0, 0);
+  
+  // 한국시간으로 설정된 시간을 UTC 기준으로 조정
+  const utcTime = koreaTime.getTime() - (koreaTime.getTimezoneOffset() * 60000);
+  return new Date(utcTime - (9 * 60 * 60 * 1000));
 };
 
 const parseKoreaTimeString = (timeString: string): Date => {
-  // ISO 문자열을 한국시간으로 파싱
+  // ISO 문자열을 파싱하여 한국시간으로 처리
   const date = new Date(timeString);
-  // 이미 한국시간으로 입력된 경우를 고려하여 UTC 오프셋 조정
+  
+  // datetime-local 입력에서 오는 값은 로컬 시간으로 간주되므로
+  // 한국시간으로 입력된 것으로 처리
   return date;
 };
 

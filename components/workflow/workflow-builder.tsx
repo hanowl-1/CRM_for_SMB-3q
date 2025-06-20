@@ -68,16 +68,28 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     timezone: 'Asia/Seoul'
   });
   const [steps, setSteps] = useState<WorkflowStep[]>(workflow?.steps || []);
-  const [testSettings, setTestSettings] = useState<WorkflowTestSettings>(
-    workflow?.testSettings || {
+  const [testSettings, setTestSettings] = useState<WorkflowTestSettings>(() => {
+    const defaultSettings = {
       testPhoneNumber: '010-1234-5678',
       testVariables: {},
       enableRealSending: false,
       fallbackToSMS: true,
       testMode: false,
       testNotes: ''
+    };
+    
+    if (workflow?.testSettings) {
+      return {
+        ...defaultSettings,
+        ...workflow.testSettings,
+        // 중요한 필드들은 반드시 문자열이어야 함
+        testPhoneNumber: workflow.testSettings.testPhoneNumber || defaultSettings.testPhoneNumber,
+        testNotes: workflow.testSettings.testNotes || defaultSettings.testNotes
+      };
     }
-  );
+    
+    return defaultSettings;
+  });
   
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showVariableSettings, setShowVariableSettings] = useState(false);
@@ -240,7 +252,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   const isTabComplete = (tabId: string) => {
     switch (tabId) {
       case 'basic':
-        return name.trim() !== '' && description.trim() !== '';
+        return (name || '').trim() !== '' && (description || '').trim() !== '';
       case 'templates':
         return selectedTemplates.length > 0;
       case 'targets':
@@ -271,7 +283,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       case 'schedule':
         return true; // 스케줄은 기본값이 있으므로 항상 완료
       case 'review':
-        return testSettings.testPhoneNumber.trim() !== '';
+        return (testSettings?.testPhoneNumber || '').trim() !== '';
       default:
         return false;
     }
@@ -394,12 +406,34 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       position: { x: 100, y: index * 150 + 100 }
     }));
 
-    // 기본 트리거 설정 (수동 실행)
+    // 스케줄 설정에 따라 동적으로 트리거 설정
+    const getTriggerInfo = () => {
+      if (scheduleSettings.type === 'immediate') {
+        return {
+          type: 'manual' as const,
+          name: '수동 실행',
+          description: '관리자가 수동으로 실행하는 워크플로우'
+        };
+      } else {
+        return {
+          type: 'schedule' as const,
+          name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay}분 후)` :
+                scheduleSettings.type === 'scheduled' ? '예약 실행' :
+                scheduleSettings.type === 'recurring' ? '반복 실행' : '스케줄 실행',
+          description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay}분 후 자동 실행되는 워크플로우` :
+                      scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
+                      scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
+                      '스케줄에 따라 자동 실행되는 워크플로우'
+        };
+      }
+    };
+
+    const triggerInfo = getTriggerInfo();
     const defaultTrigger: WorkflowTrigger = {
-      id: 'trigger_manual',
-      type: 'manual',
-      name: '수동 실행',
-      description: '관리자가 수동으로 실행하는 워크플로우',
+      id: 'trigger_auto',
+      type: triggerInfo.type,
+      name: triggerInfo.name,
+      description: triggerInfo.description,
       conditions: [],
       conditionLogic: 'AND'
     };
@@ -426,15 +460,12 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
     console.log('💾 워크플로우 저장:', {
       name: workflowData.name,
+      triggerType: defaultTrigger.type,
+      triggerName: defaultTrigger.name,
+      scheduleType: scheduleSettings.type,
       targetGroupsCount: targetGroups.length,
       stepsCount: workflowData.steps.length,
-      mappingsCount: targetTemplateMappings.length,
-      mappingsDetail: targetTemplateMappings.map(m => ({
-        id: m.id,
-        targetGroupId: m.targetGroupId,
-        templateId: m.templateId,
-        fieldMappingsCount: m.fieldMappings.length
-      }))
+      mappingsCount: targetTemplateMappings.length
     });
 
     // 워크플로우 저장
@@ -503,11 +534,38 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         position: { x: 100, y: index * 150 + 100 }
       }));
 
+      const getTriggerInfoForTest = () => {
+        const effectiveScheduleSettings = testSettings.testMode && scheduleSettings.type !== 'immediate' 
+          ? scheduleSettings 
+          : { type: 'immediate' as const, timezone: 'Asia/Seoul' };
+
+        if (effectiveScheduleSettings.type === 'immediate') {
+          return {
+            type: 'manual' as const,
+            name: '수동 실행 (테스트)',
+            description: '테스트용 수동 실행'
+          };
+        } else {
+          const delay = 'delay' in effectiveScheduleSettings ? effectiveScheduleSettings.delay : 0;
+          return {
+            type: 'schedule' as const,
+            name: effectiveScheduleSettings.type === 'delay' ? `지연 테스트 (${delay}분 후)` :
+                  effectiveScheduleSettings.type === 'scheduled' ? '예약 테스트' :
+                  effectiveScheduleSettings.type === 'recurring' ? '반복 테스트' : '스케줄 테스트',
+            description: effectiveScheduleSettings.type === 'delay' ? `${delay}분 후 테스트 실행` :
+                        effectiveScheduleSettings.type === 'scheduled' ? '예약된 시간에 테스트 실행' :
+                        effectiveScheduleSettings.type === 'recurring' ? '반복 일정에 따라 테스트 실행' :
+                        '스케줄에 따라 테스트 실행'
+          };
+        }
+      };
+
+      const testTriggerInfo = getTriggerInfoForTest();
       const defaultTrigger: WorkflowTrigger = {
-        id: 'trigger_manual',
-        type: 'manual',
-        name: '수동 실행',
-        description: '관리자가 수동으로 실행하는 워크플로우',
+        id: 'trigger_test',
+        type: testTriggerInfo.type,
+        name: testTriggerInfo.name,
+        description: testTriggerInfo.description,
         conditions: [],
         conditionLogic: 'AND'
       };
@@ -903,31 +961,45 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         <TabsContent value="schedule" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>스케줄러 설정</CardTitle>
+              <CardTitle>워크플로우 스케줄 설정</CardTitle>
               <p className="text-sm text-muted-foreground">
-                언제 알림톡을 발송할지 설정하세요
+                워크플로우가 언제 실행될지 설정하세요
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* 디버그 정보 (개발 중에만 표시) */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="p-3 bg-gray-100 rounded-lg text-xs">
-                  <div className="font-medium text-gray-700 mb-1">🔧 디버그 정보:</div>
-                  <div className="text-gray-600">
-                    <div>현재 타입: <span className="font-mono">{scheduleSettings.type}</span></div>
-                    <div>타임존: <span className="font-mono">{scheduleSettings.timezone}</span></div>
-                    {scheduleSettings.delay && <div>지연 시간: <span className="font-mono">{scheduleSettings.delay}분</span></div>}
-                    {scheduleSettings.scheduledTime && <div>예약 시간: <span className="font-mono">{scheduleSettings.scheduledTime}</span></div>}
-                    {scheduleSettings.recurringPattern && (
-                      <div>반복 패턴: <span className="font-mono">{JSON.stringify(scheduleSettings.recurringPattern)}</span></div>
-                    )}
-                  </div>
+              {/* 현재 트리거 상태 표시 */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-4 h-4 text-blue-600" />
+                  <span className="font-medium text-blue-900">현재 트리거 설정</span>
                 </div>
-              )}
-              
+                <div className="text-sm text-blue-800">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">트리거 타입:</span>
+                    <Badge variant="outline" className="bg-white">
+                      {scheduleSettings.type === 'immediate' ? '수동 실행' :
+                       scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay}분 후)` :
+                       scheduleSettings.type === 'scheduled' ? '예약 실행' :
+                       scheduleSettings.type === 'recurring' ? '반복 실행' : '스케줄 실행'}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs">
+                    {scheduleSettings.type === 'immediate' 
+                      ? '관리자가 수동으로 실행하는 워크플로우입니다.'
+                      : scheduleSettings.type === 'delay' 
+                        ? `저장 후 ${scheduleSettings.delay}분 후에 자동으로 실행됩니다.`
+                        : scheduleSettings.type === 'scheduled'
+                          ? '지정된 날짜와 시간에 자동으로 실행됩니다.'
+                          : scheduleSettings.type === 'recurring'
+                            ? '설정된 반복 일정에 따라 자동으로 실행됩니다.'
+                            : '스케줄에 따라 자동으로 실행됩니다.'}
+                  </p>
+                </div>
+              </div>
+
               <div>
-                <label className="text-sm font-medium mb-3 block">발송 시점</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <h3 className="text-lg font-medium mb-4">실행 방식 선택</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div 
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       scheduleSettings.type === 'immediate' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'
@@ -946,7 +1018,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                       }`} />
                       <div>
                         <h4 className="font-medium">즉시 발송</h4>
-                        <p className="text-sm text-muted-foreground">워크플로우 실행 시 즉시 발송</p>
+                        <p className="text-sm text-muted-foreground">저장 즉시 발송</p>
                       </div>
                     </div>
                   </div>

@@ -11,19 +11,66 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 // Supabase 워크플로우 데이터를 Workflow 타입으로 변환하는 함수
 function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
+  // 스케줄 설정에 따라 트리거 정보 동적 생성
+  const scheduleConfig = supabaseWorkflow.schedule_config;
+  const getTriggerInfo = () => {
+    if (!scheduleConfig || scheduleConfig.type === 'immediate') {
+      return {
+        id: 'trigger_manual',
+        name: '수동 실행',
+        type: 'manual' as const,
+        description: '관리자가 수동으로 실행하는 워크플로우',
+        conditions: [],
+        conditionLogic: 'AND' as const
+      };
+    }
+    
+    switch (scheduleConfig.type) {
+      case 'delay':
+        return {
+          id: 'trigger_delay',
+          name: `지연 실행 (${scheduleConfig.delay || 60}분 후)`,
+          type: 'schedule' as const,
+          description: `${scheduleConfig.delay || 60}분 후 자동 실행되는 워크플로우`,
+          conditions: [],
+          conditionLogic: 'AND' as const
+        };
+      case 'scheduled':
+        return {
+          id: 'trigger_scheduled',
+          name: '예약 실행',
+          type: 'schedule' as const,
+          description: '예약된 시간에 자동 실행되는 워크플로우',
+          conditions: [],
+          conditionLogic: 'AND' as const
+        };
+      case 'recurring':
+        return {
+          id: 'trigger_recurring',
+          name: '반복 실행',
+          type: 'schedule' as const,
+          description: '반복 일정에 따라 자동 실행되는 워크플로우',
+          conditions: [],
+          conditionLogic: 'AND' as const
+        };
+      default:
+        return {
+          id: 'trigger_schedule',
+          name: '스케줄 실행',
+          type: 'schedule' as const,
+          description: '스케줄에 따라 자동 실행되는 워크플로우',
+          conditions: [],
+          conditionLogic: 'AND' as const
+        };
+    }
+  };
+
   return {
     id: supabaseWorkflow.id,
     name: supabaseWorkflow.name,
     description: supabaseWorkflow.description || '',
     status: supabaseWorkflow.status,
-    trigger: {
-      id: supabaseWorkflow.trigger_config?.id || '',
-      name: supabaseWorkflow.trigger_config?.name || '',
-      type: supabaseWorkflow.trigger_type || 'manual',
-      description: supabaseWorkflow.trigger_config?.description || '',
-      conditions: supabaseWorkflow.trigger_config?.conditions || [],
-      conditionLogic: supabaseWorkflow.trigger_config?.conditionLogic || 'AND'
-    },
+    trigger: getTriggerInfo(),
     targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
     targetTemplateMappings: supabaseWorkflow.target_config?.targetTemplateMappings || [],
     steps: supabaseWorkflow.message_config?.steps || [],

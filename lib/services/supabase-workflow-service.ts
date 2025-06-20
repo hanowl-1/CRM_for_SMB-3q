@@ -188,7 +188,7 @@ class SupabaseWorkflowService {
         .select(`
           id, name, description, status, trigger_type,
           created_at, updated_at, last_run_at, next_run_at,
-          statistics
+          statistics, schedule_config, message_config
         `)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);

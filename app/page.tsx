@@ -18,11 +18,25 @@ export default function Dashboard() {
     lastRun: string;
     stepsCount: number;
     description?: string;
+    schedule_config?: any;
+    templateInfo?: {
+      templateName: string;
+      templateCount: number;
+      additionalTemplates: number;
+    } | null;
+    nextRun?: Date | null;
+    createdAt: Date;
+    statistics: {
+      totalRuns: number;
+      successRate: number;
+      totalCost: number;
+    };
+    targetsCount: number;
   }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // 스케줄러 상태 추가
+  // 스케줄러 상태
   const [schedulerStatus, setSchedulerStatus] = useState<{
     isRunning: boolean;
     totalJobs: number;
@@ -57,22 +71,121 @@ export default function Dashboard() {
       console.log("✅ Supabase에서 불러온 워크플로우:", supabaseWorkflows.length, "개");
 
       // 워크플로우를 표시용 형태로 변환
-      const convertedWorkflows = supabaseWorkflows.map((workflow) => ({
-        id: workflow.id,
-        name: workflow.name || '이름 없는 워크플로우',
-        status: workflow.status || 'draft',
-        trigger: workflow.trigger?.name || workflow.trigger?.type || "수동 실행",
-        sent: workflow.stats?.totalRuns || 0,
-        lastRun: workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('ko-KR', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        }) : "-",
-        stepsCount: workflow.steps?.length || 0,
-        description: workflow.description
-      }));
+      const convertedWorkflows = supabaseWorkflows.map((workflow) => {
+        // 스케줄 설정에 따라 동적으로 트리거 이름 생성
+        const getTriggerName = () => {
+          const scheduleConfig = (workflow as any).schedule_config;
+          
+          console.log(`🔍 워크플로우 "${workflow.name}" 트리거 분석:`, {
+            scheduleConfig,
+            hasScheduleConfig: !!scheduleConfig,
+            scheduleType: scheduleConfig?.type,
+            rawWorkflow: workflow
+          });
+          
+          if (!scheduleConfig || scheduleConfig.type === 'immediate') {
+            console.log(`➡️ "${workflow.name}": 수동 실행 (스케줄 없음)`);
+            return '수동 실행';
+          }
+          
+          let triggerName = '';
+          switch (scheduleConfig.type) {
+            case 'delay':
+              triggerName = `지연 실행 (${scheduleConfig.delay || 60}분 후)`;
+              break;
+            case 'scheduled':
+              triggerName = '예약 실행';
+              break;
+            case 'recurring':
+              triggerName = '반복 실행';
+              break;
+            default:
+              triggerName = '스케줄 실행';
+          }
+          
+          console.log(`➡️ "${workflow.name}": ${triggerName}`);
+          return triggerName;
+        };
+
+        // 사용 중인 템플릿 정보 추출
+        const getTemplateInfo = () => {
+          const messageConfig = (workflow as any).message_config;
+          const steps = messageConfig?.steps || [];
+          
+          console.log(`🔍 워크플로우 "${workflow.name}" 템플릿 정보 분석:`, {
+            messageConfig,
+            steps,
+            stepsLength: steps.length,
+            firstStep: steps[0],
+            fullWorkflow: workflow
+          });
+          
+          if (steps.length === 0) {
+            console.log(`❌ "${workflow.name}": 단계 없음`);
+            return null;
+          }
+          
+          // 첫 번째 스텝의 템플릿 정보 사용
+          const firstStep = steps[0];
+          console.log(`🔍 첫 번째 스텝 분석:`, {
+            firstStep,
+            action: firstStep?.action,
+            templateName: firstStep?.action?.templateName,
+            alternativeTemplateName: firstStep?.templateName,
+            stepName: firstStep?.name
+          });
+          
+          // 여러 방법으로 템플릿 이름 찾기
+          let templateName = firstStep?.action?.templateName || 
+                           firstStep?.templateName || 
+                           firstStep?.name;
+          
+          // 스텝 이름에서 " 발송" 제거 (예: "113. [슈퍼멤버스]... 발송" → "113. [슈퍼멤버스]...")
+          if (templateName && templateName.endsWith(' 발송')) {
+            templateName = templateName.slice(0, -3);
+          }
+          
+          if (!templateName) {
+            console.log(`❌ "${workflow.name}": 템플릿 이름 없음`);
+            return null;
+          }
+          
+          const templateInfo = {
+            templateName,
+            templateCount: steps.length,
+            // 여러 템플릿이 있는 경우
+            additionalTemplates: steps.length > 1 ? steps.length - 1 : 0
+          };
+          
+          console.log(`✅ "${workflow.name}" 템플릿 정보:`, templateInfo);
+          return templateInfo;
+        };
+
+        const templateInfo = getTemplateInfo();
+
+        return {
+          id: workflow.id,
+          name: workflow.name || '이름 없는 워크플로우',
+          status: workflow.status || 'draft',
+          trigger: getTriggerName(),
+          templateInfo: templateInfo,
+          sent: (workflow as any).statistics?.totalRuns || 0,
+          lastRun: (workflow as any).last_run_at ? new Date((workflow as any).last_run_at).toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : '실행 기록 없음',
+          targetsCount: (workflow as any).target_config?.targetGroups?.length || 0,
+          stepsCount: (workflow as any).message_config?.steps?.length || 0,
+          description: workflow.description,
+          schedule_config: (workflow as any).schedule_config,
+          nextRun: (workflow as any).next_run_at ? new Date((workflow as any).next_run_at) : null,
+          createdAt: new Date((workflow as any).created_at),
+          statistics: (workflow as any).statistics || { totalRuns: 0, successRate: 0, totalCost: 0 }
+        };
+      });
 
       console.log("🔄 변환된 워크플로우:", convertedWorkflows);
       setWorkflows(convertedWorkflows);
@@ -100,6 +213,153 @@ export default function Dashboard() {
     }
   };
 
+  // 워크플로우 상태 변경 핸들러
+  const handleToggleWorkflowStatus = async (workflowId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+    
+    try {
+      console.log(`🔄 워크플로우 상태 변경: ${workflowId} (${currentStatus} → ${newStatus})`);
+      
+      const response = await fetch('/api/supabase/workflows', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'toggle_status',
+          id: workflowId,
+          status: newStatus
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`✅ 워크플로우 상태 변경 성공: ${newStatus}`);
+        
+        // UI 상태 즉시 업데이트
+        setWorkflows(prev => prev.map(w => 
+          w.id === workflowId ? { ...w, status: newStatus } : w
+        ));
+        
+        // 성공 알림
+        alert(`워크플로우가 ${newStatus === 'active' ? '시작' : '일시정지'}되었습니다.`);
+        
+        // 스케줄러 상태 새로고침 (상태 변경 후 항상 실행)
+        loadSchedulerStatus();
+        
+        // 활성화된 워크플로우인 경우 스케줄러에 등록 시도
+        if (newStatus === 'active') {
+          try {
+            // 워크플로우 전체 정보를 가져와서 스케줄러에 등록
+            const workflowResponse = await fetch(`/api/supabase/workflows/${workflowId}`);
+            if (workflowResponse.ok) {
+              const workflowResult = await workflowResponse.json();
+              if (workflowResult.success && workflowResult.data) {
+                const supabaseWorkflow = workflowResult.data;
+                
+                console.log('📊 Supabase 워크플로우 데이터:', {
+                  id: supabaseWorkflow.id,
+                  name: supabaseWorkflow.name,
+                  schedule_config: supabaseWorkflow.schedule_config,
+                  trigger_type: supabaseWorkflow.trigger_type
+                });
+                
+                // Supabase 데이터를 스케줄러가 이해할 수 있는 형태로 변환
+                const scheduleSettings = supabaseWorkflow.schedule_config || { type: 'immediate', timezone: 'Asia/Seoul' };
+                
+                // 스케줄 설정이 있고 즉시 실행이 아닌 경우에만 스케줄러에 등록
+                if (scheduleSettings.type && scheduleSettings.type !== 'immediate') {
+                  console.log('⏰ 스케줄 설정 발견, 스케줄러에 등록 중...', scheduleSettings);
+                  
+                  // 스케줄러가 예상하는 워크플로우 형태로 변환
+                  const schedulerWorkflow = {
+                    id: supabaseWorkflow.id,
+                    name: supabaseWorkflow.name,
+                    description: supabaseWorkflow.description || '',
+                    status: 'active',
+                    scheduleSettings: scheduleSettings,
+                    // 스케줄 설정에 따라 동적으로 트리거 설정
+                    trigger: {
+                      id: 'trigger_schedule',
+                      type: scheduleSettings.type === 'immediate' ? 'manual' : 'schedule',
+                      name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay || 60}분 후)` :
+                            scheduleSettings.type === 'scheduled' ? '예약 실행' :
+                            scheduleSettings.type === 'recurring' ? '반복 실행' :
+                            scheduleSettings.type === 'immediate' ? '수동 실행' : '스케줄 실행',
+                      description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay || 60}분 후 자동 실행되는 워크플로우` :
+                                  scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
+                                  scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
+                                  scheduleSettings.type === 'immediate' ? '관리자가 수동으로 실행하는 워크플로우' :
+                                  '스케줄에 따라 자동 실행되는 워크플로우',
+                      conditions: [],
+                      conditionLogic: 'AND'
+                    },
+                    // 기본 단계 설정 (실제 실행 시에는 Supabase에서 다시 조회)
+                    steps: supabaseWorkflow.message_config?.steps || [],
+                    targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
+                    testSettings: supabaseWorkflow.variables?.testSettings || {
+                      testPhoneNumber: '',
+                      enableRealSending: true,
+                      fallbackToSMS: false
+                    },
+                    createdAt: supabaseWorkflow.created_at,
+                    updatedAt: supabaseWorkflow.updated_at,
+                    stats: {
+                      totalRuns: 0,
+                      successRate: 0
+                    }
+                  };
+                  
+                  console.log('🔄 스케줄러 등록용 워크플로우 데이터:', {
+                    id: schedulerWorkflow.id,
+                    name: schedulerWorkflow.name,
+                    scheduleType: schedulerWorkflow.scheduleSettings.type,
+                    scheduledTime: schedulerWorkflow.scheduleSettings.scheduledTime,
+                    delay: schedulerWorkflow.scheduleSettings.delay
+                  });
+                  
+                  const scheduleResponse = await fetch('/api/scheduler', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      action: 'schedule',
+                      workflow: schedulerWorkflow
+                    })
+                  });
+                  
+                  if (scheduleResponse.ok) {
+                    const scheduleResult = await scheduleResponse.json();
+                    console.log('✅ 워크플로우가 스케줄러에 등록되었습니다:', scheduleResult.data?.jobId);
+                    
+                    // 스케줄러 상태 즉시 새로고침
+                    loadSchedulerStatus();
+                  } else {
+                    const errorText = await scheduleResponse.text();
+                    console.error('❌ 스케줄러 등록 실패:', errorText);
+                  }
+                } else {
+                  console.log('ℹ️ 즉시 실행 워크플로우이므로 스케줄러에 등록하지 않습니다.');
+                }
+              }
+            }
+          } catch (scheduleError) {
+            console.error('스케줄러 등록 실패:', scheduleError);
+          }
+        }
+        
+      } else {
+        throw new Error(result.message || '상태 변경에 실패했습니다.');
+      }
+      
+    } catch (error) {
+      console.error('❌ 워크플로우 상태 변경 실패:', error);
+      alert(`상태 변경에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    }
+  };
+
   useEffect(() => {
     loadWorkflows();
     loadSchedulerStatus();
@@ -116,10 +376,10 @@ export default function Dashboard() {
   const pausedWorkflowsCount = workflows.filter(w => w.status === 'paused').length;
 
   const stats = [
-    { title: "전체 워크플로우", value: workflows.length.toString(), icon: Target, color: "text-purple-600" },
-    { title: "활성 워크플로우", value: activeWorkflowsCount.toString(), icon: Play, color: "text-green-600" },
-    { title: "총 발송 수", value: totalSent.toLocaleString(), icon: MessageSquare, color: "text-blue-600" },
-    { title: "초안", value: draftWorkflowsCount.toString(), icon: FileText, color: "text-gray-600" },
+    { title: '전체 워크플로우', value: workflows.length, icon: Target, color: 'text-purple-600' },
+    { title: '활성 워크플로우', value: activeWorkflowsCount, icon: Play, color: 'text-green-600' },
+    { title: '총 발송 수', value: totalSent.toLocaleString(), icon: MessageSquare, color: 'text-blue-600' },
+    { title: '초안', value: draftWorkflowsCount, icon: FileText, color: 'text-gray-600' },
   ]
 
   const getStatusBadge = (status: string) => {
@@ -428,20 +688,67 @@ export default function Dashboard() {
                           </div>
                           <div className="flex items-center gap-6 text-sm text-gray-600">
                             <span>트리거: {workflow.trigger}</span>
+                            {/* 템플릿 정보 표시 */}
+                            {workflow.templateInfo && (
+                              <span className="flex items-center gap-1 text-blue-600">
+                                <MessageSquare className="w-3 h-3" />
+                                {workflow.templateInfo.templateName}
+                                {workflow.templateInfo.additionalTemplates > 0 && (
+                                  <span className="text-gray-500">
+                                    (+{workflow.templateInfo.additionalTemplates}개 더)
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             <span>발송: {workflow.sent.toLocaleString()}건</span>
                             <span>최근 실행: {workflow.lastRun}</span>
                             <span>단계: {workflow.stepsCount}개</span>
+                            {/* 스케줄 정보 추가 */}
+                            {(workflow as any).schedule_config && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {(() => {
+                                  const schedule = (workflow as any).schedule_config;
+                                  switch (schedule.type) {
+                                    case 'immediate':
+                                      return '즉시 발송';
+                                    case 'delay':
+                                      return `지연 발송 (${schedule.delay}분 후)`;
+                                    case 'scheduled':
+                                      const scheduledTime = new Date(schedule.scheduledTime);
+                                      return `예약 발송 (${scheduledTime.toLocaleString('ko-KR', { 
+                                        timeZone: 'Asia/Seoul',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })})`;
+                                    case 'recurring':
+                                      const pattern = schedule.recurringPattern;
+                                      if (pattern) {
+                                        const freq = pattern.frequency === 'daily' ? '매일' :
+                                                   pattern.frequency === 'weekly' ? '매주' :
+                                                   pattern.frequency === 'monthly' ? '매월' : '반복';
+                                        return `${freq} ${pattern.time}`;
+                                      }
+                                      return '반복 발송';
+                                    default:
+                                      return '스케줄 설정됨';
+                                  }
+                                })()}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {workflow.status === "active" ? (
-                          <Button variant="outline" size="sm">
+                          <Button variant="outline" size="sm" onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}>
                             <Pause className="w-4 h-4 mr-1" />
                             일시정지
                           </Button>
                         ) : (
-                          <Button variant="outline" size="sm">
+                          <Button variant="outline" size="sm" onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}>
                             <Play className="w-4 h-4 mr-1" />
                             시작
                           </Button>
