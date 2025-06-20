@@ -27,7 +27,8 @@ import {
   Home,
   Activity,
   Pause,
-  Archive
+  Archive,
+  Database
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -262,10 +263,20 @@ export function TemplateBrowser({
               </p>
             </div>
           </div>
-          <Button onClick={handleRefresh} variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            새로고침
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => router.push('/queries')}
+              className="flex items-center gap-2"
+            >
+              <Database className="w-4 h-4" />
+              쿼리 라이브러리
+            </Button>
+            <Button onClick={handleRefresh} variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              새로고침
+            </Button>
+          </div>
         </div>
       )}
 
