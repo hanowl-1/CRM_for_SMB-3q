@@ -148,7 +148,8 @@ class SupabaseWorkflowService {
             conditionLogic: workflow.trigger?.conditionLogic || 'AND'
           },
           target_config: {
-            targetGroups: workflow.targetGroups || []
+            targetGroups: workflow.targetGroups || [],
+            targetTemplateMappings: workflow.targetTemplateMappings || []
           },
           message_config: {
             steps: workflow.steps || []
@@ -258,8 +259,23 @@ class SupabaseWorkflowService {
       // 대상 설정
       if (updates.targetGroups) {
         updateData.target_config = {
-          targetGroups: updates.targetGroups
+          targetGroups: updates.targetGroups,
+          targetTemplateMappings: updates.targetTemplateMappings || []
         };
+      }
+      
+      // 대상-템플릿 매핑만 업데이트하는 경우
+      if (updates.targetTemplateMappings) {
+        if (!updateData.target_config) {
+          // 기존 target_config가 없으면 새로 생성
+          updateData.target_config = {
+            targetGroups: [],
+            targetTemplateMappings: updates.targetTemplateMappings
+          };
+        } else {
+          // 기존 target_config가 있으면 매핑 정보만 업데이트
+          updateData.target_config.targetTemplateMappings = updates.targetTemplateMappings;
+        }
       }
       
       // 메시지 설정

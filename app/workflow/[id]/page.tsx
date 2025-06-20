@@ -25,6 +25,7 @@ function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
       conditionLogic: supabaseWorkflow.trigger_config?.conditionLogic || 'AND'
     },
     targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
+    targetTemplateMappings: supabaseWorkflow.target_config?.targetTemplateMappings || [],
     steps: supabaseWorkflow.message_config?.steps || [],
     testSettings: supabaseWorkflow.variables?.testSettings || {
       phoneNumber: '',

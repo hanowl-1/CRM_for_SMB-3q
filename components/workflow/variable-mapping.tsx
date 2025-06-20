@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { VariableMapping, PersonalizationSettings, VariableMappingTemplate } from '@/lib/types/workflow';
 import { clientPersonalizationService } from '@/lib/services/personalization-service-client';
 import { MappingTemplateService } from '@/lib/services/mapping-template-service';
-import MappingTemplateManager from './mapping-template-manager';
+import { MappingTemplateManager } from './mapping-template-manager';
 import TemplateEditorModal from './template-editor-modal';
 import VariableQuerySelector from './variable-query-selector';
 import MappingHistorySelector from './mapping-history-selector';

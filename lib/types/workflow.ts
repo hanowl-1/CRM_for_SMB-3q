@@ -115,6 +115,7 @@ export interface Workflow {
   steps: WorkflowStep[];
   testSettings?: WorkflowTestSettings; // 테스트 설정
   scheduleSettings?: ScheduleSettings; // 워크플로우 전체 스케줄 설정
+  targetTemplateMappings?: TargetTemplateMapping[]; // 대상-템플릿 매핑 정보
   createdAt: string;
   updatedAt: string;
   stats: {

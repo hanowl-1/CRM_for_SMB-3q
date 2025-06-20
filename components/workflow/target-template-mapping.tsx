@@ -10,7 +10,9 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
-  Settings
+  Settings,
+  Save,
+  FolderOpen
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +26,7 @@ import type {
   MappingPreview 
 } from '@/lib/types/workflow';
 import type { KakaoTemplate } from '@/lib/types/template';
+import { MappingTemplateManager } from './mapping-template-manager';
 
 interface TargetTemplateMappingProps {
   targetGroups: TargetGroup[];
@@ -47,6 +50,17 @@ export function TargetTemplateMapping({
   const onMappingChangeRef = useRef(onMappingChange);
   const mappingsRef = useRef<TargetTemplateMapping[]>([]);
   const isInitializedRef = useRef(false);
+
+  // 현재 설정 저장 상태
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // 저장된 매핑 목록 로드
+  useEffect(() => {
+    // 로컬 스토리지 로드는 제거
+  }, []);
 
   // onMappingChange 함수 참조 업데이트
   useEffect(() => {
@@ -182,7 +196,6 @@ export function TargetTemplateMapping({
     templateId: string, 
     templateVariable: string, 
     targetField: string,
-    formatter?: string,
     defaultValue?: string
   ) => {
     console.log('🔄 필드 매핑 업데이트:', { targetGroupId, templateId, templateVariable, targetField });
@@ -199,7 +212,7 @@ export function TargetTemplateMapping({
     const newFieldMapping: FieldMapping = {
       templateVariable,
       targetField,
-      formatter: formatter as any,
+      formatter: 'text', // 항상 텍스트로 처리
       defaultValue
     };
 
@@ -226,24 +239,8 @@ export function TargetTemplateMapping({
     
     return mapping.fieldMappings.map(fm => {
       const sampleValue = sampleRow[fm.targetField] || fm.defaultValue || '';
-      let formattedValue = String(sampleValue);
-
-      // 포맷터 적용
-      if (fm.formatter && sampleValue) {
-        switch (fm.formatter) {
-          case 'number':
-            formattedValue = Number(sampleValue).toLocaleString();
-            break;
-          case 'currency':
-            formattedValue = `${Number(sampleValue).toLocaleString()}원`;
-            break;
-          case 'date':
-            formattedValue = new Date(sampleValue).toLocaleDateString();
-            break;
-          default:
-            formattedValue = String(sampleValue);
-        }
-      }
+      // 모든 값을 문자열로 처리 (포맷터 제거)
+      const formattedValue = String(sampleValue);
 
       return {
         templateVariable: fm.templateVariable,
@@ -270,6 +267,57 @@ export function TargetTemplateMapping({
 
     return { completed: mappedVariables, total, percentage };
   }, [selectedTemplates, mappings, extractTemplateVariables]);
+
+  // 현재 설정을 Supabase에 저장
+  const handleSaveCurrentSettings = useCallback(async () => {
+    if (!saveName.trim()) {
+      alert('저장할 이름을 입력해주세요.');
+      return;
+    }
+
+    if (mappings.length === 0) {
+      alert('저장할 매핑이 없습니다.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch('/api/mapping-templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: saveName.trim(),
+          description: saveDescription.trim() || `매핑 설정 - ${new Date().toLocaleString()}`,
+          category: 'workflow_mapping',
+          tags: ['워크플로우', '매핑설정'],
+          target_template_mappings: mappings,
+          is_public: false,
+          is_favorite: false
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          alert('✅ 현재 설정이 성공적으로 저장되었습니다!\n\n다른 워크플로우에서도 이 설정을 불러와 사용할 수 있습니다.');
+          setShowSaveDialog(false);
+          setSaveName('');
+          setSaveDescription('');
+        } else {
+          throw new Error(result.error || '저장 실패');
+        }
+      } else {
+        throw new Error('서버 오류');
+      }
+    } catch (error) {
+      console.error('현재 설정 저장 실패:', error);
+      alert('❌ 저장에 실패했습니다.\n\n' + (error instanceof Error ? error.message : '알 수 없는 오류'));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [saveName, saveDescription, mappings]);
 
   // 컴포넌트 조건부 렌더링
   if (dynamicTargetGroups.length === 0) {
@@ -308,15 +356,41 @@ export function TargetTemplateMapping({
 
   return (
     <div className="space-y-6">
+      {/* 헤더 */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Link2 className="w-5 h-5" />
-            대상 그룹 ↔ 알림톡 변수 매핑
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            동적 쿼리 결과의 필드를 알림톡 템플릿 변수와 연결하세요
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-xl">대상-템플릿 매핑</CardTitle>
+              <p className="text-muted-foreground mt-1">
+                대상 그룹의 데이터 필드를 알림톡 템플릿 변수에 매핑하세요
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setShowSaveDialog(true)}
+                className="flex items-center gap-2"
+                disabled={mappings.length === 0}
+              >
+                <Save className="w-4 h-4" />
+                현재 설정 저장
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  dynamicTargetGroups.forEach(group => {
+                    loadPreviewData(group);
+                  });
+                }}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                미리보기 새로고침
+              </Button>
+            </div>
+          </div>
         </CardHeader>
       </Card>
 
@@ -327,11 +401,11 @@ export function TargetTemplateMapping({
           const isLoading = isLoadingPreview[targetGroup.id];
           
           return (
-            <Card key={targetGroup.id}>
+            <Card key={targetGroup.id} className="border-l-4 border-l-green-500">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
                       <Database className="w-4 h-4" />
                     </div>
                     <div>
@@ -341,15 +415,20 @@ export function TargetTemplateMapping({
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => loadPreviewData(targetGroup)}
-                    disabled={isLoading}
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-                    미리보기 새로고침
-                  </Button>
+                  
+                  <div className="flex items-center gap-2">
+                    {isLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => loadPreviewData(targetGroup)}
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -431,7 +510,7 @@ export function TargetTemplateMapping({
                               ?.fieldMappings.find(fm => fm.templateVariable === variable);
 
                             return (
-                              <div key={variable} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center p-3 bg-gray-50 rounded">
+                              <div key={variable} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center p-3 bg-gray-50 rounded">
                                 <div className="font-medium text-sm">
                                   #{variable}
                                 </div>
@@ -445,7 +524,6 @@ export function TargetTemplateMapping({
                                       template.id, 
                                       variable, 
                                       value,
-                                      currentMapping?.formatter,
                                       currentMapping?.defaultValue
                                     );
                                   }}
@@ -469,33 +547,8 @@ export function TargetTemplateMapping({
                                   </SelectContent>
                                 </Select>
 
-                                <Select
-                                  value={currentMapping?.formatter || 'text'}
-                                  onValueChange={(value) => {
-                                    console.log('🔄 포맷터 변경:', { variable, value });
-                                    updateFieldMapping(
-                                      targetGroup.id, 
-                                      template.id, 
-                                      variable, 
-                                      currentMapping?.targetField || '',
-                                      value,
-                                      currentMapping?.defaultValue
-                                    );
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="text">텍스트</SelectItem>
-                                    <SelectItem value="number">숫자</SelectItem>
-                                    <SelectItem value="currency">통화</SelectItem>
-                                    <SelectItem value="date">날짜</SelectItem>
-                                  </SelectContent>
-                                </Select>
-
                                 <Input
-                                  placeholder="기본값"
+                                  placeholder="기본값 (선택사항)"
                                   value={currentMapping?.defaultValue || ''}
                                   onChange={(e) => {
                                     const value = e.target.value;
@@ -505,7 +558,6 @@ export function TargetTemplateMapping({
                                       template.id, 
                                       variable, 
                                       currentMapping?.targetField || '',
-                                      currentMapping?.formatter,
                                       value
                                     );
                                   }}
@@ -576,6 +628,63 @@ export function TargetTemplateMapping({
           </div>
         </CardContent>
       </Card>
+
+      {/* 현재 설정 저장 모달 */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">현재 매핑 설정 저장</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">설정 이름 *</label>
+                <Input
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="예: 고객 성과 매핑 설정"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">설명 (선택사항)</label>
+                <Input
+                  value={saveDescription}
+                  onChange={(e) => setSaveDescription(e.target.value)}
+                  placeholder="이 매핑 설정에 대한 설명을 입력하세요"
+                />
+              </div>
+              
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <p className="text-sm text-blue-700">
+                  💾 현재 {mappings.length}개의 매핑이 Supabase에 저장됩니다.
+                  <span className="block mt-1">
+                    다른 워크플로우에서도 이 설정을 불러와 재사용할 수 있습니다.
+                  </span>
+                </p>
+              </div>
+              
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowSaveDialog(false);
+                    setSaveName('');
+                    setSaveDescription('');
+                  }}
+                  disabled={isSaving}
+                >
+                  취소
+                </Button>
+                <Button 
+                  onClick={handleSaveCurrentSettings}
+                  disabled={isSaving || !saveName.trim()}
+                >
+                  {isSaving ? '저장 중...' : '저장'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

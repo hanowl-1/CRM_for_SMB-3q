@@ -9,9 +9,6 @@ const dbConfig = {
   database: process.env.MYSQL_READONLY_DATABASE || 'supermembers',
   charset: 'utf8mb4',
   timezone: '+09:00',
-  acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true,
   ssl: {
     rejectUnauthorized: false
   }
@@ -58,62 +55,133 @@ interface TargetTemplateMapping {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('🚀 =================================');
+  console.log('🚀 워크플로우 미리보기 API 호출 시작');
+  console.log('🚀 =================================');
+  
   try {
     const { targetGroups, templates, templateVariables, targetTemplateMappings, limit = 5 } = await request.json();
 
     console.log('🔄 워크플로우 미리보기 요청:', {
+      timestamp: new Date().toISOString(),
       targetGroupsCount: targetGroups?.length || 0,
       templatesCount: templates?.length || 0,
       mappingsCount: targetTemplateMappings?.length || 0,
-      templateVariablesCount: Object.keys(templateVariables || {}).length
+      templateVariablesCount: Object.keys(templateVariables || {}).length,
+      limit
+    });
+
+    console.log('📊 요청 데이터 상세:', {
+      targetGroupsDetail: targetGroups?.map((g: any) => ({
+        id: g.id,
+        name: g.name,
+        type: g.type,
+        hasDynamicQuery: !!g.dynamicQuery,
+        sqlQuery: g.dynamicQuery?.sql ? g.dynamicQuery.sql.substring(0, 100) + '...' : 'N/A'
+      })),
+      templatesDetail: templates?.map((t: any) => ({
+        id: t.id,
+        name: t.templateName,
+        code: t.templateCode
+      })),
+      mappingsDetail: targetTemplateMappings?.map((m: any) => ({
+        id: m.id,
+        targetGroupId: m.targetGroupId,
+        templateId: m.templateId,
+        fieldMappingsCount: m.fieldMappings?.length || 0
+      }))
     });
 
     if (!targetGroups || !Array.isArray(targetGroups) || targetGroups.length === 0) {
+      console.log('❌ 대상 그룹이 없음');
       return NextResponse.json({ error: '대상 그룹이 없습니다.' }, { status: 400 });
+    }
+
+    if (!templates || !Array.isArray(templates) || templates.length === 0) {
+      console.log('❌ 템플릿이 없음');
+      return NextResponse.json({ error: '템플릿이 없습니다.' }, { status: 400 });
     }
 
     const previewData: ContactPreview[] = [];
 
     for (const group of targetGroups) {
       try {
+        console.log(`🔍 그룹 "${group.name}" 처리 시작:`, {
+          id: group.id,
+          type: group.type,
+          hasDynamicQuery: !!group.dynamicQuery,
+          sql: group.dynamicQuery?.sql
+        });
+
         // 동적 쿼리만 처리 (정적 그룹은 제외)
         if (group.type !== 'dynamic' || !group.dynamicQuery?.sql) {
-          console.log(`그룹 "${group.name}"은 동적 쿼리가 아니므로 건너뜀`);
+          console.log(`⏭️ 그룹 "${group.name}"은 동적 쿼리가 아니므로 건너뜀 (type: ${group.type})`);
           continue;
         }
 
+        console.log(`🔄 MySQL 연결 시작 - 그룹 "${group.name}"`);
         // MySQL 연결
         const connection = await mysql.createConnection(dbConfig);
         
         try {
           // 동적 쿼리 실행하여 실제 수신자 데이터 가져오기
-          const limitedQuery = `${group.dynamicQuery.sql} LIMIT ${limit}`;
+          // 세미콜론 제거 후 LIMIT 추가
+          let cleanQuery = group.dynamicQuery.sql.trim();
+          if (cleanQuery.endsWith(';')) {
+            cleanQuery = cleanQuery.slice(0, -1);
+          }
+          const limitedQuery = `${cleanQuery} LIMIT ${limit}`;
+          
+          console.log(`📊 쿼리 실행:`, { 
+            originalQuery: group.dynamicQuery.sql,
+            cleanedQuery: cleanQuery,
+            finalQuery: limitedQuery,
+            limit 
+          });
+          
           const [rows] = await connection.execute(limitedQuery);
           const contacts = rows as any[];
 
+          console.log(`📋 쿼리 결과:`, {
+            groupName: group.name,
+            rowsCount: contacts?.length || 0,
+            sampleRow: contacts?.[0] || null,
+            allFields: contacts?.[0] ? Object.keys(contacts[0]) : []
+          });
+
           if (!contacts || contacts.length === 0) {
-            console.log(`그룹 "${group.name}"에서 조회된 연락처가 없음`);
+            console.log(`❌ 그룹 "${group.name}"에서 조회된 연락처가 없음`);
             continue;
           }
 
-          console.log(`그룹 "${group.name}"에서 ${contacts.length}개 연락처 조회됨`);
+          console.log(`✅ 그룹 "${group.name}"에서 ${contacts.length}개 연락처 조회됨`);
 
           // 각 연락처에 대해 개인화된 메시지 생성
           for (const contact of contacts) {
             const contactPreview: ContactPreview = {
               groupName: group.name,
               contact: {
-                id: String(contact.id || contact.adId || contact.userId || 'unknown'),
-                name: String(contact.name || contact.companyName || contact.title || '이름 없음'),
-                phone: String(contact.phone || contact.phoneNumber || contact.mobile || '번호 없음'),
-                email: contact.email,
-                company: contact.company || contact.companyName,
-                position: contact.position || contact.role,
+                id: String(contact.id || contact.adId || contact.userId || contact.idx || 'unknown'),
+                name: String(contact.name || contact.companyName || contact.title || contact.company || contact.advertiser || '이름 없음'),
+                phone: String(contact.phone || contact.phoneNumber || contact.mobile || contact.tel || contact.contact || '번호 없음'),
+                email: contact.email || contact.emailAddress || contact.mail,
+                company: contact.company || contact.companyName || contact.advertiser || contact.business,
+                position: contact.position || contact.role || contact.job || contact.title,
                 tags: [],
                 customFields: contact
               },
               messages: []
             };
+
+            console.log(`👤 연락처 정보 매핑:`, {
+              원본데이터: Object.keys(contact),
+              매핑결과: {
+                id: contactPreview.contact.id,
+                name: contactPreview.contact.name,
+                phone: contactPreview.contact.phone,
+                company: contactPreview.contact.company
+              }
+            });
 
             // 선택된 템플릿들에 대해 개인화된 메시지 생성
             if (templates && Array.isArray(templates)) {
@@ -138,47 +206,85 @@ export async function POST(request: NextRequest) {
                   // 대상-템플릿 매핑이 있는 경우: 매핑 정보를 사용하여 변수 생성
                   console.log(`✅ 매핑 정보 사용하여 변수 생성`);
                   
-                  targetMapping.fieldMappings.forEach((fieldMapping: FieldMapping) => {
+                  // 먼저 기본 변수 값들을 설정 (templateVariables에서)
+                  const baseVariables = templateVariables?.[template.id] || {};
+                  Object.entries(baseVariables).forEach(([key, value]) => {
+                    personalizedVariables[key] = String(value || '');
+                  });
+                  
+                  console.log(`📋 기본 변수 값 설정:`, {
+                    templateId: template.id,
+                    baseVariables,
+                    personalizedVariables: { ...personalizedVariables }
+                  });
+                  
+                  // 그 다음 매핑 정보로 덮어쓰기 (실제 데이터베이스 값으로)
+                  for (const fieldMapping of targetMapping.fieldMappings) {
                     const { templateVariable, targetField, formatter, defaultValue } = fieldMapping;
                     
                     // 연락처 데이터에서 해당 필드 값 가져오기
                     let rawValue = contact[targetField];
                     
-                    // 값이 없으면 기본값 사용
-                    if (rawValue === null || rawValue === undefined || rawValue === '') {
-                      rawValue = defaultValue || '';
-                    }
-
-                    // 포맷터 적용
-                    let formattedValue = String(rawValue);
-                    if (formatter && rawValue) {
-                      switch (formatter) {
-                        case 'number':
-                          formattedValue = Number(rawValue).toLocaleString();
-                          break;
-                        case 'currency':
-                          formattedValue = `${Number(rawValue).toLocaleString()}원`;
-                          break;
-                        case 'date':
-                          formattedValue = new Date(rawValue).toLocaleDateString();
-                          break;
-                        default:
-                          formattedValue = String(rawValue);
-                      }
-                    }
-
-                    // 템플릿 변수명에서 #{} 제거
-                    const variableName = templateVariable.replace(/^#{|}$/g, '');
-                    personalizedVariables[variableName] = formattedValue;
-
-                    console.log(`🔧 변수 매핑:`, {
-                      templateVariable: variableName,
+                    console.log(`🔍 필드 매핑 처리:`, {
+                      templateVariable,
                       targetField,
                       rawValue,
-                      formattedValue,
-                      formatter
+                      hasValue: rawValue !== null && rawValue !== undefined && rawValue !== ''
                     });
-                  });
+                    
+                    // 템플릿 변수명에서 #{} 제거
+                    const variableName = templateVariable.replace(/^#{|}$/g, '');
+                    
+                    // 실제 데이터베이스 값이 있고 의미있는 값인 경우에만 덮어쓰기
+                    if (rawValue !== null && rawValue !== undefined && rawValue !== '' && 
+                        targetField !== 'id' && // id 필드는 제외 (모든 변수가 id로 매핑되는 것 방지)
+                        String(rawValue) !== contact.id) { // id 값과 같은 경우도 제외
+                      
+                      // 포맷터 적용
+                      let formattedValue = String(rawValue);
+                      if (formatter && rawValue) {
+                        switch (formatter) {
+                          case 'number':
+                            formattedValue = Number(rawValue).toLocaleString();
+                            break;
+                          case 'currency':
+                            formattedValue = `${Number(rawValue).toLocaleString()}원`;
+                            break;
+                          case 'date':
+                            formattedValue = new Date(rawValue).toLocaleDateString();
+                            break;
+                          default:
+                            formattedValue = String(rawValue);
+                        }
+                      }
+                      
+                      personalizedVariables[variableName] = formattedValue;
+                      console.log(`🔧 데이터베이스 값으로 변수 덮어쓰기:`, {
+                        templateVariable: variableName,
+                        targetField,
+                        rawValue,
+                        formattedValue,
+                        formatter
+                      });
+                    } else if (defaultValue && !personalizedVariables[variableName]) {
+                      // 기본값이 있고 현재 변수 값이 없는 경우에만 기본값 사용
+                      personalizedVariables[variableName] = defaultValue;
+                      console.log(`🔧 기본값으로 변수 설정:`, {
+                        templateVariable: variableName,
+                        defaultValue
+                      });
+                    } else {
+                      console.log(`⚠️ 기존 변수 값 유지:`, {
+                        templateVariable: variableName,
+                        reason: rawValue === null || rawValue === undefined || rawValue === '' ? '데이터 없음' :
+                               targetField === 'id' ? 'id 필드 제외' :
+                               String(rawValue) === contact.id ? 'id 값과 동일' : '알 수 없음',
+                        currentValue: personalizedVariables[variableName],
+                        targetField,
+                        rawValue
+                      });
+                    }
+                  }
                 } else {
                   // 매핑 정보가 없는 경우: 기존 방식 사용 (하위 호환성)
                   console.log(`⚠️ 매핑 정보 없음, 기존 방식 사용`);
@@ -253,7 +359,19 @@ export async function POST(request: NextRequest) {
         const connection = await mysql.createConnection(dbConfig);
         
         try {
-          const countQuery = `SELECT COUNT(*) as total FROM (${group.dynamicQuery.sql}) as subquery`;
+          // 세미콜론 제거 후 COUNT 쿼리 생성
+          let cleanCountQuery = group.dynamicQuery.sql.trim();
+          if (cleanCountQuery.endsWith(';')) {
+            cleanCountQuery = cleanCountQuery.slice(0, -1);
+          }
+          const countQuery = `SELECT COUNT(*) as total FROM (${cleanCountQuery}) as subquery`;
+          
+          console.log(`📊 카운트 쿼리 실행:`, {
+            originalQuery: group.dynamicQuery.sql,
+            cleanedQuery: cleanCountQuery,
+            finalCountQuery: countQuery
+          });
+          
           const [countRows] = await connection.execute(countQuery);
           const countResult = countRows as any[];
           
@@ -271,8 +389,30 @@ export async function POST(request: NextRequest) {
     console.log('✅ 미리보기 생성 완료:', {
       previewDataCount: previewData.length,
       totalEstimatedCount,
-      messagesGenerated: previewData.reduce((total, contact) => total + contact.messages.length, 0)
+      messagesGenerated: previewData.reduce((total, contact) => total + contact.messages.length, 0),
+      processedGroups: targetGroups.filter(g => g.type === 'dynamic' && g.dynamicQuery?.sql).length,
+      totalGroups: targetGroups.length,
+      templatesUsed: templates?.length || 0,
+      hasPreviewData: previewData.length > 0,
+      previewSample: previewData.length > 0 ? {
+        firstContact: previewData[0].contact.name,
+        firstGroupName: previewData[0].groupName,
+        messagesCount: previewData[0].messages.length
+      } : null
     });
+
+    if (previewData.length === 0) {
+      console.log('⚠️ 미리보기 데이터가 생성되지 않았습니다. 가능한 원인:');
+      console.log('1. 동적 대상 그룹의 SQL 쿼리 결과가 비어있음');
+      console.log('2. 매핑 정보가 올바르지 않음');
+      console.log('3. 템플릿이 선택되지 않음');
+      console.log('4. MySQL 연결 문제');
+      
+      // 추가 안내: VariableMapping 시스템 사용 방법
+      console.log('💡 개인화된 변수 사용을 위해서는:');
+      console.log('- 워크플로우 빌더에서 "변수 매핑" 기능을 사용하세요');
+      console.log('- 각 템플릿 변수에 대해 sourceType을 "query"로 설정하고 SQL 쿼리를 입력하세요');
+    }
 
     return NextResponse.json({
       success: true,

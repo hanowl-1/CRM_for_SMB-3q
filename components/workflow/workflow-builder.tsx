@@ -35,7 +35,8 @@ import {
   CheckCircle,
   ArrowRight,
   ArrowLeft,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { mockTemplates } from '@/lib/data/mock-templates';
 import { TargetTemplateMapping } from './target-template-mapping';
@@ -188,12 +189,11 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         }
       });
 
-      // 기존 워크플로우에서 매핑 정보 복원 (만약 있다면)
-      // Note: 현재 Workflow 타입에 targetTemplateMappings가 없으므로 추후 추가 예정
-      // if (workflow.targetTemplateMappings) {
-      //   mappings.push(...workflow.targetTemplateMappings);
-      //   console.log('🔗 대상-템플릿 매핑 복원:', workflow.targetTemplateMappings.length);
-      // }
+      // 기존 워크플로우에서 매핑 정보 복원
+      if (workflow.targetTemplateMappings) {
+        mappings.push(...workflow.targetTemplateMappings);
+        console.log('🔗 워크플로우 레벨 대상-템플릿 매핑 복원:', workflow.targetTemplateMappings.length);
+      }
       
       setTemplateVariables(variables);
       setTemplatePersonalizations(personalizations);
@@ -389,11 +389,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         templateName: template.templateName,
         variables: templateVariables[template.id] || {},
         scheduleSettings: scheduleSettings,
-        personalization: templatePersonalizations[template.id],
-        // 대상-템플릿 매핑 정보도 포함 (any 타입으로 확장)
-        ...(targetTemplateMappings.filter(m => m.templateId === template.id).length > 0 && {
-          targetTemplateMappings: targetTemplateMappings.filter(m => m.templateId === template.id)
-        })
+        personalization: templatePersonalizations[template.id]
       } as any,
       position: { x: 100, y: index * 150 + 100 }
     }));
@@ -423,7 +419,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       stats: {
         totalRuns: 0,
         successRate: 0
-      }
+      },
+      // 대상-템플릿 매핑 정보를 워크플로우 레벨에서 별도 저장
+      targetTemplateMappings: targetTemplateMappings
     };
 
     console.log('💾 워크플로우 저장:', {
@@ -578,7 +576,15 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         targetGroupsCount: targetGroups.length,
         templatesCount: selectedTemplates.length,
         mappingsCount: targetTemplateMappings.length,
-        templateVariablesCount: Object.keys(templateVariables).length
+        templateVariablesCount: Object.keys(templateVariables).length,
+        targetGroups: targetGroups.map(g => ({ id: g.id, name: g.name, type: g.type })),
+        templates: selectedTemplates.map(t => ({ id: t.id, name: t.templateName })),
+        mappings: targetTemplateMappings.map(m => ({ 
+          id: m.id, 
+          targetGroupId: m.targetGroupId, 
+          templateId: m.templateId,
+          fieldMappingsCount: m.fieldMappings.length 
+        }))
       });
 
       const response = await fetch('/api/workflow/preview', {
@@ -595,20 +601,37 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         })
       });
 
+      console.log('🌐 미리보기 API 응답 상태:', response.status, response.statusText);
+
       if (!response.ok) {
-        throw new Error('미리보기 데이터를 불러오는데 실패했습니다.');
+        const errorText = await response.text();
+        console.error('❌ 미리보기 API 응답 오류:', response.status, errorText);
+        throw new Error(`미리보기 데이터를 불러오는데 실패했습니다. (${response.status})`);
       }
 
       const result = await response.json();
       
+      console.log('📦 미리보기 API 전체 응답:', result);
+      console.log('📊 미리보기 API 상세 분석:', {
+        success: result.success,
+        dataExists: !!result.data,
+        dataLength: result.data?.length || 0,
+        totalEstimatedCount: result.totalEstimatedCount,
+        errorMessage: result.error,
+        rawData: result.data
+      });
+      
       if (result.success) {
         console.log('✅ 미리보기 데이터 로드 성공:', {
           previewCount: result.data?.length || 0,
-          totalEstimatedCount: result.totalEstimatedCount || 0
+          totalEstimatedCount: result.totalEstimatedCount || 0,
+          hasData: result.data && result.data.length > 0,
+          sampleData: result.data?.[0] || null
         });
         setPreviewData(result.data || []);
         setTotalEstimatedCount(result.totalEstimatedCount || 0);
       } else {
+        console.error('❌ 미리보기 API 응답 실패:', result);
         throw new Error(result.error || '미리보기 데이터 로드 실패');
       }
     } catch (error) {
@@ -621,12 +644,26 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     }
   };
 
-  // 대상 그룹이나 템플릿이 변경될 때 미리보기 데이터 다시 로드
+  // 대상 그룹이나 템플릿, 매핑 정보가 변경될 때 미리보기 데이터 다시 로드
   useEffect(() => {
     if (activeTab === 'review') {
+      console.log('📊 리뷰 탭에서 미리보기 자동 로드 트리거:', {
+        targetGroupsCount: targetGroups.length,
+        templatesCount: selectedTemplates.length,
+        mappingsCount: targetTemplateMappings.length
+      });
       loadPreviewData();
     }
-  }, [activeTab, targetGroups, selectedTemplates, templateVariables]);
+  }, [
+    activeTab, 
+    targetGroups.length, 
+    selectedTemplates.length, 
+    targetTemplateMappings.length,
+    // 배열의 내용이 변경되었는지 확인하기 위한 안정적인 키
+    targetGroups.map(g => g.id).join(','),
+    selectedTemplates.map(t => t.id).join(','),
+    targetTemplateMappings.map(m => `${m.targetGroupId}-${m.templateId}-${m.fieldMappings.length}`).join(',')
+  ]);
 
   return (
     <div className="space-y-6">
@@ -1374,13 +1411,25 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
               {/* 발송 미리보기 */}
               <div className="border rounded-lg p-4">
-                <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
-                  <Eye className="w-5 h-5" />
-                  발송 미리보기
-                  {isLoadingPreview && (
-                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                  )}
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-lg flex items-center gap-2">
+                    <Eye className="w-5 h-5" />
+                    발송 미리보기
+                    {isLoadingPreview && (
+                      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </h4>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadPreviewData}
+                    disabled={isLoadingPreview || selectedTemplates.length === 0 || targetGroups.length === 0}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoadingPreview ? 'animate-spin' : ''}`} />
+                    미리보기 새로고침
+                  </Button>
+                </div>
                 <p className="text-sm text-muted-foreground mb-4">
                   실제 수신자 데이터를 기반으로 개인화된 메시지를 미리 확인하세요
                 </p>
@@ -1403,6 +1452,34 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
                 )}
 
+                {/* 현재 설정 상태 표시 */}
+                <div className="bg-gray-50 border rounded-lg p-3 mb-4">
+                  <h5 className="text-sm font-medium mb-2">현재 설정 상태</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${targetGroups.length > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      <span>대상 그룹: {targetGroups.length}개</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${selectedTemplates.length > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      <span>템플릿: {selectedTemplates.length}개</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${targetTemplateMappings.length > 0 ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                      <span>매핑: {targetTemplateMappings.length}개</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${Object.keys(templateVariables).length > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      <span>변수: {Object.keys(templateVariables).length}개</span>
+                    </div>
+                  </div>
+                  {targetTemplateMappings.length === 0 && targetGroups.some(g => g.type === 'dynamic') && (
+                    <p className="text-xs text-yellow-600 mt-2">
+                      💡 동적 대상 그룹이 있지만 매핑이 설정되지 않았습니다. "대상-템플릿 매핑" 탭에서 설정해주세요.
+                    </p>
+                  )}
+                </div>
+
                 {selectedTemplates.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
@@ -1420,9 +1497,63 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
                 ) : previewData.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    <AlertCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>선택된 조건에 해당하는 수신자가 없습니다</p>
-                    <p className="text-xs mt-1">대상 그룹의 필터 조건을 확인해주세요</p>
+                    <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium mb-2">미리보기 데이터가 없습니다</h3>
+                    
+                    {targetGroups.some(g => g.type === 'dynamic') ? (
+                      <div className="space-y-3">
+                        <p className="text-sm">동적 대상 그룹이 설정되어 있지만 조회된 데이터가 없습니다.</p>
+                        
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-left max-w-md mx-auto">
+                          <h4 className="font-medium text-yellow-800 mb-2">확인해보세요:</h4>
+                          <ul className="text-sm text-yellow-700 space-y-1">
+                            <li>• 대상 그룹의 SQL 쿼리가 올바른지 확인</li>
+                            <li>• 쿼리 결과에 실제 데이터가 있는지 확인</li>
+                            <li>• MySQL 연결이 정상적인지 확인</li>
+                            {targetTemplateMappings.length === 0 && (
+                              <li>• "대상-템플릿 매핑" 탭에서 매핑 설정 완료</li>
+                            )}
+                          </ul>
+                        </div>
+
+                        <div className="flex gap-2 justify-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setActiveTab('targets')}
+                          >
+                            대상 그룹 확인
+                          </Button>
+                          {targetTemplateMappings.length === 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setActiveTab('mapping')}
+                            >
+                              매핑 설정
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            onClick={loadPreviewData}
+                          >
+                            다시 시도
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm">정적 대상 그룹만 설정되어 있습니다.</p>
+                        <p className="text-xs">동적 쿼리 기반 대상 그룹을 추가하면 미리보기를 확인할 수 있습니다.</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setActiveTab('targets')}
+                        >
+                          대상 그룹 설정
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-6">
