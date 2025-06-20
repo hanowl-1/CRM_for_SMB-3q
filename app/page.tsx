@@ -49,6 +49,15 @@ export default function Dashboard() {
     completedJobs: number;
     failedJobs: number;
     nextJob?: any;
+    activeWorkflows: number;
+    scheduledWorkflows: number;
+    totalExecutions: number;
+    todayExecutions: number;
+    currentJobs: {
+      pending: number;
+      running: number;
+    };
+    lastExecutionTime: string;
   } | null>(null);
 
   // Supabase에서 워크플로우 불러오기 (DB 기반만)
@@ -624,22 +633,33 @@ export default function Dashboard() {
                     
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">총 작업:</span>
-                        <span className="font-medium">{schedulerStatus.totalJobs}</span>
+                        <span className="text-gray-600">활성 워크플로우:</span>
+                        <span className="font-medium">{schedulerStatus.activeWorkflows || 0}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">대기 중:</span>
-                        <span className="font-medium text-blue-600">{schedulerStatus.pendingJobs}</span>
+                        <span className="text-gray-600">스케줄 설정:</span>
+                        <span className="font-medium text-blue-600">{schedulerStatus.scheduledWorkflows || 0}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">실행 중:</span>
-                        <span className="font-medium text-orange-600">{schedulerStatus.runningJobs}</span>
+                        <span className="text-gray-600">전체 실행:</span>
+                        <span className="font-medium text-green-600">{schedulerStatus.totalExecutions || 0}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">완료:</span>
-                        <span className="font-medium text-green-600">{schedulerStatus.completedJobs}</span>
+                        <span className="text-gray-600">오늘 실행:</span>
+                        <span className="font-medium text-orange-600">{schedulerStatus.todayExecutions || 0}</span>
                       </div>
                     </div>
+
+                    {/* 현재 작업 상태 (메모리 기반) */}
+                    {schedulerStatus.currentJobs && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+                        <div className="font-medium text-gray-700 mb-1">현재 작업 상태:</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <span>대기: {schedulerStatus.currentJobs.pending || schedulerStatus.pendingJobs || 0}</span>
+                          <span>실행: {schedulerStatus.currentJobs.running || schedulerStatus.runningJobs || 0}</span>
+                        </div>
+                      </div>
+                    )}
 
                     {schedulerStatus.nextJob && (
                       <div className="mt-3 p-2 bg-blue-50 rounded text-xs">
@@ -651,6 +671,21 @@ export default function Dashboard() {
                           {new Date(schedulerStatus.nextJob.scheduledTime).toLocaleString('ko-KR', { 
                             timeZone: 'Asia/Seoul',
                             year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })} (KST)
+                        </div>
+                      </div>
+                    )}
+
+                    {schedulerStatus.lastExecutionTime && (
+                      <div className="mt-2 p-2 bg-green-50 rounded text-xs">
+                        <div className="font-medium text-green-800">최근 실행:</div>
+                        <div className="text-green-600">
+                          {new Date(schedulerStatus.lastExecutionTime).toLocaleString('ko-KR', { 
+                            timeZone: 'Asia/Seoul',
                             month: '2-digit',
                             day: '2-digit',
                             hour: '2-digit',

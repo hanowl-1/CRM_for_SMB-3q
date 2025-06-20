@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
       
       steps.forEach((step: any) => {
         const action = step.action;
-        if (action?.type === 'kakao_alimtalk' && action.templateCode) {
+        // 실제 데이터 구조에 맞게 수정: 'send_alimtalk'로 변경
+        if (action?.type === 'send_alimtalk' && action.templateCode) {
           const templateCode = action.templateCode;
           const templateName = action.templateName || step.name || '알 수 없는 템플릿';
           
@@ -83,13 +84,18 @@ export async function GET(request: NextRequest) {
       });
     });
 
-    // 사용되지 않는 템플릿은 deprecated로 처리 (실제로는 템플릿 DB에서 조회해야 함)
-    
     // 결과 정렬 (사용 빈도순)
     const sortedUsage = Array.from(templateUsage.values())
       .sort((a, b) => b.usageCount - a.usageCount);
 
     console.log(`✅ 템플릿 사용 현황 분석 완료: ${sortedUsage.length}개 템플릿`);
+    console.log('📊 사용 현황 상세:', sortedUsage.map(u => ({
+      templateCode: u.templateCode,
+      templateName: u.templateName,
+      status: u.status,
+      usageCount: u.usageCount,
+      workflowsCount: u.workflows.length
+    })));
 
     return NextResponse.json({
       success: true,

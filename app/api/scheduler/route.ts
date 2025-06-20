@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import schedulerService from '@/lib/services/scheduler-service';
+// import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
 import { Workflow } from '@/lib/types/workflow';
 
 // GET: 스케줄러 상태 조회
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
 
     switch (action) {
       case 'status':
-        const status = schedulerService.getStatus();
+        const status = await schedulerService.getStatus();
         return NextResponse.json({
           success: true,
           data: status,

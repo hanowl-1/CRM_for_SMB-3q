@@ -352,52 +352,157 @@ class SupabaseWorkflowService {
     }
   }
 
-  // 워크플로우 실행 통계 조회
+  // 워크플로우 통계 조회
   async getWorkflowStats(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       await this.ensureTables();
       const client = this.getClient();
 
-      // 전체 통계
-      const { data: totalStats, error: totalError } = await client
+      // 기본 워크플로우 통계
+      const { data: workflows, error: workflowError } = await client
         .from('workflows')
-        .select('status')
-        .then(result => {
-          if (result.error) return result;
-          
-          const stats = result.data?.reduce((acc: any, workflow: any) => {
-            acc.total = (acc.total || 0) + 1;
-            acc[workflow.status] = (acc[workflow.status] || 0) + 1;
-            return acc;
-          }, {}) || {};
+        .select('id, status, created_at, last_run_at');
 
-          return { data: stats, error: null };
-        });
-
-      if (totalError) {
-        return { success: false, error: totalError.message };
+      if (workflowError) {
+        return { success: false, error: workflowError.message };
       }
 
-      // 최근 실행 기록
-      const { data: recentRuns, error: runsError } = await client
+      // 워크플로우 실행 기록 통계
+      const { data: runs, error: runsError } = await client
         .from('workflow_runs')
-        .select('status, started_at, success_count, failed_count')
-        .order('started_at', { ascending: false })
-        .limit(10);
+        .select('id, status, started_at, completed_at, success_count, failed_count');
 
       if (runsError) {
         return { success: false, error: runsError.message };
       }
 
-      return {
-        success: true,
-        data: {
-          totalStats,
-          recentRuns: recentRuns || []
-        }
+      // 메시지 로그 통계
+      const { data: messages, error: messagesError } = await client
+        .from('message_logs')
+        .select('id, status, sent_at, cost_amount');
+
+      if (messagesError) {
+        return { success: false, error: messagesError.message };
+      }
+
+      const stats = {
+        totalWorkflows: workflows?.length || 0,
+        activeWorkflows: workflows?.filter(w => w.status === 'active').length || 0,
+        pausedWorkflows: workflows?.filter(w => w.status === 'paused').length || 0,
+        draftWorkflows: workflows?.filter(w => w.status === 'draft').length || 0,
+        
+        totalRuns: runs?.length || 0,
+        completedRuns: runs?.filter(r => r.status === 'completed').length || 0,
+        failedRuns: runs?.filter(r => r.status === 'failed').length || 0,
+        runningRuns: runs?.filter(r => r.status === 'running').length || 0,
+        
+        totalMessages: messages?.length || 0,
+        sentMessages: messages?.filter(m => m.status === 'sent' || m.status === 'delivered').length || 0,
+        failedMessages: messages?.filter(m => m.status === 'failed').length || 0,
+        
+        totalCost: messages?.reduce((sum, m) => sum + (m.cost_amount || 0), 0) || 0,
+        
+        lastRunAt: workflows?.reduce((latest, w) => {
+          if (!w.last_run_at) return latest;
+          const runTime = new Date(w.last_run_at);
+          return !latest || runTime > latest ? runTime : latest;
+        }, null as Date | null)?.toISOString()
       };
+
+      return { success: true, data: stats };
     } catch (error) {
       console.error('워크플로우 통계 조회 실패:', error);
+      return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
+    }
+  }
+
+  // 워크플로우 실행 통계 조회 (스케줄러용)
+  async getExecutionStats(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      await this.ensureTables();
+      const client = this.getClient();
+
+      // 오늘 날짜 (한국 시간)
+      const today = new Date();
+      const koreaToday = new Date(today.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+      const todayStart = new Date(koreaToday.getFullYear(), koreaToday.getMonth(), koreaToday.getDate());
+      const todayStartISO = todayStart.toISOString();
+
+      console.log('📊 실행 통계 조회 시작:', {
+        today: koreaToday.toISOString(),
+        todayStart: todayStartISO
+      });
+
+      // 워크플로우 기본 정보
+      const { data: workflows, error: workflowError } = await client
+        .from('workflows')
+        .select('id, status, last_run_at, schedule_config');
+
+      if (workflowError) {
+        console.error('워크플로우 조회 오류:', workflowError);
+        return { success: false, error: workflowError.message };
+      }
+
+      // 워크플로우 실행 기록
+      const { data: runs, error: runsError } = await client
+        .from('workflow_runs')
+        .select('id, status, started_at, completed_at, success_count, failed_count');
+
+      if (runsError) {
+        console.error('실행 기록 조회 오류:', runsError);
+        return { success: false, error: runsError.message };
+      }
+
+      // 오늘 실행된 기록 필터링
+      const todayRuns = runs?.filter(run => {
+        if (!run.started_at) return false;
+        const runDate = new Date(run.started_at);
+        return runDate >= todayStart;
+      }) || [];
+
+      // 최근 실행 시간 찾기
+      const lastExecutionTime = runs?.reduce((latest, run) => {
+        if (!run.completed_at && !run.started_at) return latest;
+        const runTime = new Date(run.completed_at || run.started_at);
+        return !latest || runTime > latest ? runTime : latest;
+      }, null as Date | null);
+
+      // 스케줄이 설정된 워크플로우 개수
+      const scheduledWorkflows = workflows?.filter(w => {
+        const scheduleConfig = w.schedule_config;
+        return scheduleConfig && 
+               (scheduleConfig.type === 'scheduled' || 
+                scheduleConfig.type === 'recurring' || 
+                scheduleConfig.type === 'delay');
+      }).length || 0;
+
+      const stats = {
+        // 전체 실행 통계
+        totalExecutions: runs?.length || 0,
+        todayExecutions: todayRuns.length,
+        successfulExecutions: runs?.filter(r => r.status === 'completed').length || 0,
+        failedExecutions: runs?.filter(r => r.status === 'failed').length || 0,
+        
+        // 워크플로우 상태
+        activeWorkflows: workflows?.filter(w => w.status === 'active').length || 0,
+        scheduledWorkflows: scheduledWorkflows,
+        
+        // 시간 정보
+        lastExecutionTime: lastExecutionTime?.toISOString(),
+        
+        // 상세 정보
+        runningExecutions: runs?.filter(r => r.status === 'running').length || 0,
+        totalWorkflows: workflows?.length || 0,
+        
+        // 성공률 계산
+        successRate: runs?.length > 0 ? 
+          Math.round((runs.filter(r => r.status === 'completed').length / runs.length) * 100) : 0
+      };
+
+      console.log('✅ 실행 통계 조회 완료:', stats);
+      return { success: true, data: stats };
+    } catch (error) {
+      console.error('❌ 실행 통계 조회 실패:', error);
       return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
     }
   }

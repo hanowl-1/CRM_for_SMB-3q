@@ -407,9 +407,11 @@ class SchedulerService {
   }
 
   // 스케줄러 상태 조회
-  getStatus() {
+  async getStatus() {
     const jobs = Array.from(this.jobs.values());
-    return {
+    
+    // 기본 메모리 기반 통계
+    const memoryStats = {
       isRunning: this.isRunning,
       totalJobs: jobs.length,
       pendingJobs: jobs.filter(j => j.status === 'pending').length,
@@ -420,6 +422,48 @@ class SchedulerService {
         .filter(j => j.status === 'pending')
         .sort((a, b) => a.scheduledTime.getTime() - b.scheduledTime.getTime())[0]
     };
+
+    try {
+      // Supabase에서 실제 워크플로우 실행 통계 조회
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
+        : 'http://localhost:3000';
+      
+      const response = await fetch(`${baseUrl}/api/supabase/workflows?action=execution_stats`);
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          const dbStats = result.data;
+          
+          // 메모리 통계와 DB 통계를 결합
+          return {
+            ...memoryStats,
+            // DB에서 가져온 실제 실행 통계로 업데이트
+            totalExecutions: dbStats.totalExecutions || 0,
+            todayExecutions: dbStats.todayExecutions || 0,
+            successfulExecutions: dbStats.successfulExecutions || 0,
+            failedExecutions: dbStats.failedExecutions || 0,
+            lastExecutionTime: dbStats.lastExecutionTime,
+            activeWorkflows: dbStats.activeWorkflows || 0,
+            scheduledWorkflows: dbStats.scheduledWorkflows || 0,
+            // 메모리의 현재 작업 상태는 유지
+            currentJobs: {
+              total: memoryStats.totalJobs,
+              pending: memoryStats.pendingJobs,
+              running: memoryStats.runningJobs,
+              completed: memoryStats.completedJobs,
+              failed: memoryStats.failedJobs
+            }
+          };
+        }
+      }
+    } catch (error) {
+      console.error('DB 통계 조회 실패:', error);
+    }
+
+    // DB 조회 실패 시 메모리 통계만 반환
+    return memoryStats;
   }
 }
 

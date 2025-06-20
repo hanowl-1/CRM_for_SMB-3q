@@ -6,6 +6,27 @@ import type { Workflow } from '@/lib/types/workflow';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    
+    // 실행 통계 조회
+    if (action === 'execution_stats') {
+      const result = await supabaseWorkflowService.getExecutionStats();
+      
+      if (!result.success) {
+        return NextResponse.json({
+          success: false,
+          message: result.error || '실행 통계 조회에 실패했습니다.'
+        }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: result.data,
+        message: '실행 통계를 성공적으로 조회했습니다.'
+      });
+    }
+    
+    // 기존 워크플로우 목록 조회
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 50;
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;
 
