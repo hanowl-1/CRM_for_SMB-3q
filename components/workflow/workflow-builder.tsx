@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings, TargetTemplateMapping as TargetTemplateMappingType } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
@@ -34,7 +34,8 @@ import {
   TestTube,
   CheckCircle,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  AlertCircle
 } from 'lucide-react';
 import { mockTemplates } from '@/lib/data/mock-templates';
 import { TargetTemplateMapping } from './target-template-mapping';
@@ -91,6 +92,11 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   // 새로운 상태: 대상-템플릿 매핑
   const [targetTemplateMappings, setTargetTemplateMappings] = useState<TargetTemplateMappingType[]>([]);
 
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewData, setPreviewData] = useState<any[]>([]);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [totalEstimatedCount, setTotalEstimatedCount] = useState(0);
+
   // 기존 워크플로우 로드 시 변수와 개인화 설정 초기화
   useEffect(() => {
     if (workflow && workflow.steps) {
@@ -103,6 +109,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       const variables: Record<string, Record<string, string>> = {};
       const personalizations: Record<string, PersonalizationSettings> = {};
       const templates: KakaoTemplate[] = [];
+      const mappings: TargetTemplateMappingType[] = [];
       
       workflow.steps.forEach((step, index) => {
         console.log(`🔍 Step ${index + 1} 분석:`, {
@@ -122,6 +129,17 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           if (step.action.personalization) {
             personalizations[step.action.templateId] = step.action.personalization;
             console.log(`⚙️ 개인화 설정 복원 (${step.action.templateId}):`, step.action.personalization);
+          }
+
+          // 대상-템플릿 매핑 정보 복원
+          const actionWithMappings = step.action as any;
+          if (actionWithMappings.targetTemplateMappings && Array.isArray(actionWithMappings.targetTemplateMappings)) {
+            actionWithMappings.targetTemplateMappings.forEach((mapping: any) => {
+              if (!mappings.find(m => m.id === mapping.id)) {
+                mappings.push(mapping);
+              }
+            });
+            console.log(`🔗 매핑 정보 복원 (${step.action.templateId}):`, actionWithMappings.targetTemplateMappings.length);
           }
           
           // 템플릿 정보 복원 (mockTemplates에서 찾기)
@@ -169,15 +187,24 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           }
         }
       });
+
+      // 기존 워크플로우에서 매핑 정보 복원 (만약 있다면)
+      // Note: 현재 Workflow 타입에 targetTemplateMappings가 없으므로 추후 추가 예정
+      // if (workflow.targetTemplateMappings) {
+      //   mappings.push(...workflow.targetTemplateMappings);
+      //   console.log('🔗 대상-템플릿 매핑 복원:', workflow.targetTemplateMappings.length);
+      // }
       
       setTemplateVariables(variables);
       setTemplatePersonalizations(personalizations);
       setSelectedTemplates(templates);
+      setTargetTemplateMappings(mappings);
       
       console.log('🔄 워크플로우 로드 완료:', {
         templates: templates.length,
         variables: Object.keys(variables).length,
         personalizations: Object.keys(personalizations).length,
+        mappings: mappings.length,
         loadedTemplates: templates.map(t => ({ id: t.id, name: t.templateName }))
       });
       
@@ -362,8 +389,12 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         templateName: template.templateName,
         variables: templateVariables[template.id] || {},
         scheduleSettings: scheduleSettings,
-        personalization: templatePersonalizations[template.id]
-      },
+        personalization: templatePersonalizations[template.id],
+        // 대상-템플릿 매핑 정보도 포함 (any 타입으로 확장)
+        ...(targetTemplateMappings.filter(m => m.templateId === template.id).length > 0 && {
+          targetTemplateMappings: targetTemplateMappings.filter(m => m.templateId === template.id)
+        })
+      } as any,
       position: { x: 100, y: index * 150 + 100 }
     }));
 
@@ -394,6 +425,19 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         successRate: 0
       }
     };
+
+    console.log('💾 워크플로우 저장:', {
+      name: workflowData.name,
+      targetGroupsCount: targetGroups.length,
+      stepsCount: workflowData.steps.length,
+      mappingsCount: targetTemplateMappings.length,
+      mappingsDetail: targetTemplateMappings.map(m => ({
+        id: m.id,
+        targetGroupId: m.targetGroupId,
+        templateId: m.templateId,
+        fieldMappingsCount: m.fieldMappings.length
+      }))
+    });
 
     // 워크플로우 저장
     onSave(workflowData);
@@ -506,8 +550,83 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   // 매핑 변경 핸들러
   const handleMappingChange = useCallback((mappings: TargetTemplateMappingType[]) => {
+    console.log('🔗 매핑 변경 핸들러 호출:', {
+      mappingsLength: mappings.length,
+      mappings: mappings.map(m => ({
+        id: m.id,
+        targetGroupId: m.targetGroupId,
+        templateId: m.templateId,
+        fieldMappingsCount: m.fieldMappings.length
+      }))
+    });
     setTargetTemplateMappings(mappings);
   }, []);
+
+  // 미리보기 데이터 로드 함수
+  const loadPreviewData = async () => {
+    if (targetGroups.length === 0 || selectedTemplates.length === 0) {
+      setPreviewData([]);
+      setTotalEstimatedCount(0);
+      return;
+    }
+
+    setIsLoadingPreview(true);
+    setPreviewError(null);
+
+    try {
+      console.log('🔄 미리보기 데이터 로드 시작:', {
+        targetGroupsCount: targetGroups.length,
+        templatesCount: selectedTemplates.length,
+        mappingsCount: targetTemplateMappings.length,
+        templateVariablesCount: Object.keys(templateVariables).length
+      });
+
+      const response = await fetch('/api/workflow/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          targetGroups,
+          templates: selectedTemplates,
+          templateVariables,
+          targetTemplateMappings,
+          limit: 5
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('미리보기 데이터를 불러오는데 실패했습니다.');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ 미리보기 데이터 로드 성공:', {
+          previewCount: result.data?.length || 0,
+          totalEstimatedCount: result.totalEstimatedCount || 0
+        });
+        setPreviewData(result.data || []);
+        setTotalEstimatedCount(result.totalEstimatedCount || 0);
+      } else {
+        throw new Error(result.error || '미리보기 데이터 로드 실패');
+      }
+    } catch (error) {
+      console.error('❌ 미리보기 로드 오류:', error);
+      setPreviewError(error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      setPreviewData([]);
+      setTotalEstimatedCount(0);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  // 대상 그룹이나 템플릿이 변경될 때 미리보기 데이터 다시 로드
+  useEffect(() => {
+    if (activeTab === 'review') {
+      loadPreviewData();
+    }
+  }, [activeTab, targetGroups, selectedTemplates, templateVariables]);
 
   return (
     <div className="space-y-6">
@@ -1258,125 +1377,153 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                 <h4 className="font-medium text-lg mb-3 flex items-center gap-2">
                   <Eye className="w-5 h-5" />
                   발송 미리보기
+                  {isLoadingPreview && (
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  )}
                 </h4>
                 <p className="text-sm text-muted-foreground mb-4">
-                  실제 발송될 메시지 내용을 샘플 데이터로 미리 확인하세요
+                  실제 수신자 데이터를 기반으로 개인화된 메시지를 미리 확인하세요
                 </p>
                 
+                {previewError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="font-medium">미리보기 로드 실패</span>
+                    </div>
+                    <p className="text-sm text-red-600 mt-1">{previewError}</p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="mt-2"
+                      onClick={loadPreviewData}
+                    >
+                      다시 시도
+                    </Button>
+                  </div>
+                )}
+
                 {selectedTemplates.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
                     <p>선택된 템플릿이 없습니다</p>
                   </div>
+                ) : targetGroups.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>선택된 대상 그룹이 없습니다</p>
+                  </div>
+                ) : isLoadingPreview ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                    <p>실제 수신자 데이터를 불러오는 중...</p>
+                  </div>
+                ) : previewData.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <AlertCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>선택된 조건에 해당하는 수신자가 없습니다</p>
+                    <p className="text-xs mt-1">대상 그룹의 필터 조건을 확인해주세요</p>
+                  </div>
                 ) : (
                   <div className="space-y-6">
-                    {selectedTemplates.map((template, templateIndex) => {
-                      // 샘플 변수 데이터 생성
-                      const sampleVariables = templateVariables[template.id] || {};
-                      const defaultSampleData: Record<string, string> = {
-                        '고객명': '김철수',
-                        '회사명': '테스트 회사',
-                        '취소일': '2024-01-20',
-                        '구독상태': '활성',
-                        '실패사유': '결제 완료',
-                        '다음결제일': '2024-02-20',
-                        '블로그제목': '마케팅 성공 사례',
-                        '콘텐츠제목': '고객 만족도 향상 가이드',
-                        '콘텐츠설명': '실전에서 바로 활용할 수 있는 마케팅 전략',
-                        'total_reviews': '1,234',
-                        'monthly_review_count': '156',
-                        'top_5p_reviewers_count': '23',
-                        'total_post_views': '45,678',
-                        'naver_place_rank': '3',
-                        'blog_post_rank': '7'
-                      };
+                    {/* 전체 요약 정보 */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="font-medium text-blue-900">발송 예정 요약</h5>
+                          <p className="text-sm text-blue-700">
+                            총 {totalEstimatedCount}명의 수신자에게 {selectedTemplates.length}개의 템플릿으로 발송 예정
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-blue-900">{totalEstimatedCount}</div>
+                          <div className="text-xs text-blue-600">예상 수신자</div>
+                        </div>
+                      </div>
+                    </div>
 
-                      // 변수가 설정되지 않은 경우 기본값 사용
-                      const finalVariables: Record<string, string> = { ...defaultSampleData, ...sampleVariables };
-
-                      // 템플릿 내용에 변수 치환
-                      let processedContent = template.templateContent;
-                      Object.entries(finalVariables).forEach(([key, value]) => {
-                        processedContent = processedContent.replace(new RegExp(`#{${key}}`, 'g'), value);
-                      });
-
-                      // 샘플 수신자 목록 생성
-                      const sampleRecipients = [
-                        { name: '김철수', phone: '010-1234-5678', group: '신규 고객' },
-                        { name: '이영희', phone: '010-2345-6789', group: 'VIP 고객' },
-                        { name: '박민수', phone: '010-3456-7890', group: '일반 고객' }
-                      ];
-
-                      return (
-                        <div key={template.id} className="border rounded-lg p-4 bg-gray-50">
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-medium">
-                              {templateIndex + 1}
+                    {/* 개인화된 메시지 미리보기 */}
+                    <div className="space-y-4">
+                      <h5 className="font-medium flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        개인화된 메시지 미리보기 (최대 5명)
+                      </h5>
+                      
+                      {previewData.map((contactPreview, contactIndex) => (
+                        <div key={contactIndex} className="border rounded-lg p-4 bg-gray-50">
+                          {/* 수신자 정보 */}
+                          <div className="flex items-center justify-between mb-3 pb-3 border-b">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                                {contactIndex + 1}
+                              </div>
+                              <div>
+                                <div className="font-medium">{contactPreview.contact.name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {contactPreview.contact.phone}
+                                  {contactPreview.contact.company && ` • ${contactPreview.contact.company}`}
+                                </div>
+                              </div>
                             </div>
-                            <h5 className="font-medium">{template.templateName}</h5>
-                            <Badge variant="outline" className="text-xs">{template.templateCode}</Badge>
+                            <Badge variant="outline" className="text-xs">
+                              {contactPreview.groupName}
+                            </Badge>
                           </div>
 
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {/* 메시지 미리보기 */}
-                            <div>
-                              <label className="text-sm font-medium text-muted-foreground mb-2 block">메시지 내용</label>
-                              <div className="bg-white border rounded-lg p-3 min-h-[120px]">
-                                <div className="text-sm whitespace-pre-wrap">{processedContent}</div>
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                글자 수: {processedContent.length}자
-                              </div>
-                            </div>
+                          {/* 개인화된 메시지들 */}
+                          <div className="space-y-3">
+                            {contactPreview.messages.map((message: any, messageIndex: number) => (
+                              <div key={message.templateId} className="bg-white border rounded-lg p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-5 h-5 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xs font-medium">
+                                    {messageIndex + 1}
+                                  </div>
+                                  <span className="font-medium text-sm">{message.templateName}</span>
+                                  <Badge variant="outline" className="text-xs">{message.templateCode}</Badge>
+                                </div>
+                                
+                                <div className="bg-gray-50 border rounded p-2 mb-2">
+                                  <div className="text-sm whitespace-pre-wrap">{message.processedContent}</div>
+                                </div>
+                                
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                  <span>글자 수: {message.characterCount}자</span>
+                                  <span>변수 {Object.keys(message.variables || {}).length}개 적용</span>
+                                </div>
 
-                            {/* 수신자 미리보기 */}
-                            <div>
-                              <label className="text-sm font-medium text-muted-foreground mb-2 block">
-                                예상 수신자 (샘플)
-                              </label>
-                              <div className="space-y-2">
-                                {sampleRecipients.slice(0, 3).map((recipient, index) => (
-                                  <div key={index} className="bg-white border rounded-lg p-2 text-sm">
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <span className="font-medium">{recipient.name}</span>
-                                        <span className="text-muted-foreground ml-2">({recipient.group})</span>
+                                {/* 적용된 변수 표시 */}
+                                {Object.keys(message.variables || {}).length > 0 && (
+                                  <details className="mt-2">
+                                    <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                                      적용된 변수 보기
+                                    </summary>
+                                    <div className="mt-2 pt-2 border-t">
+                                      <div className="flex flex-wrap gap-1">
+                                        {Object.entries(message.variables || {}).map(([key, value]: [string, any]) => (
+                                          <div key={key} className="bg-blue-50 border rounded px-2 py-1 text-xs">
+                                            <span className="font-mono text-blue-600">#{key}</span>
+                                            <span className="text-muted-foreground mx-1">→</span>
+                                            <span className="font-medium">{String(value)}</span>
+                                          </div>
+                                        ))}
                                       </div>
-                                      <span className="text-xs text-muted-foreground">{recipient.phone}</span>
                                     </div>
-                                  </div>
-                                ))}
-                                {targetGroups.length > 0 && (
-                                  <div className="text-xs text-muted-foreground mt-2">
-                                    총 예상 수신자: {targetGroups.reduce((total, group) => total + (group.estimatedCount || 0), 0)}명
-                                  </div>
+                                  </details>
                                 )}
                               </div>
-                            </div>
+                            ))}
                           </div>
-
-                          {/* 사용된 변수 표시 */}
-                          {template.variables && template.variables.length > 0 && (
-                            <div className="mt-3 pt-3 border-t">
-                              <label className="text-xs font-medium text-muted-foreground mb-2 block">사용된 변수</label>
-                              <div className="flex flex-wrap gap-1">
-                                {template.variables.map(variable => {
-                                  const variableName = variable.replace(/^#{|}$/g, '');
-                                  const variableValue = finalVariables[variableName] || '미설정';
-                                  return (
-                                    <div key={variable} className="bg-white border rounded px-2 py-1 text-xs">
-                                      <span className="font-mono text-blue-600">{variable}</span>
-                                      <span className="text-muted-foreground mx-1">→</span>
-                                      <span>{variableValue}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
                         </div>
-                      );
-                    })}
+                      ))}
+
+                      {previewData.length > 0 && totalEstimatedCount > previewData.length && (
+                        <div className="text-center py-4 text-sm text-muted-foreground border rounded-lg bg-gray-50">
+                          <Info className="w-4 h-4 mx-auto mb-1" />
+                          <p>위 미리보기는 {previewData.length}명의 샘플입니다.</p>
+                          <p>실제로는 총 {totalEstimatedCount}명에게 발송됩니다.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

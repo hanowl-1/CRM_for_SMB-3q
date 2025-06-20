@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/database/supabase-client';
+import { getSupabase } from '@/lib/database/supabase-client';
 import type { Workflow, WorkflowExecution, WorkflowLog } from '@/lib/types/workflow';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -91,10 +91,11 @@ interface CustomQueryLog {
 
 class SupabaseWorkflowService {
   private getClient(): SupabaseClient {
-    if (!supabase) {
+    try {
+      return getSupabase();
+    } catch (error) {
       throw new Error('Supabase client가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
     }
-    return supabase;
   }
 
   private async ensureTables() {

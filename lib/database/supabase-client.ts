@@ -11,51 +11,99 @@ console.log('Anon Key 존재:', !!supabaseAnonKey);
 console.log('Service Key 존재:', !!supabaseServiceKey);
 console.log('Service Key 길이:', supabaseServiceKey.length);
 
-// 빌드 시 환경변수가 없어도 에러가 나지 않도록 처리
-let supabase: SupabaseClient | null = null;
-let supabaseAdmin: SupabaseClient | null = null;
+// Supabase 클라이언트를 안전하게 초기화하는 함수
+function createSupabaseClient(): SupabaseClient | null {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('❌ Supabase URL 또는 Anon Key가 없습니다');
+    return null;
+  }
 
-if (supabaseUrl && supabaseAnonKey) {
   try {
-    // 일반 클라이언트 (anon key 사용)
-    supabase = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('✅ Supabase 일반 클라이언트 초기화 성공');
+    return createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    console.error('❌ Supabase 일반 클라이언트 초기화 실패:', error);
+    return null;
+  }
+}
+
+// Supabase 관리자 클라이언트를 안전하게 초기화하는 함수
+function createSupabaseAdminClient(): SupabaseClient | null {
+  if (!supabaseUrl) {
+    console.error('❌ Supabase URL이 없습니다');
+    return null;
+  }
+
+  // Service Role Key가 있으면 사용, 없으면 anon key 사용
+  const keyToUse = supabaseServiceKey || supabaseAnonKey;
+  
+  if (!keyToUse) {
+    console.error('❌ Service Role Key와 Anon Key가 모두 없습니다');
+    return null;
+  }
+
+  try {
+    const client = createClient(supabaseUrl, keyToUse, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
     
-    // 관리자 클라이언트 - Service Role Key 사용
     if (supabaseServiceKey) {
-      supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      });
       console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (Service Role Key 사용)');
     } else {
       console.warn('⚠️ Service Role Key가 없어서 anon key를 사용합니다');
-      supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      });
       console.log('✅ Supabase 관리자 클라이언트 초기화 성공 (anon key 사용)');
     }
+    
+    return client;
   } catch (error) {
-    console.error('❌ Supabase 클라이언트 초기화 실패:', error);
+    console.error('❌ Supabase 관리자 클라이언트 초기화 실패:', error);
+    return null;
   }
-} else {
-  console.error('❌ Supabase URL 또는 Anon Key가 없습니다');
+}
+
+// 클라이언트 인스턴스들을 lazy하게 초기화
+let supabase: SupabaseClient | null = null;
+let supabaseAdmin: SupabaseClient | null = null;
+
+// Getter 함수들로 lazy 초기화
+export function getSupabase(): SupabaseClient {
+  if (!supabase) {
+    supabase = createSupabaseClient();
+    if (supabase) {
+      console.log('✅ Supabase 일반 클라이언트 초기화 성공');
+    }
+  }
+  
+  if (!supabase) {
+    throw new Error('Supabase 클라이언트를 초기화할 수 없습니다. 환경변수를 확인해주세요.');
+  }
+  
+  return supabase;
+}
+
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!supabaseAdmin) {
+    supabaseAdmin = createSupabaseAdminClient();
+  }
+  
+  if (!supabaseAdmin) {
+    // 관리자 클라이언트가 없으면 일반 클라이언트라도 반환
+    console.warn('⚠️ 관리자 클라이언트 대신 일반 클라이언트를 사용합니다');
+    return getSupabase();
+  }
+  
+  return supabaseAdmin;
 }
 
 // Supabase 연결 테스트 함수
 export async function testSupabaseConnection(): Promise<boolean> {
-  if (!supabase) {
-    throw new Error('Supabase 클라이언트가 초기화되지 않았습니다. 환경변수를 확인해주세요.');
-  }
-  
   try {
+    const client = getSupabase();
+    
     // 간단한 연결 테스트
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('_supabase_migrations')
       .select('version')
       .limit(1);
@@ -81,4 +129,5 @@ export function getSupabaseInfo() {
   };
 }
 
+// 하위 호환성을 위한 export (deprecated)
 export { supabase, supabaseAdmin }; 
