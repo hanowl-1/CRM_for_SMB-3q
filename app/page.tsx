@@ -409,15 +409,11 @@ export default function Dashboard() {
     loadWorkflows();
     loadSchedulerStatus();
     
-    // 10초마다 스케줄러 상태 업데이트 (더 자주 업데이트)
+    // 10초마다 스케줄러 상태만 업데이트 (워크플로우 목록 자동 새로고침 제거)
     const schedulerInterval = setInterval(loadSchedulerStatus, 10000);
-    
-    // 30초마다 워크플로우 목록도 새로고침 (설정 변경 반영)
-    const workflowInterval = setInterval(loadWorkflows, 30000);
     
     return () => {
       clearInterval(schedulerInterval);
-      clearInterval(workflowInterval);
     };
   }, []);
 
