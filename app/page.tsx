@@ -36,6 +36,10 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // 필터링 상태 추가
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  
   // 스케줄러 상태
   const [schedulerStatus, setSchedulerStatus] = useState<{
     isRunning: boolean;
@@ -201,15 +205,25 @@ export default function Dashboard() {
   // 스케줄러 상태 로드
   const loadSchedulerStatus = async () => {
     try {
+      console.log('🔄 스케줄러 상태 로드 시도...');
       const response = await fetch('/api/scheduler?action=status');
+      console.log('📡 스케줄러 API 응답:', response.status, response.statusText);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log('📊 스케줄러 상태 결과:', result);
+        
         if (result.success) {
           setSchedulerStatus(result.data);
+          console.log('✅ 스케줄러 상태 업데이트 완료:', result.data);
+        } else {
+          console.warn('⚠️ 스케줄러 상태 로드 실패:', result.message);
         }
+      } else {
+        console.error('❌ 스케줄러 API 호출 실패:', response.status);
       }
     } catch (error) {
-      console.error('스케줄러 상태 로드 실패:', error);
+      console.error('❌ 스케줄러 상태 로드 실패:', error);
     }
   };
 
@@ -246,10 +260,12 @@ export default function Dashboard() {
         alert(`워크플로우가 ${newStatus === 'active' ? '시작' : '일시정지'}되었습니다.`);
         
         // 스케줄러 상태 새로고침 (상태 변경 후 항상 실행)
+        console.log('🔄 상태 변경 후 스케줄러 상태 새로고침...');
         loadSchedulerStatus();
         
         // 활성화된 워크플로우인 경우 스케줄러에 등록 시도
         if (newStatus === 'active') {
+          console.log('🚀 워크플로우 활성화됨, 스케줄러 등록 확인 중...');
           try {
             // 워크플로우 전체 정보를 가져와서 스케줄러에 등록
             const workflowResponse = await fetch(`/api/supabase/workflows/${workflowId}`);
@@ -334,8 +350,10 @@ export default function Dashboard() {
                     const scheduleResult = await scheduleResponse.json();
                     console.log('✅ 워크플로우가 스케줄러에 등록되었습니다:', scheduleResult.data?.jobId);
                     
-                    // 스케줄러 상태 즉시 새로고침
-                    loadSchedulerStatus();
+                    // 스케줄러 상태 즉시 새로고침 (여러 번 시도)
+                    setTimeout(() => loadSchedulerStatus(), 500);
+                    setTimeout(() => loadSchedulerStatus(), 2000);
+                    setTimeout(() => loadSchedulerStatus(), 5000);
                   } else {
                     const errorText = await scheduleResponse.text();
                     console.error('❌ 스케줄러 등록 실패:', errorText);
@@ -347,6 +365,33 @@ export default function Dashboard() {
             }
           } catch (scheduleError) {
             console.error('스케줄러 등록 실패:', scheduleError);
+          }
+        } else if (newStatus === 'paused') {
+          // 일시정지된 워크플로우의 경우 스케줄러에서 작업 취소
+          console.log('⏸️ 워크플로우 일시정지됨, 스케줄러에서 작업 취소 중...');
+          try {
+            const cancelResponse = await fetch('/api/scheduler', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                action: 'cancel_workflow',
+                workflowId: workflowId
+              })
+            });
+            
+            if (cancelResponse.ok) {
+              const cancelResult = await cancelResponse.json();
+              console.log('✅ 스케줄러에서 작업 취소 완료:', cancelResult.data?.cancelledCount);
+              
+              // 스케줄러 상태 새로고침
+              setTimeout(() => loadSchedulerStatus(), 500);
+            } else {
+              console.error('❌ 스케줄러 작업 취소 실패:', await cancelResponse.text());
+            }
+          } catch (cancelError) {
+            console.error('스케줄러 작업 취소 실패:', cancelError);
           }
         }
         
@@ -364,9 +409,16 @@ export default function Dashboard() {
     loadWorkflows();
     loadSchedulerStatus();
     
-    // 30초마다 스케줄러 상태 업데이트
-    const interval = setInterval(loadSchedulerStatus, 30000);
-    return () => clearInterval(interval);
+    // 10초마다 스케줄러 상태 업데이트 (더 자주 업데이트)
+    const schedulerInterval = setInterval(loadSchedulerStatus, 10000);
+    
+    // 30초마다 워크플로우 목록도 새로고침 (설정 변경 반영)
+    const workflowInterval = setInterval(loadWorkflows, 30000);
+    
+    return () => {
+      clearInterval(schedulerInterval);
+      clearInterval(workflowInterval);
+    };
   }, []);
 
   // 실제 워크플로우 데이터를 기반으로 통계 계산
@@ -374,6 +426,15 @@ export default function Dashboard() {
   const totalSent = workflows.reduce((sum, w) => sum + w.sent, 0);
   const draftWorkflowsCount = workflows.filter(w => w.status === 'draft').length;
   const pausedWorkflowsCount = workflows.filter(w => w.status === 'paused').length;
+
+  // 필터링된 워크플로우 목록
+  const filteredWorkflows = workflows.filter(workflow => {
+    const matchesSearch = workflow.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         workflow.templateInfo?.templateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         workflow.trigger.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || workflow.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const stats = [
     { title: '전체 워크플로우', value: workflows.length, icon: Target, color: 'text-purple-600' },
@@ -527,10 +588,20 @@ export default function Dashboard() {
             {/* 스케줄러 상태 카드 추가 */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Clock className="h-5 w-5 text-orange-600" />
-                  <span>스케줄러 상태</span>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="h-5 w-5 text-orange-600" />
+                    <span>스케줄러 상태</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadSchedulerStatus}
+                    className="text-orange-600 hover:bg-orange-50"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </Button>
+                </div>
                 <CardDescription>
                   자동 실행 스케줄러 모니터링
                 </CardDescription>
@@ -606,21 +677,85 @@ export default function Dashboard() {
           {/* 워크플로우 목록 */}
           <Card className="lg:col-span-2">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Target className="h-5 w-5 text-purple-600" />
-                    <span>워크플로우 목록</span>
-                  </CardTitle>
-                  <CardDescription>자동화된 메시지 발송 워크플로우를 관리하세요</CardDescription>
+              {/* 워크플로우 목록 헤더 */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-2">
+                  <Target className="h-5 w-5 text-purple-600" />
+                  <span className="text-lg font-semibold">워크플로우 목록</span>
+                  <span className="text-sm text-gray-500">
+                    자동화된 메시지 워크플로우를 관리하세요
+                  </span>
                 </div>
-                <Link href="/workflow/new">
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    새 워크플로우
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadWorkflows}
+                    className="text-purple-600 hover:bg-purple-50"
+                  >
+                    <RefreshCw className="w-4 h-4" />
                   </Button>
-                </Link>
+                  <Button asChild>
+                    <Link href="/workflow/new">
+                      <Plus className="w-4 h-4 mr-2" />
+                      새 워크플로우
+                    </Link>
+                  </Button>
+                </div>
               </div>
+              
+              {/* 검색 및 필터 */}
+              <div className="flex flex-col sm:flex-row gap-3 mt-4">
+                <div className="flex-1">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="워크플로우 이름, 템플릿, 트리거로 검색..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="all">모든 상태</option>
+                    <option value="active">활성</option>
+                    <option value="paused">일시정지</option>
+                    <option value="draft">초안</option>
+                  </select>
+                  
+                  {(searchTerm || statusFilter !== 'all') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setStatusFilter('all');
+                      }}
+                    >
+                      초기화
+                    </Button>
+                  )}
+                </div>
+              </div>
+              
+              {/* 필터링 결과 표시 */}
+              {filteredWorkflows.length !== workflows.length && (
+                <div className="text-sm text-gray-600 mt-2">
+                  총 {workflows.length}개 중 {filteredWorkflows.length}개 표시
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -660,107 +795,174 @@ export default function Dashboard() {
                     </Button>
                   </Link>
                 </div>
+              ) : filteredWorkflows.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <div className="text-gray-500 text-center">
+                    <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p className="font-medium">검색 결과가 없습니다</p>
+                    <p className="text-sm text-gray-400 mt-1">다른 검색어나 필터를 시도해보세요</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setStatusFilter('all');
+                    }}
+                  >
+                    필터 초기화
+                  </Button>
+                </div>
               ) : (
                 <div className="space-y-4">
-                  {workflows.map((workflow) => (
-                    <div
+                  {filteredWorkflows.map((workflow) => (
+                    <Card
                       key={workflow.id}
-                      className="flex items-center justify-between p-6 border rounded-lg hover:bg-gray-50 transition-colors"
+                      className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500"
                     >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`w-3 h-3 rounded-full ${
-                            workflow.status === "active"
-                              ? "bg-green-500"
-                              : workflow.status === "paused"
-                                ? "bg-yellow-500"
-                                : "bg-gray-400"
-                          }`}
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold text-gray-900">{workflow.name}</h3>
-                            <span
-                              className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusBadge(workflow.status).color}`}
-                            >
-                              {getStatusBadge(workflow.status).label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-6 text-sm text-gray-600">
-                            <span>트리거: {workflow.trigger}</span>
-                            {/* 템플릿 정보 표시 */}
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between">
+                          {/* 왼쪽: 주요 정보 */}
+                          <div className="flex-1">
+                            {/* 제목 및 상태 */}
+                            <div className="flex items-center gap-3 mb-3">
+                              <div
+                                className={`w-3 h-3 rounded-full ${
+                                  workflow.status === "active"
+                                    ? "bg-green-500"
+                                    : workflow.status === "paused"
+                                      ? "bg-yellow-500"
+                                      : "bg-gray-400"
+                                }`}
+                              />
+                              <h3 className="text-lg font-semibold text-gray-900">{workflow.name}</h3>
+                              <Badge
+                                variant={workflow.status === "active" ? "default" : "secondary"}
+                                className={`${getStatusBadge(workflow.status).color}`}
+                              >
+                                {getStatusBadge(workflow.status).label}
+                              </Badge>
+                            </div>
+
+                            {/* 템플릿 정보 - 눈에 띄게 */}
                             {workflow.templateInfo && (
-                              <span className="flex items-center gap-1 text-blue-600">
-                                <MessageSquare className="w-3 h-3" />
-                                {workflow.templateInfo.templateName}
-                                {workflow.templateInfo.additionalTemplates > 0 && (
-                                  <span className="text-gray-500">
-                                    (+{workflow.templateInfo.additionalTemplates}개 더)
-                                  </span>
-                                )}
-                              </span>
+                              <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                <div className="flex items-center gap-2">
+                                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                                  <span className="font-medium text-blue-900">사용 템플릿</span>
+                                </div>
+                                <div className="mt-1 text-blue-800">
+                                  {workflow.templateInfo.templateName}
+                                  {workflow.templateInfo.additionalTemplates > 0 && (
+                                    <span className="ml-2 text-sm text-blue-600">
+                                      (+{workflow.templateInfo.additionalTemplates}개 더)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             )}
-                            <span>발송: {workflow.sent.toLocaleString()}건</span>
-                            <span>최근 실행: {workflow.lastRun}</span>
-                            <span>단계: {workflow.stepsCount}개</span>
-                            {/* 스케줄 정보 추가 */}
+
+                            {/* 상세 정보 그리드 */}
+                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                              <div className="flex items-center gap-2">
+                                <Zap className="w-4 h-4 text-purple-500" />
+                                <div>
+                                  <div className="text-gray-500">트리거</div>
+                                  <div className="font-medium">{workflow.trigger}</div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <Target className="w-4 h-4 text-green-500" />
+                                <div>
+                                  <div className="text-gray-500">발송 건수</div>
+                                  <div className="font-medium">{workflow.sent.toLocaleString()}건</div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-orange-500" />
+                                <div>
+                                  <div className="text-gray-500">최근 실행</div>
+                                  <div className="font-medium text-xs">{workflow.lastRun}</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 스케줄 정보 - 별도 섹션 */}
                             {(workflow as any).schedule_config && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {(() => {
-                                  const schedule = (workflow as any).schedule_config;
-                                  switch (schedule.type) {
-                                    case 'immediate':
-                                      return '즉시 발송';
-                                    case 'delay':
-                                      return `지연 발송 (${schedule.delay}분 후)`;
-                                    case 'scheduled':
-                                      const scheduledTime = new Date(schedule.scheduledTime);
-                                      return `예약 발송 (${scheduledTime.toLocaleString('ko-KR', { 
-                                        timeZone: 'Asia/Seoul',
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })})`;
-                                    case 'recurring':
-                                      const pattern = schedule.recurringPattern;
-                                      if (pattern) {
-                                        const freq = pattern.frequency === 'daily' ? '매일' :
-                                                   pattern.frequency === 'weekly' ? '매주' :
-                                                   pattern.frequency === 'monthly' ? '매월' : '반복';
-                                        return `${freq} ${pattern.time}`;
+                              <div className="mt-3 p-2 bg-orange-50 rounded border border-orange-200">
+                                <div className="flex items-center gap-2 text-orange-800">
+                                  <Clock className="w-3 h-3" />
+                                  <span className="text-xs font-medium">스케줄:</span>
+                                  <span className="text-xs">
+                                    {(() => {
+                                      const schedule = (workflow as any).schedule_config;
+                                      switch (schedule.type) {
+                                        case 'immediate':
+                                          return '즉시 발송';
+                                        case 'delay':
+                                          return `지연 발송 (${schedule.delay}분 후)`;
+                                        case 'scheduled':
+                                          const scheduledTime = new Date(schedule.scheduledTime);
+                                          return `예약 발송 (${scheduledTime.toLocaleString('ko-KR', { 
+                                            timeZone: 'Asia/Seoul',
+                                            month: 'short',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })})`;
+                                        case 'recurring':
+                                          const pattern = schedule.recurringPattern;
+                                          if (pattern) {
+                                            const freq = pattern.frequency === 'daily' ? '매일' :
+                                                       pattern.frequency === 'weekly' ? '매주' :
+                                                       pattern.frequency === 'monthly' ? '매월' : '반복';
+                                            return `${freq} ${pattern.time}`;
+                                          }
+                                          return '반복 발송';
+                                        default:
+                                          return '스케줄 설정됨';
                                       }
-                                      return '반복 발송';
-                                    default:
-                                      return '스케줄 설정됨';
-                                  }
-                                })()}
-                              </span>
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
                             )}
+                          </div>
+
+                          {/* 오른쪽: 액션 버튼 */}
+                          <div className="flex flex-col gap-2 ml-6">
+                            {workflow.status === "active" ? (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}
+                                className="text-yellow-600 border-yellow-200 hover:bg-yellow-50"
+                              >
+                                <Pause className="w-4 h-4 mr-1" />
+                                일시정지
+                              </Button>
+                            ) : (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}
+                                className="text-green-600 border-green-200 hover:bg-green-50"
+                              >
+                                <Play className="w-4 h-4 mr-1" />
+                                시작
+                              </Button>
+                            )}
+                            <Link href={`/workflow/${workflow.id}`}>
+                              <Button variant="ghost" size="sm" className="w-full">
+                                <Settings className="w-4 h-4 mr-1" />
+                                설정
+                              </Button>
+                            </Link>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {workflow.status === "active" ? (
-                          <Button variant="outline" size="sm" onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}>
-                            <Pause className="w-4 h-4 mr-1" />
-                            일시정지
-                          </Button>
-                        ) : (
-                          <Button variant="outline" size="sm" onClick={() => handleToggleWorkflowStatus(workflow.id, workflow.status)}>
-                            <Play className="w-4 h-4 mr-1" />
-                            시작
-                          </Button>
-                        )}
-                        <Link href={`/workflow/${workflow.id}`}>
-                          <Button variant="ghost" size="sm">
-                            <Settings className="w-4 h-4 mr-1" />
-                            설정
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               )}

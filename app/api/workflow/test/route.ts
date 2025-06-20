@@ -7,6 +7,23 @@ import schedulerService from '@/lib/services/scheduler-service';
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
 
+// MySQL 연결
+import mysql from 'mysql2/promise';
+
+// MySQL 연결 설정
+const dbConfig = {
+  host: process.env.MYSQL_READONLY_HOST || 'supermembers-prod.cluster-cy8cnze5wxti.ap-northeast-2.rds.amazonaws.com',
+  port: parseInt(process.env.MYSQL_READONLY_PORT || '3306'),
+  user: process.env.MYSQL_READONLY_USER || 'readonly',
+  password: process.env.MYSQL_READONLY_PASSWORD || 'phozphoz1!',
+  database: process.env.MYSQL_READONLY_DATABASE || 'supermembers',
+  charset: 'utf8mb4',
+  timezone: '+09:00',
+  ssl: {
+    rejectUnauthorized: false
+  }
+};
+
 // COOLSMS API 설정
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
@@ -24,19 +41,39 @@ export async function POST(request: NextRequest) {
     
     // 워크플로우의 테스트 설정 사용
     const testSettings = workflow.testSettings;
-    const phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
     const enableRealSending = testSettings?.enableRealSending ?? false;
     const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
     // 스케줄 설정 확인
     const scheduleSettings = workflow.scheduleSettings;
     const isScheduledTest = scheduleSettings && scheduleSettings.type !== 'immediate';
+    
+    // 스케줄러에서 실행되는 경우 확인 (testMode가 false인 경우)
+    const isSchedulerExecution = testSettings?.testMode === false;
 
-    console.log('📅 스케줄 설정 확인:', {
+    console.log('📅 실행 모드 확인:', {
       scheduleType: scheduleSettings?.type,
       isScheduledTest,
+      isSchedulerExecution,
+      testMode: testSettings?.testMode,
+      enableRealSending,
       scheduleSettings
     });
+
+    // 전화번호 설정 로직 개선
+    let phoneNumber: string | undefined;
+    let useRealTargets = false;
+
+    if (isSchedulerExecution && enableRealSending) {
+      // 스케줄러 실행 시에는 실제 타겟 그룹 사용
+      console.log('🎯 스케줄러 실행 모드: 실제 타겟 그룹 연락처 사용');
+      useRealTargets = true;
+      phoneNumber = 'TARGET_GROUP'; // 특수 값으로 표시
+    } else {
+      // 테스트 모드에서는 테스트 번호 사용
+      phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
+      console.log('🧪 테스트 모드: 테스트 번호 사용 -', phoneNumber);
+    }
 
     // 환경변수 설정 상태 확인
     const envStatus = {
@@ -44,7 +81,8 @@ export async function POST(request: NextRequest) {
       COOLSMS_API_SECRET: !!COOLSMS_API_SECRET,
       KAKAO_SENDER_KEY: !!KAKAO_SENDER_KEY && KAKAO_SENDER_KEY !== 'your_kakao_sender_key_here',
       TEST_PHONE_NUMBER: !!TEST_PHONE_NUMBER,
-      phoneNumber: phoneNumber
+      phoneNumber: phoneNumber,
+      useRealTargets
     };
 
     console.log('🔧 환경변수 설정 상태:', envStatus);
@@ -55,7 +93,9 @@ export async function POST(request: NextRequest) {
       phoneNumber,
       enableRealSending,
       fallbackToSMS,
-      isScheduledTest
+      isScheduledTest,
+      isSchedulerExecution,
+      useRealTargets
     });
 
     // 스케줄 테스트인 경우 스케줄러에 등록
@@ -116,7 +156,11 @@ export async function POST(request: NextRequest) {
       if (!KAKAO_SENDER_KEY || KAKAO_SENDER_KEY === 'your_kakao_sender_key_here') {
         missingEnvVars.push('KAKAO_SENDER_KEY');
       }
-      if (!phoneNumber) missingEnvVars.push('TEST_PHONE_NUMBER 또는 testPhoneNumber');
+      
+      // 실제 타겟 그룹을 사용하지 않는 경우에만 테스트 번호 확인
+      if (!useRealTargets && !phoneNumber) {
+        missingEnvVars.push('TEST_PHONE_NUMBER 또는 testPhoneNumber');
+      }
 
       if (missingEnvVars.length > 0) {
         console.warn('⚠️ 실제 발송 활성화되었지만 필수 환경변수 누락:', missingEnvVars);
@@ -128,7 +172,8 @@ export async function POST(request: NextRequest) {
           testSettings: {
             enableRealSending,
             fallbackToSMS,
-            phoneNumber
+            phoneNumber,
+            useRealTargets
           }
         }, { status: 400 });
       }
@@ -136,6 +181,37 @@ export async function POST(request: NextRequest) {
 
     // 워크플로우 단계별 실행
     const results = [];
+    
+    // 실제 타겟 그룹 연락처 조회 (스케줄러 실행 시)
+    let targetContacts: Array<{
+      name: string;
+      phone: string;
+      company?: string;
+      data: any;
+    }> = [];
+
+    if (useRealTargets && workflow.targetGroups && workflow.targetGroups.length > 0) {
+      console.log('🎯 실제 타겟 그룹에서 연락처 조회 중...');
+      targetContacts = await getContactsFromTargetGroups(workflow.targetGroups);
+      
+      if (targetContacts.length === 0) {
+        console.warn('⚠️ 실제 타겟 그룹에서 조회된 연락처가 없습니다.');
+        return NextResponse.json({
+          success: false,
+          message: '실제 타겟 그룹에서 조회된 연락처가 없습니다.',
+          targetContactsCount: 0,
+          envStatus,
+          testSettings: {
+            enableRealSending,
+            fallbackToSMS,
+            phoneNumber,
+            useRealTargets
+          }
+        }, { status: 400 });
+      }
+      
+      console.log(`✅ 실제 타겟 그룹에서 ${targetContacts.length}개 연락처 조회 완료`);
+    }
     
     for (let i = 0; i < workflow.steps.length; i++) {
       const step = workflow.steps[i];
@@ -148,52 +224,140 @@ export async function POST(request: NextRequest) {
           throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
         }
 
-        // 사용자 정의 변수 사용 (없으면 기본값)
-        console.log('🔍 step.action.variables:', step.action.variables);
-        
-        const defaultVariables = {
-          'total_reviews': '1,234',
-          'monthly_review_count': '156',
-          'top_5p_reviewers_count': '23',
-          'total_post_views': '45,678',
-          'naver_place_rank': '3',
-          'blog_post_rank': '7',
-          '고객명': '테스트 고객',
-          '회사명': '테스트 회사',
-          '취소일': '2024-01-20',
-          '구독상태': '취소됨',
-          '실패사유': '카드 한도 초과',
-          '다음결제일': '2024-01-25',
-          '블로그제목': '새로운 비즈니스 전략',
-          '콘텐츠제목': '마케팅 가이드',
-          '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
-        };
-        
-        const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
-          ? step.action.variables 
-          : defaultVariables;
+        // 실제 타겟 그룹 사용 시 각 연락처에 개별 발송
+        if (useRealTargets && targetContacts.length > 0) {
+          console.log(`🎯 실제 타겟 그룹 ${targetContacts.length}명에게 개별 발송 시작`);
           
-        console.log('🔧 최종 사용할 변수:', variables);
+          for (const contact of targetContacts) {
+            try {
+              // 사용자 정의 변수 사용 (없으면 기본값)
+              const defaultVariables = {
+                'total_reviews': '1,234',
+                'monthly_review_count': '156',
+                'top_5p_reviewers_count': '23',
+                'total_post_views': '45,678',
+                'naver_place_rank': '3',
+                'blog_post_rank': '7',
+                '고객명': contact.name,
+                '회사명': contact.company || '회사명 없음',
+                '취소일': '2024-01-20',
+                '구독상태': '취소됨',
+                '실패사유': '카드 한도 초과',
+                '다음결제일': '2024-01-25',
+                '블로그제목': '새로운 비즈니스 전략',
+                '콘텐츠제목': '마케팅 가이드',
+                '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
+              };
+              
+              // 연락처 데이터에서 변수 매핑
+              const contactVariables: Record<string, string> = { ...defaultVariables };
+              if (contact.data) {
+                Object.entries(contact.data).forEach(([key, value]) => {
+                  if (value !== null && value !== undefined) {
+                    contactVariables[key] = String(value);
+                  }
+                });
+              }
+              
+              // 설정된 변수로 덮어쓰기
+              const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
+                ? { ...contactVariables, ...step.action.variables }
+                : contactVariables;
+                
+              console.log(`📤 ${contact.name} (${contact.phone})에게 발송 중...`);
 
-        const result = await sendAlimtalk({
-          templateCode: template.templateCode,
-          templateContent: template.templateContent,
-          phoneNumber: phoneNumber!,
-          variables,
-          enableRealSending,
-          fallbackToSMS
-        });
+              const result = await sendAlimtalk({
+                templateCode: template.templateCode,
+                templateContent: template.templateContent,
+                phoneNumber: contact.phone,
+                variables,
+                enableRealSending,
+                fallbackToSMS
+              });
 
-        results.push({
-          step: i + 1,
-          type: 'alimtalk',
-          status: result.success ? 'success' : 'failed',
-          message: result.message,
-          messageId: result.messageId,
-          processedContent: result.processedContent,
-          fallbackToSMS: result.fallbackToSMS,
-          variables: variables
-        });
+              results.push({
+                step: i + 1,
+                type: 'alimtalk',
+                status: result.success ? 'success' : 'failed',
+                message: result.message,
+                messageId: result.messageId,
+                processedContent: result.processedContent,
+                fallbackToSMS: result.fallbackToSMS,
+                variables: variables,
+                recipient: {
+                  name: contact.name,
+                  phone: contact.phone,
+                  company: contact.company
+                }
+              });
+
+            } catch (contactError) {
+              console.error(`❌ ${contact.name} (${contact.phone}) 발송 실패:`, contactError);
+              results.push({
+                step: i + 1,
+                type: 'alimtalk',
+                status: 'failed',
+                message: contactError instanceof Error ? contactError.message : '발송 실패',
+                recipient: {
+                  name: contact.name,
+                  phone: contact.phone,
+                  company: contact.company
+                }
+              });
+            }
+          }
+          
+        } else {
+          // 테스트 모드: 단일 번호로 발송
+          console.log(`🧪 테스트 모드: ${phoneNumber}로 발송`);
+          
+          // 사용자 정의 변수 사용 (없으면 기본값)
+          console.log('🔍 step.action.variables:', step.action.variables);
+          
+          const defaultVariables = {
+            'total_reviews': '1,234',
+            'monthly_review_count': '156',
+            'top_5p_reviewers_count': '23',
+            'total_post_views': '45,678',
+            'naver_place_rank': '3',
+            'blog_post_rank': '7',
+            '고객명': '테스트 고객',
+            '회사명': '테스트 회사',
+            '취소일': '2024-01-20',
+            '구독상태': '취소됨',
+            '실패사유': '카드 한도 초과',
+            '다음결제일': '2024-01-25',
+            '블로그제목': '새로운 비즈니스 전략',
+            '콘텐츠제목': '마케팅 가이드',
+            '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
+          };
+          
+          const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
+            ? step.action.variables 
+            : defaultVariables;
+            
+          console.log('🔧 최종 사용할 변수:', variables);
+
+          const result = await sendAlimtalk({
+            templateCode: template.templateCode,
+            templateContent: template.templateContent,
+            phoneNumber: phoneNumber!,
+            variables,
+            enableRealSending,
+            fallbackToSMS
+          });
+
+          results.push({
+            step: i + 1,
+            type: 'alimtalk',
+            status: result.success ? 'success' : 'failed',
+            message: result.message,
+            messageId: result.messageId,
+            processedContent: result.processedContent,
+            fallbackToSMS: result.fallbackToSMS,
+            variables: variables
+          });
+        }
 
       } else if (step.action.type === 'send_sms') {
         // SMS 발송
@@ -535,4 +699,95 @@ async function sendSMS({
       processedContent
     };
   }
-} 
+}
+
+// 실제 타겟 그룹에서 연락처 조회
+async function getContactsFromTargetGroups(targetGroups: any[]): Promise<Array<{
+  name: string;
+  phone: string;
+  company?: string;
+  data: any;
+}>> {
+  const allContacts: Array<{
+    name: string;
+    phone: string;
+    company?: string;
+    data: any;
+  }> = [];
+
+  for (const group of targetGroups) {
+    try {
+      console.log(`🔍 그룹 "${group.name}" 연락처 조회 시작:`, {
+        id: group.id,
+        type: group.type,
+        hasDynamicQuery: !!group.dynamicQuery
+      });
+
+      // 동적 쿼리만 처리 (정적 그룹은 제외)
+      if (group.type !== 'dynamic' || !group.dynamicQuery?.sql) {
+        console.log(`⏭️ 그룹 "${group.name}"은 동적 쿼리가 아니므로 건너뜀`);
+        continue;
+      }
+
+      // MySQL 연결
+      const connection = await mysql.createConnection(dbConfig);
+      
+      try {
+        // 동적 쿼리 실행하여 실제 연락처 데이터 가져오기
+        let cleanQuery = group.dynamicQuery.sql.trim();
+        if (cleanQuery.endsWith(';')) {
+          cleanQuery = cleanQuery.slice(0, -1);
+        }
+        
+        console.log(`📊 쿼리 실행:`, { 
+          groupName: group.name,
+          query: cleanQuery
+        });
+        
+        const [rows] = await connection.execute(cleanQuery);
+        const contacts = rows as any[];
+
+        console.log(`📋 쿼리 결과:`, {
+          groupName: group.name,
+          rowsCount: contacts?.length || 0,
+          sampleFields: contacts?.[0] ? Object.keys(contacts[0]) : []
+        });
+
+        if (!contacts || contacts.length === 0) {
+          console.log(`❌ 그룹 "${group.name}"에서 조회된 연락처가 없음`);
+          continue;
+        }
+
+        // 연락처 데이터 매핑
+        for (const contact of contacts) {
+          const mappedContact = {
+            name: String(contact.name || contact.companyName || contact.title || contact.company || contact.advertiser || '이름 없음'),
+            phone: String(contact.contacts || contact.phone || contact.phoneNumber || contact.mobile || contact.tel || contact.contact || '번호 없음'),
+            company: contact.company || contact.companyName || contact.advertiser || contact.business,
+            data: contact
+          };
+
+          // 전화번호가 있는 경우만 추가
+          if (mappedContact.phone && mappedContact.phone !== '번호 없음' && mappedContact.phone !== '') {
+            allContacts.push(mappedContact);
+            console.log(`✅ 연락처 추가: ${mappedContact.name} (${mappedContact.phone})`);
+          } else {
+            console.log(`⚠️ 전화번호 없어서 제외: ${mappedContact.name} - 확인된 필드: ${Object.keys(contact).join(', ')}`);
+          }
+        }
+
+        console.log(`✅ 그룹 "${group.name}"에서 ${contacts.length}개 연락처 중 ${allContacts.length}개 유효 연락처 추가`);
+
+      } finally {
+        await connection.end();
+      }
+
+    } catch (groupError) {
+      console.error(`❌ 그룹 "${group.name}" 처리 중 오류:`, groupError);
+      continue;
+    }
+  }
+
+  console.log(`🎯 전체 조회된 연락처: ${allContacts.length}개`);
+  return allContacts;
+}
