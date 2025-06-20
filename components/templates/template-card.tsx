@@ -13,6 +13,7 @@ interface TemplateCardProps {
   onSelect?: (template: KakaoTemplate) => void;
   isSelected?: boolean;
   showSelectButton?: boolean;
+  usageStatusBadge?: React.ReactNode;
 }
 
 export function TemplateCard({ 
@@ -20,7 +21,8 @@ export function TemplateCard({
   onPreview, 
   onSelect, 
   isSelected = false,
-  showSelectButton = false 
+  showSelectButton = false,
+  usageStatusBadge
 }: TemplateCardProps) {
   const getStatusBadge = (status: string, inspectionStatus: string) => {
     if (status === 'A' && inspectionStatus === 'APR') {
@@ -85,6 +87,11 @@ export function TemplateCard({
               <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
                 {template.servicePlatform}
               </Badge>
+            )}
+            {usageStatusBadge && (
+              <div className="mt-1">
+                {usageStatusBadge}
+              </div>
             )}
           </div>
         </div>

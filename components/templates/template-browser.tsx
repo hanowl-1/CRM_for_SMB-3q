@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { KakaoTemplate, TemplateFilter, TemplateStats } from '@/lib/types/template';
 import { mockTemplates, templateCategories, calculateTemplateStats } from '@/lib/data/mock-templates';
@@ -24,9 +24,26 @@ import {
   Image,
   ExternalLink,
   ArrowLeft,
-  Home
+  Home,
+  Activity,
+  Pause,
+  Archive
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+interface TemplateUsage {
+  templateCode: string;
+  templateName: string;
+  servicePlatform: string;
+  usageCount: number;
+  workflows: Array<{
+    id: string;
+    name: string;
+    status: string;
+    lastRun?: string;
+  }>;
+  status: 'active' | 'pending' | 'deprecated';
+}
 
 interface TemplateBrowserProps {
   onSelect?: (template: KakaoTemplate) => void;
@@ -47,9 +64,100 @@ export function TemplateBrowser({
   const [previewTemplate, setPreviewTemplate] = useState<KakaoTemplate | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  
+  // 템플릿 사용 현황 상태
+  const [templateUsage, setTemplateUsage] = useState<TemplateUsage[]>([]);
+  const [usageStats, setUsageStats] = useState({
+    totalTemplates: 0,
+    activeTemplates: 0,
+    pendingTemplates: 0,
+    deprecatedTemplates: 0
+  });
+  const [isLoadingUsage, setIsLoadingUsage] = useState(false);
 
   // 통계 계산
   const stats: TemplateStats = useMemo(() => calculateTemplateStats(templates), [templates]);
+
+  // 템플릿 사용 현황 로드
+  const loadTemplateUsage = async () => {
+    setIsLoadingUsage(true);
+    try {
+      console.log('📊 템플릿 사용 현황 로드 중...');
+      const response = await fetch('/api/templates/usage');
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setTemplateUsage(result.data.usage || []);
+          setUsageStats({
+            totalTemplates: result.data.totalTemplates || 0,
+            activeTemplates: result.data.activeTemplates || 0,
+            pendingTemplates: result.data.pendingTemplates || 0,
+            deprecatedTemplates: result.data.deprecatedTemplates || 0
+          });
+          console.log('✅ 템플릿 사용 현황 로드 완료:', result.data.usage?.length || 0, '개');
+        } else {
+          console.error('❌ 템플릿 사용 현황 로드 실패:', result.message);
+        }
+      } else {
+        console.error('❌ 템플릿 사용 현황 API 호출 실패:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ 템플릿 사용 현황 로드 오류:', error);
+    } finally {
+      setIsLoadingUsage(false);
+    }
+  };
+
+  // 컴포넌트 마운트 시 사용 현황 로드
+  useEffect(() => {
+    if (!isDialogMode) {
+      loadTemplateUsage();
+    }
+  }, [isDialogMode]);
+
+  // 템플릿의 사용 현황 조회
+  const getTemplateUsageStatus = (templateCode: string) => {
+    const usage = templateUsage.find(u => u.templateCode === templateCode);
+    return usage?.status || 'deprecated';
+  };
+
+  // 템플릿의 사용 횟수 조회
+  const getTemplateUsageCount = (templateCode: string) => {
+    const usage = templateUsage.find(u => u.templateCode === templateCode);
+    return usage?.usageCount || 0;
+  };
+
+  // 사용 상태 배지 렌더링
+  const renderUsageStatusBadge = (templateCode: string) => {
+    const status = getTemplateUsageStatus(templateCode);
+    const count = getTemplateUsageCount(templateCode);
+    
+    switch (status) {
+      case 'active':
+        return (
+          <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">
+            <Activity className="w-3 h-3 mr-1" />
+            사용중 ({count})
+          </Badge>
+        );
+      case 'pending':
+        return (
+          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+            <Pause className="w-3 h-3 mr-1" />
+            대기중 ({count})
+          </Badge>
+        );
+      case 'deprecated':
+      default:
+        return (
+          <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200">
+            <Archive className="w-3 h-3 mr-1" />
+            미사용
+          </Badge>
+        );
+    }
+  };
 
   // 필터링된 템플릿
   const filteredTemplates = useMemo(() => {
@@ -111,6 +219,7 @@ export function TemplateBrowser({
   const handleRefresh = () => {
     // 실제 구현에서는 API 호출로 템플릿 목록을 새로고침
     console.log('템플릿 목록 새로고침');
+    loadTemplateUsage(); // 사용 현황도 함께 새로고침
   };
 
   const clearFilters = () => {
@@ -162,74 +271,133 @@ export function TemplateBrowser({
 
       {/* 통계 카드 */}
       {!isDialogMode && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-blue-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">전체</p>
-                  <p className="text-xl font-bold">{stats.total}</p>
+        <div className="space-y-4">
+          {/* 기본 템플릿 통계 */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">전체</p>
+                    <p className="text-xl font-bold">{stats.total}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">승인됨</p>
-                  <p className="text-xl font-bold">{stats.approved}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">승인됨</p>
+                    <p className="text-xl font-bold">{stats.approved}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-yellow-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">검토중</p>
-                  <p className="text-xl font-bold">{stats.pending}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-yellow-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">검토중</p>
+                    <p className="text-xl font-bold">{stats.pending}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <XCircle className="w-4 h-4 text-red-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">거부됨</p>
-                  <p className="text-xl font-bold">{stats.rejected}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-red-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">거부됨</p>
+                    <p className="text-xl font-bold">{stats.rejected}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <ExternalLink className="w-4 h-4 text-purple-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">버튼</p>
-                  <p className="text-xl font-bold">{stats.withButtons}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <ExternalLink className="w-4 h-4 text-purple-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">버튼</p>
+                    <p className="text-xl font-bold">{stats.withButtons}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <Image className="w-4 h-4 text-orange-500" />
-                <div>
-                  <p className="text-sm text-muted-foreground">이미지</p>
-                  <p className="text-xl font-bold">{stats.withImages}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <Image className="w-4 h-4 text-orange-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">이미지</p>
+                    <p className="text-xl font-bold">{stats.withImages}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 사용 현황 통계 */}
+          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-800">
+                <BarChart3 className="w-5 h-5" />
+                템플릿 사용 현황
+                {isLoadingUsage && (
+                  <RefreshCw className="w-4 h-4 animate-spin ml-2" />
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Activity className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">활성 사용</p>
+                    <p className="text-xl font-bold text-green-700">{usageStats.activeTemplates}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-yellow-100 rounded-lg">
+                    <Pause className="w-4 h-4 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">대기 중</p>
+                    <p className="text-xl font-bold text-yellow-700">{usageStats.pendingTemplates}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gray-100 rounded-lg">
+                    <Archive className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">미사용</p>
+                    <p className="text-xl font-bold text-gray-700">{stats.total - usageStats.totalTemplates}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <MessageSquare className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">사용된 템플릿</p>
+                    <p className="text-xl font-bold text-blue-700">{usageStats.totalTemplates}</p>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -457,6 +625,7 @@ export function TemplateBrowser({
               onSelect={onSelect}
               isSelected={selectedTemplateId === template.id}
               showSelectButton={showSelectButton}
+              usageStatusBadge={renderUsageStatusBadge(template.templateCode)}
             />
           ))}
         </div>
