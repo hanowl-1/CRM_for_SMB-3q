@@ -118,15 +118,19 @@ export function TemplateBrowser({
     }
   }, [isDialogMode]);
 
-  // 템플릿의 사용 현황 조회
+  // 템플릿의 사용 현황 조회 (개선된 매칭 로직)
   const getTemplateUsageStatus = (templateCode: string) => {
-    const usage = templateUsage.find(u => u.templateCode === templateCode);
+    // 템플릿 코드에서 접미사 제거 (예: MEMBERS_113_Pil67w7I -> MEMBERS_113)
+    const baseTemplateCode = templateCode.replace(/_[A-Za-z0-9]{8}$/, '');
+    const usage = templateUsage.find(u => u.templateCode === baseTemplateCode);
     return usage?.status || 'deprecated';
   };
 
-  // 템플릿의 사용 횟수 조회
+  // 템플릿의 사용 횟수 조회 (개선된 매칭 로직)
   const getTemplateUsageCount = (templateCode: string) => {
-    const usage = templateUsage.find(u => u.templateCode === templateCode);
+    // 템플릿 코드에서 접미사 제거 (예: MEMBERS_113_Pil67w7I -> MEMBERS_113)
+    const baseTemplateCode = templateCode.replace(/_[A-Za-z0-9]{8}$/, '');
+    const usage = templateUsage.find(u => u.templateCode === baseTemplateCode);
     return usage?.usageCount || 0;
   };
 
