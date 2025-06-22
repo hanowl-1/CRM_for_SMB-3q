@@ -631,7 +631,7 @@ export function TemplateBrowser({
         )}>
           {filteredTemplates.map((template, index) => (
             <TemplateCard
-              key={`${template.templateCode || template.id}-${template.templateNumber || index}`}
+              key={`${template.id}-${template.templateCode || 'unknown'}-${index}`}
               template={template}
               onPreview={handlePreview}
               onSelect={onSelect}

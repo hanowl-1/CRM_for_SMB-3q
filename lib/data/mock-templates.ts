@@ -119,9 +119,12 @@ export const mockTemplates: KakaoTemplate[] = [
       ];
     }
 
+    // 중복 방지를 위해 templateId를 기본 키로 사용하고, 템플릿 코드를 고유하게 생성
+    const templateCode = `${template.servicePlatform || 'UNKNOWN'}_${template.templateNumber}_${templateId.slice(-8)}`;
+
     return {
       id: templateId,
-      templateCode: `${template.servicePlatform || 'UNKNOWN'}_${template.templateNumber}`,
+      templateCode: templateCode,
       templateName: template.templateName,
       templateContent: template.content,
       templateTitle: template.templateTitle || '',
