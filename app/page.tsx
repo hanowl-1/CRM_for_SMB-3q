@@ -593,10 +593,16 @@ function DashboardContent() {
                   <span>메시지 도구</span>
                 </CardTitle>
                 <CardDescription>
-                  템플릿 관리 및 단순 발송
+                  템플릿 관리 및 메시지 발송 도구
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
+                <Link href="/message-logs" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    메시지 발송 로그
+                  </Button>
+                </Link>
                 <Link href="/template-builder" className="block">
                   <Button variant="outline" className="w-full justify-start">
                     <Wrench className="w-4 h-4 mr-2" />

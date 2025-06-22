@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
     const results = [];
     let totalSuccessCount = 0;
     let totalFailedCount = 0;
+    const allMessageLogs = []; // 메시지 로그 저장용 배열 추가
 
     // 워크플로우 실행 기록 생성
     const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
             targetGroup: targetGroup.name,
             ...stepResult
           });
+
+          // 메시지 로그 수집
+          if (stepResult.messageLogs) {
+            allMessageLogs.push(...stepResult.messageLogs);
+          }
 
           if (stepResult.status === 'success') {
             totalSuccessCount += stepResult.successCount || 1;
@@ -85,6 +91,30 @@ export async function POST(request: NextRequest) {
           completedAt: endTime.toISOString(),
           logs: results
         });
+
+        // 메시지 로그 저장
+        if (allMessageLogs.length > 0) {
+          try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/supabase/message-logs`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                action: 'bulk_create',
+                logs: allMessageLogs
+              })
+            });
+
+            if (!response.ok) {
+              console.error('메시지 로그 저장 실패:', await response.text());
+            } else {
+              console.log(`✅ ${allMessageLogs.length}개 메시지 로그 저장 완료`);
+            }
+          } catch (logError) {
+            console.error('메시지 로그 저장 오류:', logError);
+          }
+        }
       } catch (dbError) {
         console.error('워크플로우 실행 기록 저장 실패:', dbError);
       }
@@ -160,6 +190,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     let successCount = 0;
     let failedCount = 0;
     const messageResults = [];
+    const messageLogs = []; // 메시지 로그 배열 추가
 
     for (const target of targets) {
       try {
@@ -188,6 +219,26 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           messageId: result.messageId,
           variables
         });
+
+        // 메시지 로그 생성
+        messageLogs.push({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          messageType: 'kakao',
+          recipientPhone: target.phoneNumber,
+          recipientEmail: target.email || null,
+          recipientName: target.name || null,
+          templateId: templateId,
+          templateName: templateInfo.templateName || step.name,
+          messageContent: result.processedContent || templateInfo.content,
+          variables: variables,
+          status: enableRealSending ? 'sent' : 'pending',
+          provider: 'coolsms',
+          providerMessageId: result.messageId,
+          costAmount: 15, // 카카오 알림톡 기본 비용
+          sentAt: enableRealSending ? new Date().toISOString() : null
+        });
+
         successCount++;
 
       } catch (error) {
@@ -196,6 +247,25 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           status: 'failed',
           error: error instanceof Error ? error.message : '발송 실패'
         });
+
+        // 실패한 메시지 로그도 생성
+        messageLogs.push({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          messageType: 'kakao',
+          recipientPhone: target.phoneNumber,
+          recipientEmail: target.email || null,
+          recipientName: target.name || null,
+          templateId: templateId,
+          templateName: templateInfo.templateName || step.name,
+          messageContent: templateInfo.content,
+          variables: step.action.variables,
+          status: 'failed',
+          provider: 'coolsms',
+          errorMessage: error instanceof Error ? error.message : '발송 실패',
+          costAmount: 0
+        });
+
         failedCount++;
       }
     }
@@ -205,7 +275,8 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
       successCount,
       failedCount,
       totalTargets: targets.length,
-      messageResults
+      messageResults,
+      messageLogs // 메시지 로그 반환
     };
 
   } catch (error) {
