@@ -295,7 +295,7 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
       // 워크플로우 API 호출
       const baseUrl = process.env.NODE_ENV === 'production' 
         ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
-        : 'http://localhost:3002'; // 현재 포트에 맞게 수정
+        : 'http://localhost:3001'; // 포트를 3001로 수정
 
       const response = await fetch(`${baseUrl}/api/workflow/test`, {
         method: 'POST',
