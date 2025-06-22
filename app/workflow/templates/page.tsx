@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import MappingTemplateManager from '@/components/workflow/mapping-template-manager';
+import { MappingTemplateManager } from '@/components/workflow/mapping-template-manager';
 import TemplateEditorModal from '@/components/workflow/template-editor-modal';
 import type { VariableMappingTemplate } from '@/lib/types/workflow';
 import { Settings, BookOpen, Plus } from 'lucide-react';
@@ -10,6 +10,7 @@ import { Settings, BookOpen, Plus } from 'lucide-react';
 export default function TemplatesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<VariableMappingTemplate | null>(null);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
 
   const handleTemplateSelect = (template: VariableMappingTemplate) => {
     setEditingTemplate(template);
@@ -19,6 +20,11 @@ export default function TemplatesPage() {
     setShowCreateModal(false);
     setEditingTemplate(null);
     // 템플릿 목록이 자동으로 새로고침됩니다
+  };
+
+  const handleApplyTemplate = (mappings: any[]) => {
+    console.log('템플릿 적용:', mappings);
+    // 여기서 적용된 매핑을 처리할 수 있습니다
   };
 
   return (
@@ -95,17 +101,38 @@ export default function TemplatesPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* 템플릿 관리 버튼 */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowTemplateManager(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            템플릿 관리
+          </button>
+        </div>
       </div>
 
-      {/* 템플릿 관리자 */}
+      {/* 템플릿 목록 표시 영역 */}
       <Card>
         <CardContent className="p-6">
-          <MappingTemplateManager
-            mode="manage"
-            onSelectTemplate={handleTemplateSelect}
-          />
+          <div className="text-center py-8">
+            <BookOpen className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">템플릿 관리</h3>
+            <p className="text-gray-600 mb-4">
+              위의 "템플릿 관리" 버튼을 클릭하여 템플릿을 관리하세요.
+            </p>
+          </div>
         </CardContent>
       </Card>
+
+      {/* 템플릿 매니저 모달 */}
+      <MappingTemplateManager
+        currentMappings={[]}
+        onApplyTemplate={handleApplyTemplate}
+        isOpen={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+      />
 
       {/* 템플릿 생성/편집 모달 */}
       <TemplateEditorModal
