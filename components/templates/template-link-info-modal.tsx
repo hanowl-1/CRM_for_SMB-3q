@@ -96,14 +96,15 @@ export function TemplateLinkInfoModal({ template, isOpen, onClose }: TemplateLin
 
   // 템플릿 상세 정보 로드
   const loadTemplateDetails = async () => {
-    if (!template.templateCode) return;
+    if (!template.id) return;
     
     setIsLoading(true);
     setError(null);
     
     try {
-      console.log('🔍 템플릿 상세 정보 조회:', template.templateCode);
-      const response = await fetch(`/api/templates/${template.templateCode}/details`);
+      console.log('🔍 템플릿 상세 정보 조회:', template.id);
+      // 실제 템플릿 ID 사용 (32자리 ID)
+      const response = await fetch(`/api/templates/${template.id}/details`);
       
       if (response.ok) {
         const result = await response.json();
@@ -118,7 +119,7 @@ export function TemplateLinkInfoModal({ template, isOpen, onClose }: TemplateLin
         setError(errorData.error || `API 오류: ${response.status}`);
       }
     } catch (err) {
-      console.error('❌ 템플릿 상세 정보 로드 오류:', err);
+      console.error('❌ 템플릿 상세 정보 로드 실패:', err);
       setError('네트워크 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
