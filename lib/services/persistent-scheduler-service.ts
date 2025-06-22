@@ -467,6 +467,218 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
       return 0;
     }
   }
+
+  // 오늘 하루 동안의 모든 스케줄 미리 생성 (Vercel Hobby 제한 대응)
+  async scheduleTodaysJobs(): Promise<{ scheduledCount: number; nextJobs: any[] }> {
+    try {
+      const client = getSupabase();
+      
+      // 활성화된 반복 워크플로우 조회
+      const { data: workflows, error: workflowError } = await client
+        .from('workflows')
+        .select('*')
+        .eq('status', 'active')
+        .not('schedule_settings', 'is', null);
+
+      if (workflowError) {
+        console.error('❌ 워크플로우 조회 실패:', workflowError);
+        return { scheduledCount: 0, nextJobs: [] };
+      }
+
+      if (!workflows || workflows.length === 0) {
+        console.log('📅 활성화된 반복 워크플로우가 없습니다.');
+        return { scheduledCount: 0, nextJobs: [] };
+      }
+
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+      
+      console.log(`📅 오늘 범위: ${todayStart.toLocaleString('ko-KR')} ~ ${todayEnd.toLocaleString('ko-KR')}`);
+
+      let scheduledCount = 0;
+      const nextJobs = [];
+
+      for (const workflow of workflows) {
+        try {
+          const scheduleSettings = workflow.schedule_settings;
+          
+          if (!scheduleSettings || scheduleSettings.type !== 'recurring') {
+            continue;
+          }
+
+          const pattern = scheduleSettings.recurringPattern;
+          if (!pattern || !pattern.time) {
+            continue;
+          }
+
+          // 오늘 실행해야 할 시간들 계산
+          const todaysExecutionTimes = this.calculateTodaysExecutionTimes(pattern, todayStart);
+          
+          for (const executionTime of todaysExecutionTimes) {
+            // 이미 같은 시간에 예약된 작업이 있는지 확인
+            const { data: existingJobs, error: checkError } = await client
+              .from('scheduled_jobs')
+              .select('id')
+              .eq('workflow_id', workflow.id)
+              .eq('scheduled_time', executionTime.toISOString())
+              .eq('status', 'pending');
+
+            if (checkError) {
+              console.error('❌ 기존 작업 확인 실패:', checkError);
+              continue;
+            }
+
+            if (existingJobs && existingJobs.length > 0) {
+              console.log(`⏭️ 이미 예약된 작업 건너뜀: ${workflow.name} (${executionTime.toLocaleString('ko-KR')})`);
+              continue;
+            }
+
+            // 새 작업 예약
+            const { data, error } = await client
+              .from('scheduled_jobs')
+              .insert([{
+                workflow_id: workflow.id,
+                scheduled_time: executionTime.toISOString(),
+                workflow_data: {
+                  id: workflow.id,
+                  name: workflow.name,
+                  steps: workflow.steps,
+                  scheduleSettings: scheduleSettings
+                },
+                status: 'pending'
+              }])
+              .select()
+              .single();
+
+            if (error) {
+              console.error('❌ 작업 예약 실패:', error);
+              continue;
+            }
+
+            console.log(`📅 작업 예약됨: ${workflow.name} (${executionTime.toLocaleString('ko-KR')})`);
+            scheduledCount++;
+            
+            nextJobs.push({
+              id: data.id,
+              workflowName: workflow.name,
+              scheduledTime: executionTime.toISOString()
+            });
+          }
+        } catch (error) {
+          console.error(`❌ 워크플로우 ${workflow.name} 스케줄링 실패:`, error);
+        }
+      }
+
+      console.log(`✅ 총 ${scheduledCount}개의 작업이 오늘 스케줄에 추가되었습니다.`);
+      return { scheduledCount, nextJobs };
+      
+    } catch (error) {
+      console.error('❌ 오늘 스케줄 생성 실패:', error);
+      return { scheduledCount: 0, nextJobs: [] };
+    }
+  }
+
+  // 오늘 하루 동안의 실행 시간들 계산
+  private calculateTodaysExecutionTimes(pattern: any, todayStart: Date): Date[] {
+    const executionTimes: Date[] = [];
+    
+    if (!pattern.time) {
+      return executionTimes;
+    }
+
+    const [hours, minutes] = pattern.time.split(':').map(Number);
+    
+    switch (pattern.frequency) {
+      case 'daily':
+        // 매일 반복 - 오늘 한 번
+        const dailyTime = new Date(todayStart);
+        dailyTime.setHours(hours, minutes, 0, 0);
+        
+        // 현재 시간보다 미래인 경우만 추가
+        if (dailyTime.getTime() > Date.now()) {
+          executionTimes.push(dailyTime);
+        }
+        break;
+        
+      case 'hourly':
+        // 시간별 반복 - 오늘 하루 동안 여러 번
+        const interval = pattern.interval || 1;
+        const startHour = Math.max(hours, new Date().getHours());
+        
+        for (let hour = startHour; hour < 24; hour += interval) {
+          const hourlyTime = new Date(todayStart);
+          hourlyTime.setHours(hour, minutes, 0, 0);
+          
+          if (hourlyTime.getTime() > Date.now()) {
+            executionTimes.push(hourlyTime);
+          }
+        }
+        break;
+        
+      case 'weekly':
+        // 주간 반복 - 해당 요일인 경우만
+        const targetDayOfWeek = pattern.dayOfWeek || todayStart.getDay();
+        if (todayStart.getDay() === targetDayOfWeek) {
+          const weeklyTime = new Date(todayStart);
+          weeklyTime.setHours(hours, minutes, 0, 0);
+          
+          if (weeklyTime.getTime() > Date.now()) {
+            executionTimes.push(weeklyTime);
+          }
+        }
+        break;
+    }
+    
+    return executionTimes;
+  }
+
+  // 현재 실행해야 할 작업들을 즉시 확인하고 실행 (Vercel 서버리스 환경 대응)
+  async checkAndExecutePendingJobs(): Promise<number> {
+    try {
+      const client = getSupabase();
+      const now = new Date();
+      
+      // 현재 시간 이전에 예약된 대기 중인 작업들 조회
+      const { data: pendingJobs, error } = await client
+        .from('scheduled_jobs')
+        .select('*')
+        .eq('status', 'pending')
+        .lte('scheduled_time', now.toISOString())
+        .order('scheduled_time', { ascending: true })
+        .limit(10); // 한 번에 최대 10개까지만 처리
+
+      if (error) {
+        console.error('❌ 대기 작업 조회 실패:', error);
+        return 0;
+      }
+
+      if (!pendingJobs || pendingJobs.length === 0) {
+        return 0;
+      }
+
+      console.log(`⚡ ${pendingJobs.length}개의 즉시 실행할 작업 발견`);
+      
+      let executedCount = 0;
+      
+      // 각 작업을 순차적으로 실행
+      for (const job of pendingJobs) {
+        try {
+          await this.executeJob(job);
+          executedCount++;
+        } catch (error) {
+          console.error(`❌ 작업 실행 실패: ${job.id}`, error);
+        }
+      }
+
+      console.log(`✅ ${executedCount}개의 작업 즉시 실행 완료`);
+      return executedCount;
+      
+    } catch (error) {
+      console.error('❌ 즉시 실행 체크 실패:', error);
+      return 0;
+    }
+  }
 }
 
 // 싱글톤 인스턴스

@@ -11,6 +11,9 @@ export async function GET(request: NextRequest) {
 
     switch (action) {
       case 'status':
+        // 상태 조회 시 대기 중인 작업들을 즉시 확인하고 실행
+        await persistentSchedulerService.checkAndExecutePendingJobs();
+        
         const status = await persistentSchedulerService.getStatus();
         return NextResponse.json({
           success: true,

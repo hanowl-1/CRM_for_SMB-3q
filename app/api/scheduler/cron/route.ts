@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
 
-// Vercel Cron Job용 엔드포인트
+// Vercel Cron Job용 엔드포인트 (하루에 한 번 실행)
 export async function GET(request: NextRequest) {
   try {
     // Vercel Cron Job 인증 확인
@@ -11,26 +11,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('⏰ Vercel Cron Job 실행 중...');
+    console.log('⏰ Vercel Daily Cron Job 실행 중... (자정)');
     
-    // 영구 스케줄러가 실행 중인지 확인
-    const status = await persistentSchedulerService.getStatus();
+    // 오늘 하루 동안 실행해야 할 모든 반복 작업들을 미리 계산하여 scheduled_jobs에 저장
+    const result = await persistentSchedulerService.scheduleTodaysJobs();
     
-    if (!status.isRunning) {
-      // 스케줄러가 중지되어 있으면 시작
-      console.log('🚀 영구 스케줄러 재시작 중...');
-      persistentSchedulerService.startScheduler();
-    }
+    console.log(`📅 오늘(${new Date().toLocaleDateString('ko-KR')}) 스케줄 생성 완료:`, result);
 
     return NextResponse.json({
       success: true,
-      message: 'Cron job executed successfully',
+      message: 'Daily schedule created successfully',
       timestamp: new Date().toISOString(),
-      schedulerStatus: status
+      scheduledJobs: result.scheduledCount,
+      nextScheduledJobs: result.nextJobs || []
     });
 
   } catch (error) {
-    console.error('❌ Cron Job 실행 실패:', error);
+    console.error('❌ Daily Cron Job 실행 실패:', error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
