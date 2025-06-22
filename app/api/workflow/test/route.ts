@@ -376,10 +376,24 @@ export async function POST(request: NextRequest) {
 
       } else if (step.action.type === 'send_sms') {
         // SMS 발송
-        const template = mockTemplates.find(t => t.id === step.action.templateId);
-        if (!template) {
-          throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
-        }
+        // mockTemplates 안전 사용을 위한 기본값 설정
+        const templates = mockTemplates || [
+          {
+            id: 'default_sms',
+            name: '기본 SMS 템플릿',
+            templateCode: 'SMS_DEFAULT',
+            templateContent: '안녕하세요 #{고객명}님, #{회사명}에서 보내는 메시지입니다.'
+          }
+        ];
+        
+        const template = templates.find(t => t.id === step.action.templateId) || 
+                        templates[0] || 
+                        {
+                          id: 'fallback',
+                          name: '기본 템플릿',
+                          templateCode: 'SMS_FALLBACK',
+                          templateContent: '테스트 메시지입니다.'
+                        };
 
         // 사용자 정의 변수 사용
         const variables = step.action.variables || {
