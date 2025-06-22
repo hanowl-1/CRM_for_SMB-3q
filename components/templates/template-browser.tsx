@@ -61,6 +61,7 @@ export function TemplateBrowser({
 }: TemplateBrowserProps) {
   const router = useRouter();
   const [templates] = useState<KakaoTemplate[]>(mockTemplates);
+
   const [filter, setFilter] = useState<TemplateFilter>({});
   const [previewTemplate, setPreviewTemplate] = useState<KakaoTemplate | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
