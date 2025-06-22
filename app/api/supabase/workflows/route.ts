@@ -26,6 +26,24 @@ export async function GET(request: NextRequest) {
       });
     }
     
+    // 스케줄된 작업 조회
+    if (action === 'scheduled_jobs') {
+      const result = await supabaseWorkflowService.getScheduledJobs();
+      
+      if (!result.success) {
+        return NextResponse.json({
+          success: false,
+          message: result.error || '스케줄된 작업 조회에 실패했습니다.'
+        }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: result.data,
+        message: '스케줄된 작업을 성공적으로 조회했습니다.'
+      });
+    }
+    
     // 기존 워크플로우 목록 조회
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 50;
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;

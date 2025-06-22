@@ -422,87 +422,138 @@ class SupabaseWorkflowService {
       await this.ensureTables();
       const client = this.getClient();
 
-      // 오늘 날짜 (한국 시간)
-      const today = new Date();
-      const koreaToday = new Date(today.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
-      const todayStart = new Date(koreaToday.getFullYear(), koreaToday.getMonth(), koreaToday.getDate());
-      const todayStartISO = todayStart.toISOString();
-
-      console.log('📊 실행 통계 조회 시작:', {
-        today: koreaToday.toISOString(),
-        todayStart: todayStartISO
-      });
-
-      // 워크플로우 기본 정보
-      const { data: workflows, error: workflowError } = await client
+      // 1. 전체 워크플로우 수
+      const { count: totalWorkflows } = await client
         .from('workflows')
-        .select('id, status, last_run_at, schedule_config');
+        .select('*', { count: 'exact', head: true });
 
-      if (workflowError) {
-        console.error('워크플로우 조회 오류:', workflowError);
-        return { success: false, error: workflowError.message };
+      // 2. 활성 워크플로우 수
+      const { count: activeWorkflows } = await client
+        .from('workflows')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+
+      // 3. 스케줄된 워크플로우 수 (recurring이나 scheduled 타입)
+      const { count: scheduledWorkflows } = await client
+        .from('workflows')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
+        .eq('trigger_type', 'schedule');
+
+      // 4. 최근 실행 기록 조회 (workflow_runs 테이블이 있다면)
+      let recentExecutions = 0;
+      let totalExecutions = 0;
+      let successfulExecutions = 0;
+      let failedExecutions = 0;
+
+      try {
+        // 전체 실행 수
+        const { count: totalRuns } = await client
+          .from('workflow_runs')
+          .select('*', { count: 'exact', head: true });
+
+        // 성공한 실행 수
+        const { count: successRuns } = await client
+          .from('workflow_runs')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'completed');
+
+        // 실패한 실행 수
+        const { count: failedRuns } = await client
+          .from('workflow_runs')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'failed');
+
+        // 최근 24시간 실행 수
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        const { count: recentRuns } = await client
+          .from('workflow_runs')
+          .select('*', { count: 'exact', head: true })
+          .gte('started_at', yesterday.toISOString());
+
+        totalExecutions = totalRuns || 0;
+        successfulExecutions = successRuns || 0;
+        failedExecutions = failedRuns || 0;
+        recentExecutions = recentRuns || 0;
+      } catch (error) {
+        // workflow_runs 테이블이 없거나 접근할 수 없는 경우 0으로 설정
+        console.log('workflow_runs 테이블 접근 불가, 기본값 사용');
       }
 
-      // 워크플로우 실행 기록
-      const { data: runs, error: runsError } = await client
-        .from('workflow_runs')
-        .select('id, status, started_at, completed_at, success_count, failed_count');
+      // 5. 메시지 전송 통계 (message_logs 테이블이 있다면)
+      let totalMessages = 0;
+      let sentMessages = 0;
+      let failedMessages = 0;
 
-      if (runsError) {
-        console.error('실행 기록 조회 오류:', runsError);
-        return { success: false, error: runsError.message };
+      try {
+        const { count: totalMsgs } = await client
+          .from('message_logs')
+          .select('*', { count: 'exact', head: true });
+
+        const { count: sentMsgs } = await client
+          .from('message_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'sent');
+
+        const { count: failedMsgs } = await client
+          .from('message_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'failed');
+
+        totalMessages = totalMsgs || 0;
+        sentMessages = sentMsgs || 0;
+        failedMessages = failedMsgs || 0;
+      } catch (error) {
+        // message_logs 테이블이 없거나 접근할 수 없는 경우 0으로 설정
+        console.log('message_logs 테이블 접근 불가, 기본값 사용');
       }
-
-      // 오늘 실행된 기록 필터링
-      const todayRuns = runs?.filter(run => {
-        if (!run.started_at) return false;
-        const runDate = new Date(run.started_at);
-        return runDate >= todayStart;
-      }) || [];
-
-      // 최근 실행 시간 찾기
-      const lastExecutionTime = runs?.reduce((latest, run) => {
-        if (!run.completed_at && !run.started_at) return latest;
-        const runTime = new Date(run.completed_at || run.started_at);
-        return !latest || runTime > latest ? runTime : latest;
-      }, null as Date | null);
-
-      // 스케줄이 설정된 워크플로우 개수
-      const scheduledWorkflows = workflows?.filter(w => {
-        const scheduleConfig = w.schedule_config;
-        return scheduleConfig && 
-               (scheduleConfig.type === 'scheduled' || 
-                scheduleConfig.type === 'recurring' || 
-                scheduleConfig.type === 'delay');
-      }).length || 0;
 
       const stats = {
-        // 전체 실행 통계
-        totalExecutions: runs?.length || 0,
-        todayExecutions: todayRuns.length,
-        successfulExecutions: runs?.filter(r => r.status === 'completed').length || 0,
-        failedExecutions: runs?.filter(r => r.status === 'failed').length || 0,
-        
-        // 워크플로우 상태
-        activeWorkflows: workflows?.filter(w => w.status === 'active').length || 0,
-        scheduledWorkflows: scheduledWorkflows,
-        
-        // 시간 정보
-        lastExecutionTime: lastExecutionTime?.toISOString(),
-        
-        // 상세 정보
-        runningExecutions: runs?.filter(r => r.status === 'running').length || 0,
-        totalWorkflows: workflows?.length || 0,
-        
-        // 성공률 계산
-        successRate: runs?.length > 0 ? 
-          Math.round((runs.filter(r => r.status === 'completed').length / runs.length) * 100) : 0
+        totalWorkflows: totalWorkflows || 0,
+        activeWorkflows: activeWorkflows || 0,
+        scheduledWorkflows: scheduledWorkflows || 0,
+        executions: {
+          total: totalExecutions,
+          recent24h: recentExecutions,
+          successful: successfulExecutions,
+          failed: failedExecutions,
+          successRate: totalExecutions > 0 ? (successfulExecutions / totalExecutions * 100).toFixed(1) : '0'
+        },
+        messages: {
+          total: totalMessages,
+          sent: sentMessages,
+          failed: failedMessages,
+          successRate: totalMessages > 0 ? (sentMessages / totalMessages * 100).toFixed(1) : '0'
+        }
       };
 
-      console.log('✅ 실행 통계 조회 완료:', stats);
       return { success: true, data: stats };
     } catch (error) {
-      console.error('❌ 실행 통계 조회 실패:', error);
+      console.error('실행 통계 조회 실패:', error);
+      return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
+    }
+  }
+
+  // 스케줄된 작업 조회
+  async getScheduledJobs(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+      const client = this.getClient();
+
+      const { data, error } = await client
+        .from('scheduled_jobs')
+        .select('*')
+        .order('scheduled_time', { ascending: true });
+
+      if (error) {
+        console.error('스케줄된 작업 조회 오류:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('스케줄된 작업 조회 실패:', error);
       return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
     }
   }
