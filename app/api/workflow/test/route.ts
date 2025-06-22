@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
-import { MessageTemplate } from '@/lib/types/message-template';
-import { sendKakaoAlimtalk } from '@/lib/services/kakao-service';
-import { supabaseWorkflowService } from '@/lib/services/supabase-workflow-service';
 import { KakaoAlimtalkTemplateById, KakaoAlimtalkTemplateByNumber } from '@/lib/data/kakao-templates';
 import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
-import { formatPhoneNumber } from '@/lib/utils/format';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -33,6 +29,22 @@ const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
 const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
 const TEST_PHONE_NUMBER = process.env.TEST_PHONE_NUMBER;
 const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER || '18007710';
+
+// Mock 템플릿 데이터 (SMS 발송용)
+const mockTemplates = [
+  {
+    id: 'sms_template_1',
+    name: '기본 SMS 템플릿',
+    templateCode: 'SMS_BASIC',
+    templateContent: '안녕하세요 #{고객명}님, #{회사명}에서 보내는 메시지입니다.'
+  },
+  {
+    id: 'sms_template_2',
+    name: '테스트 SMS 템플릿',
+    templateCode: 'SMS_TEST',
+    templateContent: '테스트 메시지입니다. #{고객명}님께 발송됩니다.'
+  }
+];
 
 interface TestRequest {
   workflow: Workflow;
