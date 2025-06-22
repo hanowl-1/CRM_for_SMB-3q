@@ -29,101 +29,7 @@ function getCategoryFromTemplate(template: any): { code: string; name: string } 
   return { code: '007', name: '기타' };
 }
 
-// 링크가 포함된 실제 템플릿 추가
-export const templatesWithLinks: KakaoTemplate[] = [
-  {
-    id: 'KA01TP250403102859362zY1qeoq91hR',
-    templateCode: 'MEMBERS_102',
-    templateName: '102. [슈퍼멤버스] [사장님] 계좌이체 1일 전 알림',
-    templateContent: `내일이 #{adname} 광고비 결제 예정일이에요!
-
-- 결제 마감일: #{nextpaidat}
-- 결제 금액: #{amount}원 (부가세 포함)
-- 입금 계좌: 하나은행 182-910013-06704 (주식회사 마야크루)
-
-입금 완료 후, 아래 링크로 사업자등록증과 입금 정보를 제출해 주세요!
-
-확인 후 세금계산서를 발행해 드립니다.
-
-🚨 광고가 자동 종료되지 않도록 꼭 기한 내 결제 부탁드립니다 :)
-
-감사합니다!`,
-    templateTitle: '계좌이체 1일 전 알림',
-    templateSubtitle: '',
-    templateExtra: '',
-    templateAd: '',
-    templateImageName: '',
-    templateImageUrl: '',
-    block: 'N',
-    dormant: false,
-    securityFlag: false,
-    status: 'A',
-    inspectionStatus: 'APR',
-    senderKey: 'KA01PF201224090944283HjX3BnWfSna',
-    buttons: [
-      {
-        name: '서류 제출하기',
-        type: 'WL',
-        url_mobile: 'https://example.com/submit-mobile',
-        url_pc: 'https://example.com/submit-pc'
-      }
-    ],
-    categoryCode: 'payment',
-    category: '결제 안내',
-    createDate: new Date().toISOString(),
-    updateDate: new Date().toISOString(),
-    channelKey: 'CEO',
-    variables: ['#{adname}', '#{nextpaidat}', '#{amount}'],
-    servicePlatform: 'MEMBERS',
-    templateNumber: 102
-  },
-  {
-    id: 'KA01TP250403102736476zXSV5piUUPI',
-    templateCode: 'MEMBERS_101',
-    templateName: '101. [슈퍼멤버스] [사장님] 계좌이체 3일 전 알림',
-    templateContent: `#{adname} 광고비 결제 예정일 안내드립니다.
-
-- 결제 예정일: #{nextpaidat}
-- 결제 금액: #{amount}원 (부가세 포함)
-- 입금 계좌: 하나은행 182-910013-06704 (주식회사 마야크루)
-
-예정일 내 입금 후, 아래 링크로 사업자등록증과 입금 정보를 제출해 주시면 세금계산서를 발행해 드리겠습니다.
-
-🚨 광고 노출이 중단되지 않도록 기한 내 결제 부탁드립니다 :)
-
-감사합니다!`,
-    templateTitle: '계좌이체 3일 전 알림',
-    templateSubtitle: '',
-    templateExtra: '',
-    templateAd: '',
-    templateImageName: '',
-    templateImageUrl: '',
-    block: 'N',
-    dormant: false,
-    securityFlag: false,
-    status: 'A',
-    inspectionStatus: 'APR',
-    senderKey: 'KA01PF201224090944283HjX3BnWfSna',
-    buttons: [
-      {
-        name: '서류 제출하기',
-        type: 'WL',
-        url_mobile: 'https://example.com/submit-mobile',
-        url_pc: 'https://example.com/submit-pc'
-      }
-    ],
-    categoryCode: 'payment',
-    category: '결제 안내',
-    createDate: new Date().toISOString(),
-    updateDate: new Date().toISOString(),
-    channelKey: 'CEO',
-    variables: ['#{adname}', '#{nextpaidat}', '#{amount}'],
-    servicePlatform: 'MEMBERS',
-    templateNumber: 101
-  }
-];
-
-// 기존 mockTemplates에 링크 템플릿 추가
+// 기존 mockTemplates에 링크 템플릿 추가 (중복 제거)
 export const mockTemplates: KakaoTemplate[] = [
   ...Object.entries(KakaoAlimtalkTemplateById).map(([templateId, template]) => {
     const category = getCategoryFromTemplate(template);
@@ -200,31 +106,47 @@ export const mockTemplates: KakaoTemplate[] = [
         }
       ];
     }
-    
+
+    // 결제 관련 템플릿들 (101-102)에 "서류 제출하기" 버튼 추가
+    if (template.templateNumber === 101 || template.templateNumber === 102) {
+      buttons = [
+        {
+          name: '서류 제출하기',
+          type: 'WL',
+          url_mobile: 'https://supermembers.co.kr/submit-documents',
+          url_pc: 'https://supermembers.co.kr/submit-documents'
+        }
+      ];
+    }
+
     return {
       id: templateId,
       templateCode: `${template.servicePlatform || 'UNKNOWN'}_${template.templateNumber}`,
       templateName: template.templateName,
-      templateTitle: template.templateTitle,
       templateContent: template.content,
+      templateTitle: template.templateTitle || '',
+      templateSubtitle: '',
+      templateExtra: '',
+      templateAd: '',
+      templateImageName: '',
+      templateImageUrl: '',
       block: 'N',
       dormant: false,
       securityFlag: false,
-      status: 'APPROVED',
-      inspectionStatus: 'APPROVED',
+      status: 'A',
+      inspectionStatus: 'APR',
       senderKey: template.channelId,
+      buttons: buttons, // 추가된 버튼 정보
       categoryCode: category.code,
       category: category.name,
       createDate: '2024-01-15T00:00:00Z',
       updateDate: '2024-01-15T00:00:00Z',
       channelKey: template.channel,
       variables: [...template.templateParams],
-      buttons: buttons, // 버튼 정보 추가
       servicePlatform: template.servicePlatform || undefined,
       templateNumber: template.templateNumber
     };
-  }),
-  ...templatesWithLinks
+  })
 ];
 
 export const templateCategories: TemplateCategory[] = [

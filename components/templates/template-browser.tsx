@@ -629,9 +629,9 @@ export function TemplateBrowser({
             : "space-y-4",
           isDialogMode && "max-h-[60vh] overflow-y-auto pr-2"
         )}>
-          {filteredTemplates.map(template => (
+          {filteredTemplates.map((template, index) => (
             <TemplateCard
-              key={template.id}
+              key={`${template.templateCode || template.id}-${template.templateNumber || index}`}
               template={template}
               onPreview={handlePreview}
               onSelect={onSelect}
