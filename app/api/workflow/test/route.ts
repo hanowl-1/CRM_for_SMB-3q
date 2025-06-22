@@ -376,24 +376,41 @@ export async function POST(request: NextRequest) {
 
       } else if (step.action.type === 'send_sms') {
         // SMS 발송
-        // mockTemplates 안전 사용을 위한 기본값 설정
-        const templates = mockTemplates || [
+        // 기본 템플릿 정의 (안전한 방식)
+        const defaultTemplates = [
           {
-            id: 'default_sms',
+            id: 'sms_template_1',
             name: '기본 SMS 템플릿',
-            templateCode: 'SMS_DEFAULT',
+            templateCode: 'SMS_BASIC',
             templateContent: '안녕하세요 #{고객명}님, #{회사명}에서 보내는 메시지입니다.'
+          },
+          {
+            id: 'sms_template_2',
+            name: '테스트 SMS 템플릿',
+            templateCode: 'SMS_TEST',
+            templateContent: '테스트 메시지입니다. #{고객명}님께 발송됩니다.'
+          },
+          {
+            id: 'fallback',
+            name: '기본 템플릿',
+            templateCode: 'SMS_FALLBACK',
+            templateContent: '테스트 메시지입니다.'
           }
         ];
+
+        // 템플릿 찾기 (안전한 방식)
+        let template = defaultTemplates.find(t => t.id === step.action.templateId);
+        if (!template) {
+          // mockTemplates에서 찾기 시도 (있는 경우에만)
+          if (typeof mockTemplates !== 'undefined' && Array.isArray(mockTemplates)) {
+            template = mockTemplates.find(t => t.id === step.action.templateId);
+          }
+        }
         
-        const template = templates.find(t => t.id === step.action.templateId) || 
-                        templates[0] || 
-                        {
-                          id: 'fallback',
-                          name: '기본 템플릿',
-                          templateCode: 'SMS_FALLBACK',
-                          templateContent: '테스트 메시지입니다.'
-                        };
+        // 최종 fallback
+        if (!template) {
+          template = defaultTemplates[0];
+        }
 
         // 사용자 정의 변수 사용
         const variables = step.action.variables || {
