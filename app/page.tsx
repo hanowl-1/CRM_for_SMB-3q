@@ -7,8 +7,35 @@ import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText,
 import Link from "next/link"
 import { Workflow } from "@/lib/types/workflow"
 import { Badge } from "@/components/ui/badge"
+import { useAuth } from "@/lib/hooks/useAuth"
+import { LoginForm } from "@/components/auth/LoginForm"
+import { UserMenu } from "@/components/auth/UserMenu"
 
 export default function Dashboard() {
+  const { user, loading } = useAuth();
+
+  // 로딩 중이면 로딩 화면 표시
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">로딩 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 로그인하지 않은 경우 로그인 폼 표시
+  if (!user) {
+    return <LoginForm />;
+  }
+
+  // 로그인한 경우 기존 대시보드 표시
+  return <DashboardContent />;
+}
+
+function DashboardContent() {
   const [workflows, setWorkflows] = useState<Array<{
     id: string;
     name: string;
@@ -469,8 +496,8 @@ export default function Dashboard() {
               <p className="text-gray-600 mt-1">워크플로우를 만들어 메시지를 자동으로 발송하세요</p>
             </div>
             
-            {/* 주요 액션 버튼 */}
-            <div className="flex gap-3">
+            {/* 주요 액션 버튼 및 사용자 메뉴 */}
+            <div className="flex items-center gap-3">
               <Button 
                 variant="outline" 
                 size="sm"
@@ -486,6 +513,7 @@ export default function Dashboard() {
                   새 워크플로우
                 </Button>
               </Link>
+              <UserMenu />
             </div>
           </div>
         </div>
