@@ -639,6 +639,9 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
       const client = getSupabase();
       const now = new Date();
       
+      // 배치 크기 설정 (환경변수로 조정 가능, 기본값: 50)
+      const batchSize = parseInt(process.env.SCHEDULER_BATCH_SIZE || '50');
+      
       // 현재 시간 이전에 예약된 대기 중인 작업들 조회
       const { data: pendingJobs, error } = await client
         .from('scheduled_jobs')
@@ -646,7 +649,7 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         .eq('status', 'pending')
         .lte('scheduled_time', now.toISOString())
         .order('scheduled_time', { ascending: true })
-        .limit(10); // 한 번에 최대 10개까지만 처리
+        .limit(batchSize); // 환경변수로 조정 가능한 배치 크기
 
       if (error) {
         console.error('❌ 대기 작업 조회 실패:', error);
@@ -657,7 +660,7 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         return 0;
       }
 
-      console.log(`⚡ ${pendingJobs.length}개의 즉시 실행할 작업 발견`);
+      console.log(`⚡ ${pendingJobs.length}개의 즉시 실행할 작업 발견 (배치 크기: ${batchSize})`);
       
       let executedCount = 0;
       
