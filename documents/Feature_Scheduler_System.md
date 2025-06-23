@@ -241,60 +241,284 @@ const checkAndExecuteJobs = () => {
   - 메모리 기반이므로 빠른 초기화
   - 실행 중이던 작업 재스케줄링
 
-### 4. 사용자 워크플로우
+### 4. ✅ 최신 구현 기능 (2025.06.23 업데이트)
 
-#### 4.1 ✅ 워크플로우 생성 및 스케줄링
-1. **✅ 워크플로우 빌더**: 6단계 중 5단계에서 스케줄 설정
-2. **✅ 스케줄 옵션 선택**: 즉시/지연/예약/반복 중 선택
-3. **✅ 세부 설정**: 실행 시간, 반복 패턴 등 설정
-4. **✅ 워크플로우 저장**: 저장과 동시에 스케줄러에 자동 등록
-5. **✅ 상태 확인**: 홈페이지에서 실시간 모니터링
+#### 4.1 ✅ 영구 스케줄러 시스템 (Persistent Scheduler)
 
-#### 4.2 ✅ 스케줄러 모니터링
-1. **✅ 홈페이지 접속**: 스케줄러 상태 카드 확인
-2. **✅ 실시간 정보**: 30초마다 자동 갱신되는 상태 정보
-3. **✅ 작업 현황**: 대기/실행/완료 작업 수 확인
-4. **✅ 다음 실행**: 가장 빨리 실행될 작업 정보 확인
+##### 4.1.1 ✅ Supabase 기반 작업 저장
+- **✅ 구현된 기능:**
+  - scheduled_jobs 테이블을 통한 영구 작업 저장
+  - 서버 재시작에도 작업 유지
+  - 데이터베이스 기반 상태 관리
+  - 작업 이력 및 로그 영구 보존
 
-### 5. 성능 및 확장성
+- **✅ 테이블 구조:**
+  ```sql
+  CREATE TABLE scheduled_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id UUID NOT NULL,
+    scheduled_time TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    workflow_data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    executed_at TIMESTAMPTZ,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3
+  );
+  ```
 
-#### 5.1 ✅ 성능 최적화
-- **✅ 메모리 기반**: 빠른 작업 조회 및 상태 업데이트
-- **✅ 효율적인 스캔**: 매분 1회만 전체 작업 확인
-- **✅ 동시 실행 제한**: 시스템 리소스 보호
-- **✅ 자동 정리**: 완료된 작업 자동 삭제
+##### 4.1.2 ✅ 고급 재시도 로직
+- **✅ 지수 백오프 (Exponential Backoff):**
+  - 첫 번째 재시도: 5분 후
+  - 두 번째 재시도: 10분 후
+  - 세 번째 재시도: 20분 후
+  - 최대 재시도: 30분 간격
 
-#### 5.2 🔄 향후 확장 계획
-- 📅 **분산 스케줄링**: 다중 서버 환경 지원
-- 📅 **영구 저장**: 데이터베이스 기반 작업 저장
-- 📅 **고급 모니터링**: 상세한 실행 로그 및 분석
-- 📅 **알림 시스템**: 작업 실패 시 관리자 알림
+- **✅ 재시도 관리:**
+  ```typescript
+  const retryDelay = Math.min(5 * Math.pow(2, job.retry_count), 30);
+  const retryTime = new Date(Date.now() + retryDelay * 60 * 1000);
+  ```
 
-### 6. 보안 및 안정성
+##### 4.1.3 ✅ 상세 로그 시스템
+- **✅ 실행 과정 추적:**
+  - 작업 시작/종료 시간 기록
+  - API 호출 상세 로그
+  - 오류 메시지 및 스택 트레이스
+  - 실행 시간 측정 (밀리초 단위)
 
-#### 6.1 ✅ 보안 기능
-- **✅ API 보안**: 환경변수 기반 키 관리
-- **✅ 작업 격리**: 각 작업 독립적 실행
-- **✅ 오류 처리**: 안전한 예외 처리
-- **✅ 로깅**: 보안 감사를 위한 실행 로그
+- **✅ 로그 예시:**
+  ```
+  [JOB:18f75d27] 🚀 워크플로우 실행 시작: 테스트_스케줄러
+  [JOB:18f75d27] 📡 API 호출 시작: http://localhost:3000/api/workflow/test
+  [JOB:18f75d27] 📊 API 응답 받음: 200 OK (1,234ms)
+  [JOB:18f75d27] ✅ 워크플로우 실행 완료 (1,234ms)
+  ```
 
-#### 6.2 ✅ 안정성 보장
-- **✅ 재시도 로직**: 실패 시 자동 재시도
-- **✅ 타임아웃 처리**: 무한 대기 방지
-- **✅ 메모리 관리**: 메모리 누수 방지
-- **✅ 상태 복구**: 시스템 재시작 후 자동 복구
+#### 4.2 ✅ 클라우드 배포 지원 (Vercel Cron Jobs)
 
-### 7. 문제 해결 가이드
+##### 4.2.1 ✅ Vercel Cron Jobs 통합
+- **✅ 구현된 기능:**
+  - vercel.json 설정으로 자동 스케줄링
+  - 매일 자정: 하루 스케줄 생성
+  - 매분: 대기 중인 작업 실행
+  - 로컬 의존성 완전 제거
 
-#### 7.1 ✅ 일반적인 문제
-- **작업이 실행되지 않음**: 스케줄러 상태 확인, 작업 조건 검증
-- **스케줄러 상태 표시 안됨**: API 엔드포인트 연결 상태 확인
-- **작업 실행 실패**: 워크플로우 설정 및 데이터 연결 확인
+- **✅ 설정 파일:**
+  ```json
+  {
+    "crons": [
+      {
+        "path": "/api/scheduler/cron",
+        "schedule": "0 0 * * *"
+      },
+      {
+        "path": "/api/scheduler/execute", 
+        "schedule": "* * * * *"
+      }
+    ]
+  }
+  ```
 
-#### 7.2 ✅ 디버깅 방법
-- **API 로그 확인**: `/api/scheduler` 응답 데이터 확인
-- **브라우저 콘솔**: 클라이언트 오류 메시지 확인
-- **서버 로그**: 백그라운드 실행 로그 확인
+##### 4.2.2 ✅ 서버리스 최적화
+- **✅ 배치 처리:**
+  - 환경변수로 조정 가능한 배치 크기 (기본: 50개)
+  - 메모리 효율적인 작업 처리
+  - Cold Start 최소화
+
+- **✅ 무상태 실행:**
+  - 각 실행이 독립적으로 동작
+  - 데이터베이스 상태만 참조
+  - 서버 재시작에 영향받지 않음
+
+#### 4.3 ✅ 모니터링 및 관리 API
+
+##### 4.3.1 ✅ 실시간 모니터링 API
+- **✅ `/api/scheduler/monitor`:**
+  - `?action=status`: 전체 상태 및 최근 로그
+  - `?action=upcoming`: 다가오는 작업들 (24시간)
+  - `?action=failed`: 실패한 작업들
+  - `?action=health`: 시스템 건강 상태
+
+- **✅ 상태 응답 예시:**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "scheduler": {
+        "isRunning": false,
+        "totalJobs": 5,
+        "pendingJobs": 2,
+        "nextJob": {
+          "scheduledTime": "2025-06-23T11:22:00+09:00",
+          "workflow": { "name": "테스트_스케줄러" }
+        }
+      },
+      "recentLogs": [...],
+      "todayStats": {
+        "total": 10,
+        "completed": 8,
+        "failed": 1,
+        "pending": 1
+      }
+    }
+  }
+  ```
+
+##### 4.3.2 ✅ 로그 조회 API
+- **✅ `/api/scheduler/logs`:**
+  - 필터링: 상태별, 워크플로우별
+  - 페이지네이션 지원
+  - 통계 정보 포함
+  - 지연된 작업 식별
+
+##### 4.3.3 ✅ 즉시 실행 API
+- **✅ `/api/scheduler/execute`:**
+  - 수동 트리거 지원
+  - 인증 키 기반 보안
+  - 배치 실행 결과 반환
+
+#### 4.4 ✅ 한국시간 완전 지원
+
+##### 4.4.1 ✅ 시간 처리 개선
+- **✅ 문제 해결:**
+  - 이전: timeZone 변환으로 인한 시간 오류
+  - 현재: DB의 한국시간 데이터 직접 사용
+  - 결과: 정확한 한국시간 표시
+
+- **✅ 수정된 코드:**
+  ```typescript
+  // 이전 (문제 있던 코드)
+  new Date(time).toLocaleString('ko-KR', { 
+    timeZone: 'Asia/Seoul' 
+  })
+
+  // 현재 (수정된 코드)
+  new Date(time).toLocaleString('ko-KR')
+  ```
+
+##### 4.4.2 ✅ 스케줄 계산 정확성
+- **✅ 다음 실행 시간 계산:**
+  - 현재 한국시간 기준 정확한 계산
+  - 당일/익일 구분 로직 개선
+  - 시간 검증 및 로그 추가
+
+#### 4.5 ✅ 테스트 및 디버깅 도구
+
+##### 4.5.1 ✅ 테스트 스케줄 API
+- **✅ `/api/scheduler/test-schedule`:**
+  - 빠른 시간 변경으로 테스트 지원
+  - 워크플로우 스케줄 설정 업데이트
+  - 기존 작업 취소 및 새 작업 생성
+
+##### 4.5.2 ✅ 디버깅 명령어
+- **✅ 모니터링 명령어 세트:**
+  ```bash
+  # 전체 상태 확인
+  curl -s 'http://localhost:3000/api/scheduler/monitor?action=status' | jq .
+  
+  # 다가오는 작업들
+  curl -s 'http://localhost:3000/api/scheduler/monitor?action=upcoming' | jq .
+  
+  # 실패한 작업들
+  curl -s 'http://localhost:3000/api/scheduler/monitor?action=failed' | jq .
+  
+  # 즉시 실행 (테스트용)
+  curl -s 'http://localhost:3000/api/scheduler/execute?key=secret' | jq .
+  ```
+
+### 5. 🚀 배포 및 운영
+
+#### 5.1 ✅ 배포 프로세스
+
+##### 5.1.1 ✅ Vercel 배포
+- **✅ 자동 배포:**
+  1. GitHub 푸시 시 자동 배포
+  2. 환경변수 자동 적용
+  3. Cron Jobs 자동 활성화
+  4. 24/7 자동 운영 시작
+
+##### 5.1.2 ✅ 환경변수 설정
+```bash
+CRON_SECRET=your-secure-secret-key-2024
+COOLSMS_API_KEY=your-coolsms-key
+COOLSMS_API_SECRET=your-coolsms-secret
+KAKAO_SENDER_KEY=your-kakao-sender-key
+SUPABASE_URL=your-supabase-url
+SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-key
+```
+
+#### 5.2 ✅ 운영 모니터링
+
+##### 5.2.1 ✅ 건강 상태 체크
+- **✅ 자동 건강 상태 판단:**
+  - `healthy`: 정상 동작
+  - `warning`: 지연된 작업 1-5개
+  - `critical`: 지연된 작업 5개 이상
+
+##### 5.2.2 ✅ 데이터 정리
+- **✅ 자동 정리 함수:**
+  ```sql
+  -- 30일 이상 된 완료/실패 작업 정리
+  SELECT cleanup_old_scheduled_jobs(30);
+  ```
+
+### 6. 📈 성능 및 확장성
+
+#### 6.1 ✅ 성능 최적화
+
+##### 6.1.1 ✅ 데이터베이스 인덱스
+```sql
+-- 성능 최적화 인덱스
+CREATE INDEX idx_scheduled_jobs_status ON scheduled_jobs(status);
+CREATE INDEX idx_scheduled_jobs_scheduled_time ON scheduled_jobs(scheduled_time);
+CREATE INDEX idx_scheduled_jobs_status_time ON scheduled_jobs(status, scheduled_time);
+```
+
+##### 6.1.2 ✅ 쿼리 최적화
+- 복합 인덱스로 WHERE 절 최적화
+- LIMIT을 통한 배치 크기 제어
+- 불필요한 데이터 조회 최소화
+
+#### 6.2 ✅ 확장성 고려사항
+
+##### 6.2.1 ✅ 수평 확장
+- 여러 Vercel 인스턴스에서 동시 실행 가능
+- 데이터베이스 기반 상태 동기화
+- 중복 실행 방지 로직
+
+##### 6.2.2 ✅ 제한사항 및 대응
+- **Vercel Hobby 제한**: 10초 실행 시간 제한
+- **대응 방안**: 배치 크기 조정, 타임아웃 처리
+
+### 7. 🔒 보안 및 안정성
+
+#### 7.1 ✅ 보안 기능
+
+##### 7.1.1 ✅ API 인증
+- CRON_SECRET 환경변수 기반 인증
+- Bearer 토큰 또는 URL 파라미터 지원
+- 무단 접근 차단
+
+##### 7.1.2 ✅ 데이터 보안
+- Supabase RLS (Row Level Security) 적용
+- 민감한 데이터 암호화
+- 로그에서 개인정보 제외
+
+#### 7.2 ✅ 안정성 보장
+
+##### 7.2.1 ✅ 오류 처리
+- 상세한 오류 로그 기록
+- 자동 재시도 메커니즘
+- 실패 시 알림 시스템
+
+##### 7.2.2 ✅ 복구 메커니즘
+- 서버 재시작 후 자동 복구
+- 누락된 작업 자동 감지
+- 수동 복구 도구 제공
 
 ---
 

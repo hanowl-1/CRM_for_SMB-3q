@@ -237,6 +237,113 @@ CREATE TABLE daily_statistics (
 );
 ```
 
+#### 2.6 ✅ 스케줄러 시스템 (NEW)
+
+##### 2.6.1 ✅ scheduled_jobs 테이블
+```sql
+CREATE TABLE scheduled_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_id UUID NOT NULL,
+  scheduled_time TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' 
+    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  workflow_data JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  executed_at TIMESTAMPTZ,
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3
+);
+```
+
+**주요 필드 설명:**
+- `workflow_id`: 실행할 워크플로우 ID
+- `scheduled_time`: 예약된 실행 시간
+- `status`: 작업 상태 (대기/실행중/완료/실패/취소)
+- `workflow_data`: 실행할 워크플로우 전체 데이터 (JSON)
+- `retry_count`: 현재 재시도 횟수
+- `max_retries`: 최대 재시도 횟수
+
+##### 2.6.2 ✅ workflows 테이블 확장
+```sql
+-- 기존 workflows 테이블에 스케줄 설정 컬럼 추가
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS schedule_settings JSONB;
+```
+
+**schedule_settings 구조:**
+```json
+{
+  "type": "recurring",
+  "timezone": "Asia/Seoul",
+  "recurringPattern": {
+    "time": "09:00",
+    "interval": 1,
+    "frequency": "daily"
+  }
+}
+```
+
+##### 2.6.3 ✅ 스케줄러 인덱스
+```sql
+-- 성능 최적화를 위한 인덱스
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status ON scheduled_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_scheduled_time ON scheduled_jobs(scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_workflow_id ON scheduled_jobs(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_time ON scheduled_jobs(status, scheduled_time);
+```
+
+##### 2.6.4 ✅ 자동 업데이트 트리거
+```sql
+-- updated_at 자동 업데이트 함수
+CREATE OR REPLACE FUNCTION update_scheduled_jobs_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 트리거 생성
+CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
+  BEFORE UPDATE ON scheduled_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION update_scheduled_jobs_updated_at();
+```
+
+##### 2.6.5 ✅ 모니터링 뷰
+```sql
+-- 스케줄러 상태 요약 뷰
+CREATE OR REPLACE VIEW scheduled_jobs_summary AS
+SELECT 
+  status,
+  COUNT(*) as count,
+  MIN(scheduled_time) as earliest_scheduled,
+  MAX(scheduled_time) as latest_scheduled,
+  COUNT(*) FILTER (WHERE scheduled_time < NOW() AND status = 'pending') as overdue_count
+FROM scheduled_jobs 
+GROUP BY status;
+```
+
+##### 2.6.6 ✅ 정리 함수
+```sql
+-- 오래된 로그 정리 함수
+CREATE OR REPLACE FUNCTION cleanup_old_scheduled_jobs(days_to_keep INTEGER DEFAULT 30)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  DELETE FROM scheduled_jobs 
+  WHERE status IN ('completed', 'failed', 'cancelled') 
+    AND updated_at < NOW() - INTERVAL '1 day' * days_to_keep;
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
 ### 3. ✅ MySQL 스키마 (기존 운영 DB)
 
 #### 3.1 읽기 전용 연결

@@ -703,7 +703,6 @@ function DashboardContent() {
                         </div>
                         <div className="text-blue-500">
                           {new Date(schedulerStatus.nextJob.scheduledTime).toLocaleString('ko-KR', { 
-                            timeZone: 'Asia/Seoul',
                             year: 'numeric',
                             month: '2-digit',
                             day: '2-digit',
@@ -719,7 +718,6 @@ function DashboardContent() {
                         <div className="font-medium text-green-800">최근 실행:</div>
                         <div className="text-green-600">
                           {new Date(schedulerStatus.lastExecutionTime).toLocaleString('ko-KR', { 
-                            timeZone: 'Asia/Seoul',
                             month: '2-digit',
                             day: '2-digit',
                             hour: '2-digit',

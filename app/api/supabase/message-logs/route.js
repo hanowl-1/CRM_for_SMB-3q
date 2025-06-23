@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/database/supabase-client';
+import { getSupabaseAdmin } from '@/lib/database/supabase-client';
 
 // 메시지 발송 기록 테이블 스키마
 const MESSAGE_LOG_SCHEMA = `
@@ -35,26 +35,50 @@ CREATE INDEX IF NOT EXISTS idx_message_logs_recipient_phone ON message_logs(reci
 // 테이블 초기화
 async function ensureMessageLogsTable() {
   try {
+    console.log('📊 메시지 로그 테이블 초기화 시작...');
+    const supabaseAdmin = getSupabaseAdmin();
+    
+    // 먼저 테이블 존재 여부 확인
+    const { data: tables, error: tableCheckError } = await supabaseAdmin
+      .from('information_schema.tables')
+      .select('table_name')
+      .eq('table_name', 'message_logs')
+      .eq('table_schema', 'public');
+    
+    if (tableCheckError) {
+      console.log('📋 테이블 확인 실패, 테이블 생성 시도:', tableCheckError.message);
+    } else if (tables && tables.length > 0) {
+      console.log('✅ message_logs 테이블이 이미 존재합니다.');
+      return;
+    } else {
+      console.log('📋 message_logs 테이블이 존재하지 않음, 생성 시도...');
+    }
+    
     const { error } = await supabaseAdmin.rpc('exec_sql', { 
       sql: MESSAGE_LOG_SCHEMA 
     });
     
     if (error) {
-      console.error('메시지 로그 테이블 생성 실패:', error);
+      console.error('❌ 메시지 로그 테이블 생성 실패:', error);
       // 테이블이 이미 존재하는 경우는 무시
       if (!error.message.includes('already exists')) {
         throw error;
       }
+    } else {
+      console.log('✅ 메시지 로그 테이블 생성 완료');
     }
   } catch (error) {
-    console.error('테이블 초기화 오류:', error);
+    console.error('❌ 테이블 초기화 오류:', error);
+    // 테이블 초기화 실패해도 계속 진행 (테이블이 이미 존재할 수 있음)
   }
 }
 
 export async function POST(request) {
   try {
+    console.log('📨 메시지 로그 POST 요청 시작...');
     const body = await request.json();
     const { action, ...data } = body;
+    console.log('📋 요청 액션:', action, '데이터 키:', Object.keys(data));
 
     // 테이블 존재 확인
     await ensureMessageLogsTable();
@@ -75,20 +99,22 @@ export async function POST(request) {
         status: data.status || 'pending',
         provider: data.provider,
         provider_message_id: data.providerMessageId,
-        cost_amount: data.costAmount,
         sent_at: data.sentAt ? new Date(data.sentAt).toISOString() : null
       };
 
-      const { data: result, error } = await supabaseAdmin
+      console.log('📝 단일 로그 생성 시도:', logData.workflow_name);
+      const { data: result, error } = await getSupabaseAdmin()
         .from('message_logs')
         .insert(logData)
         .select()
         .single();
 
       if (error) {
+        console.error('❌ 단일 로그 생성 실패:', error);
         throw error;
       }
 
+      console.log('✅ 단일 로그 생성 성공:', result.id);
       return NextResponse.json({
         success: true,
         data: result,
@@ -109,7 +135,8 @@ export async function POST(request) {
       if (deliveredAt) updateData.delivered_at = new Date(deliveredAt).toISOString();
       if (providerMessageId) updateData.provider_message_id = providerMessageId;
 
-      const { data: result, error } = await supabaseAdmin
+      console.log('🔄 로그 업데이트 시도:', id);
+      const { data: result, error } = await getSupabaseAdmin()
         .from('message_logs')
         .update(updateData)
         .eq('id', id)
@@ -117,9 +144,11 @@ export async function POST(request) {
         .single();
 
       if (error) {
+        console.error('❌ 로그 업데이트 실패:', error);
         throw error;
       }
 
+      console.log('✅ 로그 업데이트 성공:', result.id);
       return NextResponse.json({
         success: true,
         data: result,
@@ -130,32 +159,57 @@ export async function POST(request) {
     if (action === 'bulk_create') {
       // 대량 메시지 로그 생성
       const { logs } = data;
+      console.log('📦 대량 로그 생성 시도:', logs.length, '개');
+      
+      // 간단한 테이블 생성 시도
+      try {
+        const { error: createError } = await getSupabaseAdmin().rpc('exec_sql', {
+          sql: `
+            CREATE TABLE IF NOT EXISTS message_logs (
+              id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              workflow_id TEXT,
+              workflow_name TEXT,
+              message_type TEXT NOT NULL,
+              recipient_phone TEXT,
+              recipient_name TEXT,
+              message_content TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending',
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+          `
+        });
+        
+        if (createError) {
+          console.log('테이블 생성 시도 결과:', createError.message);
+        } else {
+          console.log('✅ 테이블 생성 또는 확인 완료');
+        }
+      } catch (tableError) {
+        console.log('테이블 생성 건너뛰기:', tableError.message);
+      }
       
       const logData = logs.map(log => ({
-        workflow_id: log.workflowId,
-        workflow_name: log.workflowName,
+        workflow_id: log.workflowId || null,
+        workflow_name: log.workflowName || null,
         message_type: log.messageType,
-        recipient_phone: log.recipientPhone,
-        recipient_email: log.recipientEmail,
-        recipient_name: log.recipientName,
-        template_id: log.templateId,
-        template_name: log.templateName,
+        recipient_phone: log.recipientPhone || null,
+        recipient_name: log.recipientName || null,
         message_content: log.messageContent,
-        variables: log.variables || {},
-        status: log.status || 'pending',
-        provider: log.provider,
-        cost_amount: log.costAmount
+        status: log.status || 'pending'
       }));
 
-      const { data: result, error } = await supabaseAdmin
+      console.log('📝 변환된 로그 데이터 샘플:', logData[0]);
+      const { data: result, error } = await getSupabaseAdmin()
         .from('message_logs')
         .insert(logData)
         .select();
 
       if (error) {
+        console.error('❌ 대량 로그 생성 실패:', error);
         throw error;
       }
 
+      console.log('✅ 대량 로그 생성 성공:', result.length, '개');
       return NextResponse.json({
         success: true,
         data: result,
@@ -164,12 +218,13 @@ export async function POST(request) {
       });
     }
 
+    console.log('❌ 잘못된 액션:', action);
     return NextResponse.json({ 
       error: '잘못된 액션입니다.' 
     }, { status: 400 });
 
   } catch (error) {
-    console.error('메시지 로그 API 오류:', error);
+    console.error('❌ 메시지 로그 API 오류:', error);
     return NextResponse.json({ 
       success: false,
       error: error.message 
@@ -189,11 +244,10 @@ export async function GET(request) {
     // 테이블 존재 확인
     await ensureMessageLogsTable();
 
-    let query = supabaseAdmin
+    let query = getSupabaseAdmin()
       .from('message_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
 
     // 필터 적용
     if (workflowId) {
@@ -206,27 +260,62 @@ export async function GET(request) {
       query = query.eq('message_type', messageType);
     }
 
+    // 페이지네이션 적용
+    query = query.range(offset, offset + limit - 1);
+
     const { data, error, count } = await query;
 
     if (error) {
+      console.error('메시지 로그 쿼리 오류:', error);
       throw error;
     }
 
     // 통계 정보 조회
-    const { data: stats } = await supabaseAdmin
-      .from('message_logs')
-      .select('status, message_type, count(*)')
-      .group('status, message_type');
+    let stats = [];
+    try {
+      const { data: statsData } = await getSupabaseAdmin()
+        .from('message_logs')
+        .select('status, message_type')
+        .order('created_at', { ascending: false });
+
+      // 통계 수동 계산
+      const statusCounts = {};
+      const typeCounts = {};
+      
+      if (statsData) {
+        statsData.forEach(row => {
+          statusCounts[row.status] = (statusCounts[row.status] || 0) + 1;
+          typeCounts[row.message_type] = (typeCounts[row.message_type] || 0) + 1;
+        });
+      }
+
+      stats = [
+        ...Object.entries(statusCounts).map(([status, count]) => ({
+          status,
+          message_type: 'all',
+          count
+        })),
+        ...Object.entries(typeCounts).map(([message_type, count]) => ({
+          status: 'all',
+          message_type,
+          count
+        }))
+      ];
+    } catch (statsError) {
+      console.error('통계 조회 오류:', statsError);
+      stats = [];
+    }
 
     return NextResponse.json({
       success: true,
-      data,
-      count,
+      data: data || [],
+      count: count || 0,
       stats,
       pagination: {
         limit,
         offset,
-        hasMore: data.length === limit
+        hasMore: data && data.length === limit,
+        total: count || 0
       },
       timestamp: new Date().toISOString()
     });
@@ -235,7 +324,15 @@ export async function GET(request) {
     console.error('메시지 로그 조회 오류:', error);
     return NextResponse.json({ 
       success: false,
-      error: error.message 
+      error: error.message,
+      data: [],
+      stats: [],
+      pagination: {
+        limit: 50,
+        offset: 0,
+        hasMore: false,
+        total: 0
+      }
     }, { status: 500 });
   }
 } 

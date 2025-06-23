@@ -22,7 +22,8 @@ class PersistentSchedulerService {
   constructor() {
     console.log('📅 영구 스케줄러 서비스 초기화 중...');
     this.ensureScheduleTable();
-    this.startScheduler();
+    // 로컬에서는 자동 시작하지 않음 - 서버에서만 실행
+    // this.startScheduler();
   }
 
   // 스케줄 테이블 생성
@@ -278,11 +279,21 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
 
   // 작업 실행
   private async executeJob(job: PersistentScheduledJob) {
+    const startTime = Date.now();
+    const logPrefix = `[JOB:${job.id.slice(0, 8)}]`;
+    
     try {
       const client = getSupabase();
       
+      console.log(`${logPrefix} 🚀 워크플로우 실행 시작:`, {
+        name: job.workflow_data.name,
+        scheduledTime: job.scheduled_time,
+        actualTime: new Date().toISOString(),
+        delay: Date.now() - new Date(job.scheduled_time).getTime()
+      });
+      
       // 상태를 실행 중으로 변경
-      await client
+      const { error: statusError } = await client
         .from('scheduled_jobs')
         .update({ 
           status: 'running',
@@ -290,12 +301,20 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         })
         .eq('id', job.id);
 
-      console.log(`🚀 워크플로우 실행 시작: ${job.workflow_data.name}`);
+      if (statusError) {
+        console.error(`${logPrefix} ❌ 상태 업데이트 실패:`, statusError);
+      }
 
       // 워크플로우 API 호출
       const baseUrl = process.env.NODE_ENV === 'production' 
         ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
-        : 'http://localhost:3001'; // 포트를 3001로 수정
+        : 'http://localhost:3000'; // 포트를 3000으로 수정
+
+      console.log(`${logPrefix} 📡 API 호출 시작:`, {
+        url: `${baseUrl}/api/workflow/test`,
+        workflowId: job.workflow_data.id,
+        workflowName: job.workflow_data.name
+      });
 
       const response = await fetch(`${baseUrl}/api/workflow/test`, {
         method: 'POST',
@@ -313,8 +332,23 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         })
       });
 
+      const executionTime = Date.now() - startTime;
+      
+      console.log(`${logPrefix} 📊 API 응답 받음:`, {
+        status: response.status,
+        statusText: response.statusText,
+        executionTime: `${executionTime}ms`
+      });
+
       if (response.ok) {
         const result = await response.json();
+        
+        console.log(`${logPrefix} ✅ API 응답 성공:`, {
+          success: result.success,
+          messagesSent: result.data?.messagesSent || 0,
+          totalRecipients: result.data?.totalRecipients || 0,
+          executionTime: `${executionTime}ms`
+        });
         
         // 성공 상태로 업데이트
         await client
@@ -322,20 +356,37 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
           .update({ status: 'completed' })
           .eq('id', job.id);
 
-        console.log(`✅ 워크플로우 실행 완료: ${job.workflow_data.name}`);
+        console.log(`${logPrefix} ✅ 워크플로우 실행 완료: ${job.workflow_data.name} (${executionTime}ms)`);
         
         // 반복 작업인 경우 다음 실행 예약
         if (job.workflow_data.scheduleSettings?.type === 'recurring') {
-          console.log('🔄 반복 작업이므로 다음 실행 예약 중...');
-          await this.scheduleWorkflow(job.workflow_data);
+          console.log(`${logPrefix} 🔄 반복 작업이므로 다음 실행 예약 중...`);
+          const nextJobId = await this.scheduleWorkflow(job.workflow_data);
+          console.log(`${logPrefix} 📅 다음 실행 예약 완료: ${nextJobId}`);
         }
       } else {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        const errorText = await response.text();
+        console.error(`${logPrefix} ❌ API 호출 실패:`, {
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+          executionTime: `${executionTime}ms`
+        });
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
     } catch (error) {
       const client = getSupabase();
       const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      const executionTime = Date.now() - startTime;
+      
+      console.error(`${logPrefix} ❌ 워크플로우 실행 실패:`, {
+        name: job.workflow_data.name,
+        error: errorMessage,
+        retryCount: job.retry_count,
+        maxRetries: job.max_retries,
+        executionTime: `${executionTime}ms`
+      });
       
       // 실패 상태로 업데이트
       await client
@@ -346,15 +397,20 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
           retry_count: job.retry_count + 1
         })
         .eq('id', job.id);
-
-      console.error(`❌ 워크플로우 실행 실패: ${job.workflow_data.name}`, errorMessage);
       
       // 재시도 로직
       if (job.retry_count < job.max_retries) {
-        console.log(`🔄 재시도 예약: ${job.workflow_data.name} (${job.retry_count + 1}/${job.max_retries})`);
+        const retryDelay = Math.min(5 * Math.pow(2, job.retry_count), 30); // 지수 백오프 (최대 30분)
+        const retryTime = new Date(Date.now() + retryDelay * 60 * 1000);
         
-        // 5분 후 재시도
-        const retryTime = new Date(Date.now() + 5 * 60 * 1000);
+        console.log(`${logPrefix} 🔄 재시도 예약:`, {
+          name: job.workflow_data.name,
+          retryCount: job.retry_count + 1,
+          maxRetries: job.max_retries,
+          retryTime: retryTime.toISOString(),
+          retryDelay: `${retryDelay}분`
+        });
+        
         await client
           .from('scheduled_jobs')
           .update({
@@ -362,6 +418,8 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
             scheduled_time: retryTime.toISOString()
           })
           .eq('id', job.id);
+      } else {
+        console.error(`${logPrefix} 💀 최대 재시도 횟수 초과: ${job.workflow_data.name}`);
       }
     }
   }
@@ -371,9 +429,10 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
     try {
       const client = getSupabase();
       
+      // scheduled_jobs와 workflow_data를 함께 조회
       const { data: jobs, error } = await client
         .from('scheduled_jobs')
-        .select('status, scheduled_time, created_at')
+        .select('status, scheduled_time, created_at, workflow_data, workflow_id')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -388,10 +447,29 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         };
       }
 
+      // 실제 워크플로우 정보 조회
+      const { data: workflows, error: workflowError } = await client
+        .from('workflows')
+        .select('id, name, status, schedule_config')
+        .eq('status', 'active');
+
+      if (workflowError) {
+        console.error('❌ 워크플로우 조회 실패:', workflowError);
+      }
+
       const now = new Date();
+      
+      // 다음 실행 예정 작업 찾기 (실제 워크플로우 기반)
       const nextJob = jobs
         ?.filter(j => j.status === 'pending' && new Date(j.scheduled_time) > now)
         .sort((a, b) => new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime())[0];
+
+      // 활성 워크플로우 중 스케줄 설정이 있는 워크플로우 수 계산
+      const scheduledWorkflows = workflows?.filter(w => 
+        w.schedule_config && 
+        w.schedule_config.type && 
+        w.schedule_config.type !== 'immediate'
+      ).length || 0;
 
       return {
         isRunning: this.isRunning,
@@ -400,9 +478,13 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         runningJobs: jobs?.filter(j => j.status === 'running').length || 0,
         completedJobs: jobs?.filter(j => j.status === 'completed').length || 0,
         failedJobs: jobs?.filter(j => j.status === 'failed').length || 0,
+        activeWorkflows: workflows?.length || 0,
+        scheduledWorkflows: scheduledWorkflows,
         nextJob: nextJob ? {
           scheduledTime: nextJob.scheduled_time,
-          workflow: { name: 'Next Scheduled Job' }
+          workflow: { 
+            name: nextJob.workflow_data?.name || 'Unknown Workflow'
+          }
         } : null
       };
     } catch (error) {
@@ -413,7 +495,9 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         pendingJobs: 0,
         runningJobs: 0,
         completedJobs: 0,
-        failedJobs: 0
+        failedJobs: 0,
+        activeWorkflows: 0,
+        scheduledWorkflows: 0
       };
     }
   }
@@ -478,7 +562,7 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
         .from('workflows')
         .select('*')
         .eq('status', 'active')
-        .not('schedule_settings', 'is', null);
+        .not('schedule_config', 'is', null);
 
       if (workflowError) {
         console.error('❌ 워크플로우 조회 실패:', workflowError);
@@ -501,7 +585,7 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
 
       for (const workflow of workflows) {
         try {
-          const scheduleSettings = workflow.schedule_settings;
+          const scheduleSettings = workflow.schedule_config;
           
           if (!scheduleSettings || scheduleSettings.type !== 'recurring') {
             continue;

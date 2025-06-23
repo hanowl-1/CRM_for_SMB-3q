@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
 
-// 외부 Cron 서비스용 실시간 실행 엔드포인트 (매분마다 실행)
+// 즉시 실행 엔드포인트 (매분 실행)
 export async function GET(request: NextRequest) {
   try {
     // 인증 확인 (Bearer 토큰 또는 URL 파라미터)
@@ -16,30 +16,26 @@ export async function GET(request: NextRequest) {
       apiKey === cronSecret;
     
     if (!isValidAuth) {
-      console.log('🚫 실시간 스케줄러 인증 실패 - Auth Header:', authHeader, 'API Key:', apiKey);
+      console.log('🚫 Execute Job 인증 실패 - Auth Header:', authHeader, 'API Key:', apiKey);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('🔄 실시간 스케줄러 실행 중...');
+    console.log('⚡ Execute Job 실행 중...');
     
-    // 대기 중인 작업들을 확인하고 실행
+    // 현재 실행해야 할 모든 대기 중인 작업들을 즉시 실행
     const executedCount = await persistentSchedulerService.checkAndExecutePendingJobs();
     
-    // 스케줄러 상태도 함께 조회
-    const status = await persistentSchedulerService.getStatus();
-    
-    console.log('✅ 실시간 스케줄러 실행 완료:', { executedCount, status });
+    console.log(`✅ ${executedCount}개의 작업 즉시 실행 완료`);
 
     return NextResponse.json({
       success: true,
-      message: 'Scheduler executed successfully',
+      message: 'Pending jobs executed successfully',
       timestamp: new Date().toISOString(),
-      executedJobs: executedCount,
-      schedulerStatus: status
+      executedJobs: executedCount
     });
 
   } catch (error) {
-    console.error('❌ 실시간 스케줄러 실행 실패:', error);
+    console.error('❌ Execute Job 실행 실패:', error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

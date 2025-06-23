@@ -268,7 +268,7 @@ export default function WorkflowDetailPage() {
             if (result.scheduleInfo.type === 'delay') {
               message += `• 지연 시간: ${result.scheduleInfo.delay}분\n`;
             } else if (result.scheduleInfo.type === 'scheduled') {
-              message += `• 예약 시간: ${new Date(result.scheduleInfo.scheduledTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n`;
+              message += `• 예약 시간: ${new Date(result.scheduleInfo.scheduledTime).toLocaleString('ko-KR')}\n`;
             } else if (result.scheduleInfo.type === 'recurring') {
               const pattern = result.scheduleInfo.recurringPattern;
               if (pattern) {
@@ -295,7 +295,7 @@ export default function WorkflowDetailPage() {
             message += `🔧 스케줄러 정보:\n`;
             message += `• Job ID: ${result.jobId}\n`;
           }
-          message += `• 등록 시간: ${new Date(result.executionTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n\n`;
+          message += `• 등록 시간: ${new Date(result.executionTime).toLocaleString('ko-KR')}\n\n`;
           
           // 발송 상태
           message += `📡 상태: ${result.realSendingStatus}\n\n`;
@@ -314,7 +314,7 @@ export default function WorkflowDetailPage() {
         message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
         message += `• 실제 발송: ${result.testSettings.enableRealSending ? '✅ 활성화' : '❌ 비활성화'}\n`;
         message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n`;
-        message += `• 실행 시간: ${new Date(result.executionTime).toLocaleString()}\n\n`;
+        message += `• 실행 시간: ${new Date(result.executionTime).toLocaleString('ko-KR')}\n\n`;
         
         // 환경변수 상태 정보 추가
         if (result.envStatus) {

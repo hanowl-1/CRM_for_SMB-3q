@@ -117,6 +117,138 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      case 'cleanup_test_jobs': {
+        // 테스트 작업들 정리 (이름에 "테스트"가 포함된 작업들)
+        try {
+          const { getSupabase } = await import('@/lib/database/supabase-client');
+          const client = getSupabase();
+          
+          const { data, error } = await client
+            .from('scheduled_jobs')
+            .update({ status: 'cancelled' })
+            .like('workflow_data->name', '%테스트%')
+            .in('status', ['pending', 'running'])
+            .select();
+
+          if (error) {
+            throw error;
+          }
+
+          const cleanedCount = data?.length || 0;
+          
+          return NextResponse.json({
+            success: true,
+            data: { cleanedCount },
+            message: `${cleanedCount}개의 테스트 작업이 정리되었습니다.`
+          });
+        } catch (error) {
+          console.error('❌ 테스트 작업 정리 실패:', error);
+          return NextResponse.json({
+            success: false,
+            message: '테스트 작업 정리에 실패했습니다.'
+          }, { status: 500 });
+        }
+      }
+
+      case 'reset_and_reschedule': {
+        // 모든 기존 작업 취소하고 활성 워크플로우 기반으로 재설정
+        try {
+          const { getSupabase } = await import('@/lib/database/supabase-client');
+          const client = getSupabase();
+          
+          // 1. 모든 pending 작업 취소
+          const { data: cancelledJobs, error: cancelError } = await client
+            .from('scheduled_jobs')
+            .update({ status: 'cancelled' })
+            .eq('status', 'pending')
+            .select();
+
+          if (cancelError) {
+            throw cancelError;
+          }
+
+          const cancelledCount = cancelledJobs?.length || 0;
+          console.log(`🗑️ ${cancelledCount}개의 기존 작업 취소됨`);
+
+          // 2. 활성 워크플로우 조회
+          const { data: workflows, error: workflowError } = await client
+            .from('workflows')
+            .select('*')
+            .eq('status', 'active')
+            .not('schedule_config', 'is', null);
+
+          if (workflowError) {
+            throw workflowError;
+          }
+
+          let rescheduledCount = 0;
+          const scheduledJobs = [];
+
+          // 3. 각 활성 워크플로우를 스케줄러에 재등록
+          for (const workflow of workflows || []) {
+            try {
+              const scheduleConfig = workflow.schedule_config;
+              
+              if (!scheduleConfig || scheduleConfig.type === 'immediate') {
+                continue;
+              }
+
+              // 워크플로우를 스케줄러 형식으로 변환
+              const schedulerWorkflow = {
+                id: workflow.id,
+                name: workflow.name,
+                description: workflow.description || '',
+                status: workflow.status,
+                trigger: workflow.trigger_type || 'schedule',
+                steps: workflow.steps || [],
+                createdAt: workflow.created_at,
+                updatedAt: workflow.updated_at || workflow.created_at,
+                stats: {
+                  totalRuns: 0,
+                  successRate: 0
+                },
+                scheduleSettings: {
+                  type: scheduleConfig.type,
+                  timezone: scheduleConfig.timezone || 'Asia/Seoul',
+                  recurringPattern: scheduleConfig.recurringPattern,
+                  scheduledTime: scheduleConfig.scheduledTime,
+                  delay: scheduleConfig.delay
+                }
+              };
+
+              const jobId = await persistentSchedulerService.scheduleWorkflow(schedulerWorkflow);
+              
+              if (jobId) {
+                rescheduledCount++;
+                scheduledJobs.push({
+                  workflowName: workflow.name,
+                  jobId: jobId
+                });
+                console.log(`✅ 워크플로우 재등록됨: ${workflow.name} (${jobId})`);
+              }
+            } catch (scheduleError) {
+              console.error(`❌ 워크플로우 재등록 실패: ${workflow.name}`, scheduleError);
+            }
+          }
+
+          return NextResponse.json({
+            success: true,
+            data: { 
+              cancelledCount,
+              rescheduledCount,
+              scheduledJobs
+            },
+            message: `${cancelledCount}개 작업 취소, ${rescheduledCount}개 워크플로우 재등록 완료`
+          });
+        } catch (error) {
+          console.error('❌ 스케줄 재설정 실패:', error);
+          return NextResponse.json({
+            success: false,
+            message: '스케줄 재설정에 실패했습니다.'
+          }, { status: 500 });
+        }
+      }
+
       case 'start': {
         persistentSchedulerService.startScheduler();
         return NextResponse.json({

@@ -250,89 +250,278 @@ CREATE POLICY "dev_full_access" ON individual_variable_mappings
   USING (true) WITH CHECK (true);
 ```
 
-### 9. ✅ 환경별 설정 가이드
+### 9. ✅ 스케줄러 시스템 설정 스크립트 (NEW)
 
-#### 9.1 ✅ 개발 환경 (Development)
+#### 9.1 ✅ scheduler_system_setup.sql
+**목적**: 스케줄러 시스템 전체 설정
+
+**포함 내용:**
+- scheduled_jobs 테이블 생성
+- workflows 테이블 확장 (schedule_settings 컬럼)
+- 성능 최적화 인덱스
+- 자동 업데이트 트리거
+- 모니터링 뷰 생성
+- 정리 함수 생성
+
+**전체 스크립트:**
 ```sql
--- 1. 전체 스키마 생성
-\i supabase_hybrid_schema.sql
+-- ==========================================
+-- 1. scheduled_jobs 테이블 생성 (스케줄러 작업 저장)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_id UUID NOT NULL,
+  scheduled_time TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  workflow_data JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  executed_at TIMESTAMPTZ,
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3
+);
 
--- 2. 개발용 권한 설정
-\i supabase_rls_fix.sql
+-- ==========================================
+-- 2. workflows 테이블에 schedule_settings 컬럼 추가
+-- ==========================================
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'workflows' AND column_name = 'schedule_settings'
+  ) THEN
+    ALTER TABLE workflows ADD COLUMN schedule_settings JSONB;
+  END IF;
+END $$;
 
--- 3. 테스트 데이터 (선택사항)
-\i scripts/disable-rls-and-seed.sql
+-- ==========================================
+-- 3. 인덱스 생성 (성능 최적화)
+-- ==========================================
+-- scheduled_jobs 테이블 인덱스
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status ON scheduled_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_scheduled_time ON scheduled_jobs(scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_workflow_id ON scheduled_jobs(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_time ON scheduled_jobs(status, scheduled_time);
+
+-- workflows 테이블 인덱스 (이미 있을 수 있음)
+CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+
+-- ==========================================
+-- 4. 자동 업데이트 트리거 함수 생성
+-- ==========================================
+CREATE OR REPLACE FUNCTION update_scheduled_jobs_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ==========================================
+-- 5. 트리거 생성 (updated_at 자동 업데이트)
+-- ==========================================
+DROP TRIGGER IF EXISTS trigger_update_scheduled_jobs_updated_at ON scheduled_jobs;
+CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
+  BEFORE UPDATE ON scheduled_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION update_scheduled_jobs_updated_at();
+
+-- ==========================================
+-- 6. RLS (Row Level Security) 설정 (선택사항)
+-- ==========================================
+-- 필요한 경우 RLS 활성화
+-- ALTER TABLE scheduled_jobs ENABLE ROW LEVEL SECURITY;
+
+-- 모든 사용자가 접근할 수 있도록 정책 생성 (개발 환경용)
+-- CREATE POLICY "Allow all operations on scheduled_jobs" ON scheduled_jobs
+--   FOR ALL USING (true) WITH CHECK (true);
+
+-- ==========================================
+-- 7. 유틸리티 뷰 생성 (모니터링용)
+-- ==========================================
+CREATE OR REPLACE VIEW scheduled_jobs_summary AS
+SELECT 
+  status,
+  COUNT(*) as count,
+  MIN(scheduled_time) as earliest_scheduled,
+  MAX(scheduled_time) as latest_scheduled,
+  COUNT(*) FILTER (WHERE scheduled_time < NOW() AND status = 'pending') as overdue_count
+FROM scheduled_jobs 
+GROUP BY status;
+
+-- ==========================================
+-- 8. 정리 함수 생성 (오래된 로그 삭제용)
+-- ==========================================
+CREATE OR REPLACE FUNCTION cleanup_old_scheduled_jobs(days_to_keep INTEGER DEFAULT 30)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  DELETE FROM scheduled_jobs 
+  WHERE status IN ('completed', 'failed', 'cancelled') 
+    AND updated_at < NOW() - INTERVAL '1 day' * days_to_keep;
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
-#### 9.2 ✅ 스테이징 환경 (Staging)
-```sql
--- 1. 프로덕션과 동일한 스키마
-\i supabase_hybrid_schema.sql
+#### 9.2 ✅ 스케줄러 설정 검증 쿼리
 
--- 2. 제한적 권한 설정
-\i supabase_rls_policies.sql
+**테이블 구조 확인:**
+```sql
+-- scheduled_jobs 테이블 구조 확인
+SELECT column_name, data_type, is_nullable 
+FROM information_schema.columns 
+WHERE table_name = 'scheduled_jobs' 
+ORDER BY ordinal_position;
+
+-- workflows 테이블에 schedule_settings 컬럼 확인
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'workflows' AND column_name = 'schedule_settings';
 ```
 
-#### 9.3 ✅ 프로덕션 환경 (Production)
+**인덱스 확인:**
 ```sql
--- 1. 메인 스키마만
-\i supabase_hybrid_schema.sql
-
--- 2. 엄격한 RLS 정책
-\i supabase_rls_policies.sql
-
--- 3. 모니터링 설정
--- 추가 모니터링 테이블 생성
+-- 생성된 인덱스 확인
+SELECT indexname, indexdef 
+FROM pg_indexes 
+WHERE tablename IN ('scheduled_jobs', 'workflows')
+ORDER BY tablename, indexname;
 ```
 
-### 10. ✅ 문제 해결 가이드
-
-#### 10.1 ✅ 일반적인 오류
-
-**권한 오류 (Permission Denied)**
+**뷰 및 함수 확인:**
 ```sql
--- 해결책
-\i supabase_rls_fix.sql
+-- 뷰 확인
+SELECT * FROM scheduled_jobs_summary;
+
+-- 정리 함수 테스트 (실제로는 실행하지 마세요)
+-- SELECT cleanup_old_scheduled_jobs(30);
 ```
 
-**테이블 존재하지 않음**
+#### 9.3 ✅ 스케줄러 시스템 사용 예시
+
+**1. 워크플로우에 스케줄 설정 추가:**
 ```sql
--- 해결책
-\i supabase_hybrid_schema.sql
+-- 매일 오전 9시 실행 설정
+UPDATE workflows 
+SET schedule_settings = '{
+  "type": "recurring",
+  "timezone": "Asia/Seoul",
+  "recurringPattern": {
+    "time": "09:00",
+    "interval": 1,
+    "frequency": "daily"
+  }
+}'::jsonb
+WHERE name = '테스트_스케줄러';
 ```
 
-**RLS 정책 충돌**
+**2. 수동 작업 예약:**
 ```sql
--- 해결책
-\i fix_rls_permissions.sql
+-- 특정 시간에 워크플로우 실행 예약
+INSERT INTO scheduled_jobs (workflow_id, scheduled_time, workflow_data)
+VALUES (
+  'da43c0d7-1538-4da6-8fce-60693896a153',
+  '2025-06-23 09:00:00+09:00',
+  '{
+    "id": "da43c0d7-1538-4da6-8fce-60693896a153",
+    "name": "테스트_스케줄러",
+    "scheduleSettings": {
+      "type": "recurring",
+      "timezone": "Asia/Seoul",
+      "recurringPattern": {
+        "time": "09:00",
+        "interval": 1,
+        "frequency": "daily"
+      }
+    }
+  }'::jsonb
+);
 ```
 
-#### 10.2 ✅ 디버깅 쿼리
-
-**테이블 존재 확인**
+**3. 스케줄러 상태 모니터링:**
 ```sql
-SELECT table_name 
-FROM information_schema.tables 
-WHERE table_schema = 'public';
+-- 전체 작업 상태 확인
+SELECT status, COUNT(*) 
+FROM scheduled_jobs 
+GROUP BY status;
+
+-- 다가오는 작업들 (다음 24시간)
+SELECT 
+  workflow_data->>'name' as workflow_name,
+  scheduled_time,
+  status,
+  retry_count
+FROM scheduled_jobs 
+WHERE status = 'pending' 
+  AND scheduled_time BETWEEN NOW() AND NOW() + INTERVAL '24 hours'
+ORDER BY scheduled_time;
+
+-- 실패한 작업들
+SELECT 
+  workflow_data->>'name' as workflow_name,
+  scheduled_time,
+  error_message,
+  retry_count,
+  max_retries
+FROM scheduled_jobs 
+WHERE status = 'failed'
+ORDER BY updated_at DESC;
 ```
 
-**RLS 정책 확인**
+#### 9.4 ✅ 문제 해결 가이드
+
+**1. 권한 문제 해결:**
 ```sql
-SELECT schemaname, tablename, policyname, permissive, roles, cmd
+-- RLS 정책 확인
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual 
 FROM pg_policies 
-WHERE tablename IN ('workflows', 'message_templates', 'individual_variable_mappings');
+WHERE tablename = 'scheduled_jobs';
+
+-- 필요시 개발용 정책 추가
+CREATE POLICY "dev_full_access_scheduled_jobs" ON scheduled_jobs
+  FOR ALL TO anon, authenticated
+  USING (true) WITH CHECK (true);
 ```
 
-**권한 확인**
+**2. 성능 문제 해결:**
 ```sql
-SELECT grantee, privilege_type 
-FROM information_schema.role_table_grants 
-WHERE table_name = 'workflows';
+-- 인덱스 사용률 확인
+SELECT 
+  schemaname, 
+  tablename, 
+  indexname, 
+  idx_tup_read, 
+  idx_tup_fetch
+FROM pg_stat_user_indexes 
+WHERE tablename = 'scheduled_jobs';
+
+-- 느린 쿼리 확인
+SELECT query, calls, total_time, mean_time 
+FROM pg_stat_statements 
+WHERE query LIKE '%scheduled_jobs%'
+ORDER BY mean_time DESC;
 ```
 
-### 11. ✅ 백업 및 복구
+**3. 데이터 정리:**
+```sql
+-- 오래된 완료/실패 작업 정리 (30일 이상)
+SELECT cleanup_old_scheduled_jobs(30);
 
-#### 11.1 ✅ 스키마 백업
+-- 수동으로 특정 상태 작업 삭제
+DELETE FROM scheduled_jobs 
+WHERE status = 'completed' 
+  AND updated_at < NOW() - INTERVAL '7 days';
+```
+
+### 10. ✅ 백업 및 복구
+
+#### 10.1 ✅ 스키마 백업
 ```bash
 # 스키마만 백업
 pg_dump -h your-host -U postgres -d postgres --schema-only > schema_backup.sql
@@ -341,7 +530,7 @@ pg_dump -h your-host -U postgres -d postgres --schema-only > schema_backup.sql
 pg_dump -h your-host -U postgres -d postgres > full_backup.sql
 ```
 
-#### 11.2 ✅ 복구
+#### 10.2 ✅ 복구
 ```bash
 # 스키마 복구
 psql -h your-host -U postgres -d postgres < schema_backup.sql
@@ -350,9 +539,9 @@ psql -h your-host -U postgres -d postgres < schema_backup.sql
 psql -h your-host -U postgres -d postgres < full_backup.sql
 ```
 
-### 12. ✅ 성능 최적화
+### 11. ✅ 성능 최적화
 
-#### 12.1 ✅ 인덱스 모니터링
+#### 11.1 ✅ 인덱스 모니터링
 ```sql
 -- 인덱스 사용 통계
 SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
@@ -360,7 +549,7 @@ FROM pg_stat_user_indexes
 ORDER BY idx_scan DESC;
 ```
 
-#### 12.2 ✅ 쿼리 성능 분석
+#### 11.2 ✅ 쿼리 성능 분석
 ```sql
 -- 느린 쿼리 확인
 SELECT query, calls, total_time, mean_time
@@ -369,21 +558,21 @@ ORDER BY total_time DESC
 LIMIT 10;
 ```
 
-### 13. ✅ 마이그레이션 체크리스트
+### 12. ✅ 마이그레이션 체크리스트
 
-#### 13.1 ✅ 설치 전 확인사항
+#### 12.1 ✅ 설치 전 확인사항
 - [ ] Supabase 프로젝트 생성 완료
 - [ ] 데이터베이스 접근 권한 확인
 - [ ] 백업 계획 수립
 - [ ] 환경변수 설정 완료
 
-#### 13.2 ✅ 설치 후 확인사항
+#### 12.2 ✅ 설치 후 확인사항
 - [ ] 모든 테이블 생성 확인
 - [ ] RLS 정책 적용 확인
 - [ ] API 연결 테스트
 - [ ] 기본 데이터 입력 테스트
 
-### 14. 결론
+### 13. 결론
 
 이 스크립트 모음은 **메시지 자동화 플랫폼의 완전한 데이터베이스 설정**을 지원합니다.
 
