@@ -242,7 +242,26 @@ function DashboardContent() {
   const loadSchedulerStatus = async () => {
     try {
       console.log('🔄 스케줄러 상태 로드 시도...');
-      const response = await fetch('/api/scheduler?action=status');
+      
+      // 절대 URL로 변경하여 네트워크 오류 방지
+      const baseUrl = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : (process.env.NODE_ENV === 'production' 
+          ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+          : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'));
+      
+      const url = `${baseUrl}/api/scheduler?action=status`;
+      console.log('📡 요청 URL:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // 네트워크 타임아웃 설정
+        signal: AbortSignal.timeout(10000) // 10초 타임아웃
+      });
+      
       console.log('📡 스케줄러 API 응답:', response.status, response.statusText);
       
       if (response.ok) {
@@ -254,12 +273,72 @@ function DashboardContent() {
           console.log('✅ 스케줄러 상태 업데이트 완료:', result.data);
         } else {
           console.warn('⚠️ 스케줄러 상태 로드 실패:', result.message);
+          // 실패 시 기본값 설정
+          setSchedulerStatus({
+            isRunning: false,
+            totalJobs: 0,
+            pendingJobs: 0,
+            runningJobs: 0,
+            completedJobs: 0,
+            failedJobs: 0,
+            activeWorkflows: 0,
+            scheduledWorkflows: 0,
+            totalExecutions: 0,
+            todayExecutions: 0,
+            currentJobs: {
+              pending: 0,
+              running: 0
+            },
+            lastExecutionTime: '실행 기록 없음'
+          });
         }
       } else {
-        console.error('❌ 스케줄러 API 호출 실패:', response.status);
+        console.error('❌ 스케줄러 API 호출 실패:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('❌ 오류 응답:', errorText);
+        
+        // HTTP 오류 시 기본값 설정
+        setSchedulerStatus({
+          isRunning: false,
+          totalJobs: 0,
+          pendingJobs: 0,
+          runningJobs: 0,
+          completedJobs: 0,
+          failedJobs: 0,
+          activeWorkflows: 0,
+          scheduledWorkflows: 0,
+          totalExecutions: 0,
+          todayExecutions: 0,
+          currentJobs: {
+            pending: 0,
+            running: 0
+          },
+          lastExecutionTime: '실행 기록 없음'
+        });
       }
     } catch (error) {
       console.error('❌ 스케줄러 상태 로드 실패:', error);
+      console.error('❌ 오류 타입:', error instanceof Error ? error.constructor.name : typeof error);
+      console.error('❌ 오류 메시지:', error instanceof Error ? error.message : String(error));
+      
+      // 네트워크 오류나 타임아웃 시 기본값 설정
+      setSchedulerStatus({
+        isRunning: false,
+        totalJobs: 0,
+        pendingJobs: 0,
+        runningJobs: 0,
+        completedJobs: 0,
+        failedJobs: 0,
+        activeWorkflows: 0,
+        scheduledWorkflows: 0,
+        totalExecutions: 0,
+        todayExecutions: 0,
+        currentJobs: {
+          pending: 0,
+          running: 0
+        },
+        lastExecutionTime: '실행 기록 없음'
+      });
     }
   };
 

@@ -472,29 +472,35 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     onSave(workflowData);
 
     // 스케줄 설정이 있고 즉시 실행이 아닌 경우 스케줄러에 등록
-    if (scheduleSettings.type !== 'immediate' && workflowData.status === 'active') {
+    // 기존 워크플로우가 활성 상태이거나 새로 활성화하는 경우 스케줄러 업데이트
+    const isActiveWorkflow = workflow?.status === 'active' || workflowData.status === 'active';
+    
+    if (scheduleSettings.type !== 'immediate' && isActiveWorkflow) {
       try {
+        console.log('🔄 활성 워크플로우의 스케줄 설정 변경, 스케줄러 업데이트 중...');
+        
         const response = await fetch('/api/scheduler', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            action: 'schedule',
-            workflow: workflowData
+            action: 'update_workflow_schedule',
+            workflowId: workflowData.id,
+            scheduleConfig: scheduleSettings
           })
         });
 
         const result = await response.json();
         
         if (result.success) {
-          console.log('✅ 워크플로우가 스케줄러에 등록되었습니다:', result.data.jobId);
+          console.log('✅ 워크플로우 스케줄러가 업데이트되었습니다:', result.message);
           // 성공 알림 표시 (선택사항)
         } else {
-          console.error('❌ 스케줄러 등록 실패:', result.message);
+          console.error('❌ 스케줄러 업데이트 실패:', result.message);
         }
       } catch (error) {
-        console.error('❌ 스케줄러 등록 중 오류:', error);
+        console.error('❌ 스케줄러 업데이트 중 오류:', error);
       }
     }
   };

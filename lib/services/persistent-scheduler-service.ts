@@ -307,8 +307,8 @@ CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
 
       // 워크플로우 API 호출
       const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
-        : 'http://localhost:3000'; // 포트를 3000으로 수정
+        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
       console.log(`${logPrefix} 📡 API 호출 시작:`, {
         url: `${baseUrl}/api/workflow/test`,

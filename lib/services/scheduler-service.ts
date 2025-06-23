@@ -249,8 +249,8 @@ class SchedulerService {
       console.log('📊 Supabase에서 최신 워크플로우 데이터 조회 중...');
       
       const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
-        : 'http://localhost:3000';
+        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
       
       const workflowResponse = await fetch(`${baseUrl}/api/supabase/workflows/${job.workflowId}`);
       
@@ -426,8 +426,8 @@ class SchedulerService {
     try {
       // Supabase에서 실제 워크플로우 실행 통계 조회
       const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL)
-        : 'http://localhost:3000';
+        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
       
       const response = await fetch(`${baseUrl}/api/supabase/workflows?action=execution_stats`);
       

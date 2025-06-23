@@ -151,12 +151,12 @@ export async function POST(request: NextRequest) {
       }
 
       case 'reset_and_reschedule': {
-        // 모든 기존 작업 취소하고 활성 워크플로우 기반으로 재설정
+        // 모든 pending 작업 취소 후 활성 워크플로우들 재등록
         try {
           const { getSupabase } = await import('@/lib/database/supabase-client');
           const client = getSupabase();
           
-          // 1. 모든 pending 작업 취소
+          // 1. 기존 pending 작업들 취소
           const { data: cancelledJobs, error: cancelError } = await client
             .from('scheduled_jobs')
             .update({ status: 'cancelled' })
@@ -168,31 +168,24 @@ export async function POST(request: NextRequest) {
           }
 
           const cancelledCount = cancelledJobs?.length || 0;
-          console.log(`🗑️ ${cancelledCount}개의 기존 작업 취소됨`);
 
-          // 2. 활성 워크플로우 조회
+          // 2. 활성 워크플로우들 조회 및 재등록
           const { data: workflows, error: workflowError } = await client
             .from('workflows')
             .select('*')
-            .eq('status', 'active')
-            .not('schedule_config', 'is', null);
+            .eq('status', 'active');
 
           if (workflowError) {
             throw workflowError;
           }
 
-          let rescheduledCount = 0;
           const scheduledJobs = [];
+          let rescheduledCount = 0;
 
-          // 3. 각 활성 워크플로우를 스케줄러에 재등록
           for (const workflow of workflows || []) {
-            try {
-              const scheduleConfig = workflow.schedule_config;
-              
-              if (!scheduleConfig || scheduleConfig.type === 'immediate') {
-                continue;
-              }
-
+            const scheduleConfig = workflow.schedule_config;
+            
+            if (scheduleConfig && scheduleConfig.type && scheduleConfig.type !== 'immediate') {
               // 워크플로우를 스케줄러 형식으로 변환
               const schedulerWorkflow = {
                 id: workflow.id,
@@ -219,18 +212,15 @@ export async function POST(request: NextRequest) {
               const jobId = await persistentSchedulerService.scheduleWorkflow(schedulerWorkflow);
               
               if (jobId) {
-                rescheduledCount++;
                 scheduledJobs.push({
                   workflowName: workflow.name,
-                  jobId: jobId
+                  jobId
                 });
-                console.log(`✅ 워크플로우 재등록됨: ${workflow.name} (${jobId})`);
+                rescheduledCount++;
               }
-            } catch (scheduleError) {
-              console.error(`❌ 워크플로우 재등록 실패: ${workflow.name}`, scheduleError);
             }
           }
-
+          
           return NextResponse.json({
             success: true,
             data: { 
@@ -241,10 +231,103 @@ export async function POST(request: NextRequest) {
             message: `${cancelledCount}개 작업 취소, ${rescheduledCount}개 워크플로우 재등록 완료`
           });
         } catch (error) {
-          console.error('❌ 스케줄 재설정 실패:', error);
+          console.error('❌ 스케줄러 재설정 실패:', error);
           return NextResponse.json({
             success: false,
-            message: '스케줄 재설정에 실패했습니다.'
+            message: '스케줄러 재설정에 실패했습니다.',
+            error: error instanceof Error ? error.message : String(error)
+          }, { status: 500 });
+        }
+      }
+
+      case 'update_workflow_schedule': {
+        // 워크플로우 스케줄 업데이트
+        const { workflowId, scheduleConfig } = data;
+        
+        if (!workflowId || !scheduleConfig) {
+          return NextResponse.json({
+            success: false,
+            message: 'workflowId와 scheduleConfig가 필요합니다.'
+          }, { status: 400 });
+        }
+
+        try {
+          const { getSupabase } = await import('@/lib/database/supabase-client');
+          const client = getSupabase();
+          
+          // 1. 워크플로우 스케줄 설정 업데이트
+          const { error: updateError } = await client
+            .from('workflows')
+            .update({ schedule_config: scheduleConfig })
+            .eq('id', workflowId);
+
+          if (updateError) {
+            throw updateError;
+          }
+
+          // 2. 기존 pending 작업들 취소
+          const { error: cancelError } = await client
+            .from('scheduled_jobs')
+            .update({ status: 'cancelled' })
+            .eq('workflow_id', workflowId)
+            .eq('status', 'pending');
+
+          if (cancelError) {
+            console.warn('기존 작업 취소 실패:', cancelError);
+          }
+
+          // 3. 새로운 스케줄로 재등록
+          const { data: workflow, error: workflowError } = await client
+            .from('workflows')
+            .select('*')
+            .eq('id', workflowId)
+            .single();
+
+          if (workflowError || !workflow) {
+            throw workflowError || new Error('워크플로우를 찾을 수 없습니다.');
+          }
+
+          // 워크플로우를 스케줄러 형식으로 변환
+          const schedulerWorkflow = {
+            id: workflow.id,
+            name: workflow.name,
+            description: workflow.description || '',
+            status: workflow.status,
+            trigger: workflow.trigger_type || 'schedule',
+            steps: workflow.steps || [],
+            createdAt: workflow.created_at,
+            updatedAt: workflow.updated_at || workflow.created_at,
+            stats: {
+              totalRuns: 0,
+              successRate: 0
+            },
+            scheduleSettings: {
+              type: scheduleConfig.type,
+              timezone: scheduleConfig.timezone || 'Asia/Seoul',
+              recurringPattern: scheduleConfig.recurringPattern,
+              scheduledTime: scheduleConfig.scheduledTime,
+              delay: scheduleConfig.delay
+            }
+          };
+
+          const jobId = await persistentSchedulerService.scheduleWorkflow(schedulerWorkflow);
+          
+          return NextResponse.json({
+            success: true,
+            data: { 
+              workflowId,
+              jobId,
+              scheduleConfig,
+              nextRun: schedulerWorkflow.scheduleSettings.recurringPattern?.time
+            },
+            message: `워크플로우 스케줄이 ${scheduleConfig.recurringPattern?.time}로 업데이트되었습니다.`
+          });
+        } catch (error) {
+          console.error('❌ 워크플로우 스케줄 업데이트 실패:', error);
+          return NextResponse.json({
+            success: false,
+            message: '워크플로우 스케줄 업데이트에 실패했습니다.',
+            error: error instanceof Error ? error.message : String(error)
           }, { status: 500 });
         }
       }

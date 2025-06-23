@@ -322,6 +322,42 @@ class SupabaseWorkflowService {
       }
 
       console.log('✅ 워크플로우 업데이트 성공:', data);
+
+      // 🔥 스케줄 설정이 변경되고 워크플로우가 활성 상태인 경우 스케줄러 업데이트
+      if (updates.scheduleSettings && (data.status === 'active' || updates.status === 'active')) {
+        console.log('🔄 스케줄 설정 변경 감지, 스케줄러 업데이트 시작...');
+        
+        try {
+          // 스케줄러 업데이트 API 호출
+          const baseUrl = process.env.NODE_ENV === 'production' 
+            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+
+          const schedulerResponse = await fetch(`${baseUrl}/api/scheduler`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'update_workflow_schedule',
+              workflowId: id,
+              scheduleConfig: updates.scheduleSettings
+            })
+          });
+
+          if (schedulerResponse.ok) {
+            const schedulerResult = await schedulerResponse.json();
+            console.log('✅ 스케줄러 업데이트 성공:', schedulerResult.message);
+          } else {
+            const errorText = await schedulerResponse.text();
+            console.warn('⚠️ 스케줄러 업데이트 실패:', errorText);
+          }
+        } catch (schedulerError) {
+          console.warn('⚠️ 스케줄러 업데이트 중 오류:', schedulerError);
+          // 스케줄러 업데이트 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
+        }
+      }
+
       return { success: true, data };
     } catch (error) {
       console.error('워크플로우 업데이트 실패:', error);
