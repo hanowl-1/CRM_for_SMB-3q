@@ -18,16 +18,23 @@ interface ExecuteRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    // Vercel Protection Bypass for Automation 헤더 확인
-    const bypassHeader = request.headers.get('x-vercel-protection-bypass');
-    const schedulerHeader = request.headers.get('x-scheduler-internal');
+    // 🔥 스케줄러 내부 호출인지 확인 (Vercel 인증 우회)
+    const isSchedulerInternal = request.headers.get('x-scheduler-internal') === 'true';
+    const bypassSecret = request.headers.get('x-vercel-protection-bypass');
     
-    // 내부 스케줄러 호출인지 확인
-    const isInternalSchedulerCall = schedulerHeader === 'true' || 
-      (bypassHeader && process.env.VERCEL_AUTOMATION_BYPASS_SECRET && bypassHeader === process.env.VERCEL_AUTOMATION_BYPASS_SECRET);
-    
-    if (isInternalSchedulerCall) {
-      console.log('내부 스케줄러 호출 감지 - 인증 우회');
+    if (isSchedulerInternal) {
+      console.log('📋 스케줄러 내부 호출 감지됨');
+      
+      // Vercel Protection Bypass 검증
+      if (bypassSecret && process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+        if (bypassSecret === process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+          console.log('✅ Vercel 인증 우회 성공');
+        } else {
+          console.warn('⚠️ Vercel 인증 우회 secret 불일치');
+        }
+      } else {
+        console.warn('⚠️ Vercel 인증 우회 정보 누락');
+      }
     }
     
     const body: ExecuteRequest = await request.json();
@@ -45,28 +52,38 @@ export async function POST(request: NextRequest) {
     const startTime = new Date();
 
     try {
-      // 대상 그룹 설정 (target_config가 없으면 기본 쿼리 사용)
-      let targetGroups = [];
-      if (workflow.target_config?.targetGroups) {
-        targetGroups = workflow.target_config.targetGroups;
-      } else {
-        // target_config가 없으면 기본 테스트 쿼리 사용
-        targetGroups = [{
-          id: "default_test_group",
-          name: "테스트",
-          type: "dynamic",
-          dynamicQuery: {
-            sql: "SELECT ad.id AS adId, ad.name AS companyName, ad.contacts AS phoneNumber, ad.email, ct.username AS customerName FROM Ads ad JOIN Contracts ct ON ad.id = ct.company WHERE ct.currentState >= 1 AND ad.contacts LIKE '010%' LIMIT 3;",
-            description: "활성 상태 고객 중 휴대폰 번호가 있는 대상"
-          }
-        }];
-        console.log('⚠️ target_config가 없어서 기본 쿼리 사용');
+      // 🔥 워크플로우 객체에서 실행에 필요한 정보 추출
+      const workflowWithSupabaseProps = workflow as Workflow & {
+        target_config?: any;
+        message_config?: any;
+      };
+      
+      console.log('📋 워크플로우 실행 시작:', {
+        id: workflow.id,
+        name: workflow.name,
+        targetGroupsCount: workflow.targetGroups?.length || 0,
+        stepsCount: workflow.steps?.length || 0,
+        hasTargetConfig: !!workflowWithSupabaseProps.target_config,
+        hasMessageConfig: !!workflowWithSupabaseProps.message_config
+      });
+      
+      // 🔥 타겟 그룹 정보 결정: workflow.targetGroups 우선, 없으면 target_config에서 추출
+      let targetGroups = workflow.targetGroups || [];
+      if (targetGroups.length === 0 && workflowWithSupabaseProps.target_config?.targetGroups) {
+        targetGroups = workflowWithSupabaseProps.target_config.targetGroups;
+        console.log('📋 target_config에서 타겟 그룹 추출:', targetGroups.length, '개');
+      }
+      
+      // 🔥 메시지 스텝 정보 결정: workflow.steps 우선, 없으면 message_config에서 추출
+      let messageSteps = workflow.steps || [];
+      if (messageSteps.length === 0 && workflowWithSupabaseProps.message_config?.steps) {
+        messageSteps = workflowWithSupabaseProps.message_config.steps;
+        console.log('📋 message_config에서 메시지 스텝 추출:', messageSteps.length, '개');
       }
 
       // 각 스텝(템플릿) 실행
-      const steps = workflow.steps || workflow.message_config?.steps || [];
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
+      for (let i = 0; i < messageSteps.length; i++) {
+        const step = messageSteps[i];
         
         if (step.action.type !== 'send_alimtalk') {
           console.log(`⏭️ 지원하지 않는 액션 타입: ${step.action.type}`);
@@ -159,7 +176,7 @@ export async function POST(request: NextRequest) {
         runId,
         results,
         summary: {
-          totalSteps: steps.length,
+          totalSteps: messageSteps.length,
           totalTargetGroups: targetGroups.length,
           successCount: totalSuccessCount,
           failedCount: totalFailedCount,
