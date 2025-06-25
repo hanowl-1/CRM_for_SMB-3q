@@ -18,6 +18,11 @@ interface ExecuteRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // 🔥 Vercel Protection 우회를 위한 응답 헤더 설정
+    const headers = new Headers();
+    headers.set('x-vercel-bypass-protection', 'true');
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
     // 🔥 스케줄러 내부 호출인지 확인 (Vercel 인증 우회)
     const isSchedulerInternal = request.headers.get('x-scheduler-internal') === 'true';
     const bypassSecret = request.headers.get('x-vercel-protection-bypass');
@@ -34,6 +39,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         console.warn('⚠️ Vercel 인증 우회 정보 누락');
+        console.log('Environment VERCEL_AUTOMATION_BYPASS_SECRET:', process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? '설정됨' : '설정되지 않음');
       }
     }
     
@@ -184,6 +190,11 @@ export async function POST(request: NextRequest) {
         },
         scheduledExecution,
         jobId
+      }, {
+        headers: {
+          'x-vercel-bypass-protection': 'true',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
       });
 
     } catch (error) {
