@@ -186,9 +186,10 @@ class SupabaseWorkflowService {
       const { data, error } = await client
         .from('workflows')
         .select(`
-          id, name, description, status, trigger_type,
+          id, name, description, status, trigger_type, trigger_config,
+          target_config, message_config, mapping_config, variables,
           created_at, updated_at, last_run_at, next_run_at,
-          statistics, schedule_config, message_config
+          statistics, schedule_config, schedule_settings, created_by
         `)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
@@ -198,7 +199,13 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
-      return { success: true, data: data || [] };
+      console.log('✅ Supabase에서 조회된 워크플로우:', data?.length || 0, '개');
+      console.log('📋 첫 번째 워크플로우 데이터:', data?.[0]);
+
+      // 🔥 스케줄 필드 동기화 처리
+      const normalizedData = data?.map(workflow => this.normalizeScheduleFields(workflow)) || [];
+
+      return { success: true, data: normalizedData };
     } catch (error) {
       console.error('워크플로우 목록 조회 실패:', error);
       return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
@@ -222,7 +229,10 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
-      return { success: true, data };
+      // 🔥 스케줄 필드 동기화 처리
+      const normalizedData = data ? this.normalizeScheduleFields(data) : null;
+
+      return { success: true, data: normalizedData };
     } catch (error) {
       console.error('워크플로우 조회 실패:', error);
       return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
@@ -256,8 +266,9 @@ class SupabaseWorkflowService {
         };
       }
       
-      // 대상 설정
-      if (updates.targetGroups) {
+      // 🔥 대상 설정 - targetGroups를 target_config로 변환
+      if (updates.targetGroups && Array.isArray(updates.targetGroups)) {
+        console.log('🎯 대상 그룹 설정 감지:', updates.targetGroups);
         updateData.target_config = {
           targetGroups: updates.targetGroups,
           targetTemplateMappings: updates.targetTemplateMappings || []
@@ -265,17 +276,18 @@ class SupabaseWorkflowService {
       }
       
       // 대상-템플릿 매핑만 업데이트하는 경우
-      if (updates.targetTemplateMappings) {
-        if (!updateData.target_config) {
-          // 기존 target_config가 없으면 새로 생성
-          updateData.target_config = {
-            targetGroups: [],
-            targetTemplateMappings: updates.targetTemplateMappings
-          };
-        } else {
-          // 기존 target_config가 있으면 매핑 정보만 업데이트
-          updateData.target_config.targetTemplateMappings = updates.targetTemplateMappings;
-        }
+      if (updates.targetTemplateMappings && !updates.targetGroups) {
+        // 기존 target_config 조회
+        const { data: existingWorkflow } = await client
+          .from('workflows')
+          .select('target_config')
+          .eq('id', id)
+          .single();
+          
+        updateData.target_config = {
+          targetGroups: existingWorkflow?.target_config?.targetGroups || [],
+          targetTemplateMappings: updates.targetTemplateMappings
+        };
       }
       
       // 메시지 설정
@@ -288,15 +300,112 @@ class SupabaseWorkflowService {
       // 스케줄 설정 (가장 중요한 부분)
       if (updates.scheduleSettings) {
         console.log('⏰ 스케줄 설정 업데이트:', updates.scheduleSettings);
+        
+        // 1. 메인 스케줄 설정 필드 업데이트
         updateData.schedule_config = updates.scheduleSettings;
+        
+        // 2. 레거시 schedule_settings 필드도 업데이트 (호환성 유지)
+        updateData.schedule_settings = updates.scheduleSettings;
+        
+        // 3. variables 내부의 scheduleSettings도 업데이트
+        // 🔥 기존 variables를 보존하면서 scheduleSettings만 업데이트
+        if (!updateData.variables) {
+          // 기존 variables 조회
+          try {
+            const { data: currentWorkflow } = await client
+              .from('workflows')
+              .select('variables')
+              .eq('id', id)
+              .single();
+            updateData.variables = currentWorkflow?.variables || {};
+          } catch (error) {
+            updateData.variables = {};
+          }
+        }
+        updateData.variables.scheduleSettings = updates.scheduleSettings;
+        
+        // 4. message_config 내부의 steps에서도 scheduleSettings 업데이트
+        // 기존 message_config가 있는 경우 해당 데이터를 가져와서 업데이트
+        try {
+          const { data: currentWorkflow } = await client
+            .from('workflows')
+            .select('message_config')
+            .eq('id', id)
+            .single();
+            
+          if (currentWorkflow?.message_config?.steps) {
+            const updatedSteps = currentWorkflow.message_config.steps.map((step: any) => {
+              if (step.action) {
+                return {
+                  ...step,
+                  action: {
+                    ...step.action,
+                    scheduleSettings: updates.scheduleSettings
+                  }
+                };
+              }
+              return step;
+            });
+            
+            updateData.message_config = {
+              ...currentWorkflow.message_config,
+              steps: updatedSteps
+            };
+            
+            console.log('📝 message_config 스케줄 설정 업데이트:', {
+              stepsCount: updatedSteps.length,
+              firstStepSchedule: updatedSteps[0]?.action?.scheduleSettings
+            });
+          }
+        } catch (error) {
+          console.warn('⚠️ message_config 업데이트 중 오류:', error);
+        }
+        
+        // 5. 새로운 steps가 전달된 경우에도 scheduleSettings 업데이트
+        if (updates.steps && Array.isArray(updates.steps)) {
+          const updatedSteps = updates.steps.map(step => {
+            if (step.action) {
+              return {
+                ...step,
+                action: {
+                  ...step.action,
+                  scheduleSettings: updates.scheduleSettings
+                }
+              };
+            }
+            return step;
+          });
+          
+          updateData.message_config = {
+            ...updateData.message_config,
+            steps: updatedSteps
+          };
+        }
+        
+        console.log('📝 스케줄 설정 업데이트 완료:', {
+          schedule_config: updateData.schedule_config,
+          schedule_settings: updateData.schedule_settings,
+          variables_scheduleSettings: updateData.variables?.scheduleSettings,
+          message_config_updated: !!updateData.message_config
+        });
       }
       
-      // 변수 설정
-      if (updates.testSettings || updates.scheduleSettings) {
-        updateData.variables = {
-          testSettings: updates.testSettings || {},
-          scheduleSettings: updates.scheduleSettings || {}
-        };
+      // 🔥 testSettings 별도 처리 (기존 variables 보존)
+      if (updates.testSettings) {
+        if (!updateData.variables) {
+          // 기존 variables 조회
+          try {
+            const { data: currentWorkflow } = await client
+              .from('workflows')
+              .select('variables')
+              .eq('id', id)
+              .single();
+            updateData.variables = currentWorkflow?.variables || {};
+          } catch (error) {
+            updateData.variables = {};
+          }
+        }
+        updateData.variables.testSettings = updates.testSettings;
       }
       
       // 레거시 필드들 (호환성을 위해)
@@ -323,38 +432,72 @@ class SupabaseWorkflowService {
 
       console.log('✅ 워크플로우 업데이트 성공:', data);
 
-      // 🔥 스케줄 설정이 변경되고 워크플로우가 활성 상태인 경우 스케줄러 업데이트
-      if (updates.scheduleSettings && (data.status === 'active' || updates.status === 'active')) {
-        console.log('🔄 스케줄 설정 변경 감지, 스케줄러 업데이트 시작...');
+      // 🔥 스케줄 설정이 변경되거나 워크플로우가 활성 상태인 경우 크론잡 실행
+      const hasScheduleUpdate = updates.scheduleSettings || (updates as any).scheduleConfig || (updates as any).schedule_config;
+      const isActivating = updates.status === 'active' || data.status === 'active';
+      
+      if (hasScheduleUpdate && isActivating) {
+        console.log('🔄 스케줄 설정 변경 감지, 크론잡 실행 시작...');
+        console.log('📋 스케줄 업데이트 정보:', {
+          scheduleSettings: updates.scheduleSettings,
+          scheduleConfig: (updates as any).scheduleConfig,
+          status: updates.status,
+          dataStatus: data.status
+        });
         
         try {
-          // 스케줄러 업데이트 API 호출
+          // 크론잡 API 호출하여 scheduled_jobs 테이블에 등록
           const baseUrl = process.env.NODE_ENV === 'production' 
             ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
             : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
-          const schedulerResponse = await fetch(`${baseUrl}/api/scheduler`, {
+          console.log('📡 크론잡 API 호출:', `${baseUrl}/api/scheduler/cron`);
+          const cronResponse = await fetch(`${baseUrl}/api/scheduler/cron`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              action: 'update_workflow_schedule',
-              workflowId: id,
-              scheduleConfig: updates.scheduleSettings
-            })
+            }
           });
 
-          if (schedulerResponse.ok) {
-            const schedulerResult = await schedulerResponse.json();
-            console.log('✅ 스케줄러 업데이트 성공:', schedulerResult.message);
+          if (cronResponse.ok) {
+            const cronResult = await cronResponse.json();
+            console.log('✅ 크론잡 실행 성공:', cronResult.message);
           } else {
-            const errorText = await schedulerResponse.text();
-            console.warn('⚠️ 스케줄러 업데이트 실패:', errorText);
+            const errorText = await cronResponse.text();
+            console.warn('⚠️ 크론잡 실행 실패:', errorText);
           }
         } catch (schedulerError) {
-          console.warn('⚠️ 스케줄러 업데이트 중 오류:', schedulerError);
-          // 스케줄러 업데이트 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
+          console.warn('⚠️ 크론잡 실행 중 오류:', schedulerError);
+          // 크론잡 실행 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
+        }
+      }
+
+      // 워크플로우 상태가 active로 변경되는 경우에도 크론잡 실행 (스케줄이 있는 경우)
+      if (updates.status === 'active' && data.schedule_config && data.schedule_config.type !== 'immediate') {
+        console.log('🔄 워크플로우 활성화 감지, 크론잡 실행...');
+        
+        try {
+          const baseUrl = process.env.NODE_ENV === 'production' 
+            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+
+          console.log('📡 워크플로우 활성화 크론잡 API 호출:', `${baseUrl}/api/scheduler/cron`);
+          const cronResponse = await fetch(`${baseUrl}/api/scheduler/cron`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+
+          if (cronResponse.ok) {
+            const cronResult = await cronResponse.json();
+            console.log('✅ 워크플로우 활성화 크론잡 실행 성공:', cronResult.message);
+          } else {
+            const errorText = await cronResponse.text();
+            console.warn('⚠️ 워크플로우 활성화 크론잡 실행 실패:', errorText);
+          }
+        } catch (cronError) {
+          console.warn('⚠️ 워크플로우 활성화 크론잡 실행 중 오류:', cronError);
         }
       }
 
@@ -1442,6 +1585,48 @@ class SupabaseWorkflowService {
       console.error('개별 변수 매핑 사용 기록 실패:', error);
       throw error;
     }
+  }
+
+  // 🔥 스케줄 필드 동기화 처리
+  private normalizeScheduleFields(workflow: any): any {
+    // 메인 스케줄 설정 확인 (우선순위: schedule_config > schedule_settings)
+    const mainSchedule = workflow.schedule_config || workflow.schedule_settings;
+    
+    if (mainSchedule) {
+      // 1. 모든 스케줄 필드를 메인 스케줄로 동기화
+      workflow.schedule_config = mainSchedule;
+      workflow.schedule_settings = mainSchedule;
+      
+      // 2. variables 내부 scheduleSettings 동기화
+      if (workflow.variables) {
+        workflow.variables.scheduleSettings = mainSchedule;
+      }
+      
+      // 3. message_config 내부 scheduleSettings 동기화
+      if (workflow.message_config?.steps) {
+        workflow.message_config.steps = workflow.message_config.steps.map((step: any) => {
+          if (step.action) {
+            return {
+              ...step,
+              action: {
+                ...step.action,
+                scheduleSettings: mainSchedule
+              }
+            };
+          }
+          return step;
+        });
+      }
+      
+      console.log('🔄 스케줄 필드 동기화 완료:', {
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        scheduleTime: mainSchedule.recurringPattern?.time || mainSchedule.time,
+        allFieldsSynced: true
+      });
+    }
+    
+    return workflow;
   }
 }
 

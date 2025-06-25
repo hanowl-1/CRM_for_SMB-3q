@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById } from '@/packages/kakao-alimtalk/src/generated/template';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
+import crypto from 'crypto';
 
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
@@ -17,6 +18,18 @@ interface ExecuteRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Vercel Protection Bypass for Automation 헤더 확인
+    const bypassHeader = request.headers.get('x-vercel-protection-bypass');
+    const schedulerHeader = request.headers.get('x-scheduler-internal');
+    
+    // 내부 스케줄러 호출인지 확인
+    const isInternalSchedulerCall = schedulerHeader === 'true' || 
+      (bypassHeader && process.env.VERCEL_AUTOMATION_BYPASS_SECRET && bypassHeader === process.env.VERCEL_AUTOMATION_BYPASS_SECRET);
+    
+    if (isInternalSchedulerCall) {
+      console.log('내부 스케줄러 호출 감지 - 인증 우회');
+    }
+    
     const body: ExecuteRequest = await request.json();
     const { workflow, scheduledExecution = false, jobId, enableRealSending = false } = body;
 
@@ -32,9 +45,28 @@ export async function POST(request: NextRequest) {
     const startTime = new Date();
 
     try {
+      // 대상 그룹 설정 (target_config가 없으면 기본 쿼리 사용)
+      let targetGroups = [];
+      if (workflow.target_config?.targetGroups) {
+        targetGroups = workflow.target_config.targetGroups;
+      } else {
+        // target_config가 없으면 기본 테스트 쿼리 사용
+        targetGroups = [{
+          id: "default_test_group",
+          name: "테스트",
+          type: "dynamic",
+          dynamicQuery: {
+            sql: "SELECT ad.id AS adId, ad.name AS companyName, ad.contacts AS phoneNumber, ad.email, ct.username AS customerName FROM Ads ad JOIN Contracts ct ON ad.id = ct.company WHERE ct.currentState >= 1 AND ad.contacts LIKE '010%' LIMIT 3;",
+            description: "활성 상태 고객 중 휴대폰 번호가 있는 대상"
+          }
+        }];
+        console.log('⚠️ target_config가 없어서 기본 쿼리 사용');
+      }
+
       // 각 스텝(템플릿) 실행
-      for (let i = 0; i < workflow.steps.length; i++) {
-        const step = workflow.steps[i];
+      const steps = workflow.steps || workflow.message_config?.steps || [];
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
         
         if (step.action.type !== 'send_alimtalk') {
           console.log(`⏭️ 지원하지 않는 액션 타입: ${step.action.type}`);
@@ -44,7 +76,7 @@ export async function POST(request: NextRequest) {
         console.log(`📤 스텝 ${i + 1} 실행: ${step.name}`);
 
         // 대상 그룹별로 메시지 발송
-        for (const targetGroup of workflow.targetGroups || []) {
+        for (const targetGroup of targetGroups) {
           const stepResult = await executeStep(step, targetGroup, workflow, enableRealSending);
           results.push({
             step: i + 1,
@@ -127,8 +159,8 @@ export async function POST(request: NextRequest) {
         runId,
         results,
         summary: {
-          totalSteps: workflow.steps.length,
-          totalTargetGroups: workflow.targetGroups?.length || 0,
+          totalSteps: steps.length,
+          totalTargetGroups: targetGroups.length,
           successCount: totalSuccessCount,
           failedCount: totalFailedCount,
           executionTimeMs
@@ -186,7 +218,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
       throw new Error(`템플릿을 찾을 수 없습니다: ${templateId}`);
     }
 
-    // 대상 그룹에서 실제 대상자 조회 (현재는 테스트용 더미 데이터)
+    // 대상 그룹에서 실제 대상자 조회
     const targets = await getTargetsFromGroup(targetGroup);
     
     let successCount = 0;
@@ -201,11 +233,15 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
         for (const [key, value] of Object.entries(variables)) {
           if (typeof value === 'string' && value.includes('{{')) {
             // 동적 변수 치환 (예: {{customer_name}} -> target.name)
+            const rawData = target.rawData || target;
             variables[key] = value.replace(/\{\{(\w+)\}\}/g, (match, fieldName) => {
-              return (target as any)[fieldName] || match;
+              return rawData[fieldName] || target[fieldName] || match;
             });
           }
         }
+
+        console.log(`📤 대상자: ${target.name} (${target.phoneNumber})`);
+        console.log(`📋 변수 치환 결과:`, variables);
 
         const result = await sendAlimtalk({
           templateId,
@@ -294,14 +330,60 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
 
 // 대상 그룹에서 실제 대상자 목록 조회
 async function getTargetsFromGroup(targetGroup: any) {
-  // 현재는 테스트용 더미 데이터
-  // 실제로는 MySQL 쿼리나 정적 목록에서 조회
+  try {
+    // MySQL 동적 쿼리 실행하여 실제 대상자 조회
+    if (targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.sql) {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/mysql/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: targetGroup.dynamicQuery.sql
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`MySQL 쿼리 실행 실패: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success || !result.data) {
+        throw new Error(`MySQL 쿼리 결과 없음: ${result.message}`);
+      }
+
+      // MySQL 결과를 대상자 형식으로 변환
+      return result.data.map((row: any, index: number) => {
+        // 연락처 필드 찾기 (contacts, phone, phoneNumber 등)
+        const phoneNumber = row.contacts || row.phone || row.phoneNumber || '01000000000';
+        const name = row.name || row.company || row.title || `대상자${index + 1}`;
+        const email = row.email || null;
+
+        return {
+          id: row.id || index + 1,
+          name: name,
+          phoneNumber: phoneNumber,
+          email: email,
+          rawData: row // 원본 데이터 보관 (변수 치환용)
+        };
+      });
+    }
+  } catch (error) {
+    console.error('대상자 조회 실패:', error);
+    // 에러 발생 시 빈 배열 반환
+    return [];
+  }
+
+  // fallback으로 테스트 데이터 사용
+  console.log('⚠️ fallback 테스트 데이터 사용');
   return [
     {
       id: 1,
       name: '테스트 고객',
       phoneNumber: '01012345678',
-      email: 'test@example.com'
+      email: 'test@example.com',
+      rawData: { id: 1, name: '테스트 고객' }
     }
   ];
 }
@@ -332,11 +414,19 @@ async function sendAlimtalk({
   // 실제 발송
   const templateInfo = KakaoAlimtalkTemplateById[templateId as keyof typeof KakaoAlimtalkTemplateById];
   const pfId = getPfIdForTemplate(templateId);
+  
+  const date = new Date().toISOString();
+  const salt = Date.now().toString();
+  const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
+
+  // 변수 치환된 메시지 내용 생성
+  const processedContent = templateContent.replace(/#{(\w+)}/g, (match, key) => variables[key] || match);
 
   const messageData = {
     to: phoneNumber,
     from: SMS_SENDER_NUMBER,
     type: 'ATA',
+    text: processedContent,
     kakaoOptions: {
       pfId: pfId,
       templateId: templateId,
@@ -344,10 +434,14 @@ async function sendAlimtalk({
     }
   };
 
+  console.log(`📱 실제 알림톡 발송: ${phoneNumber} - 템플릿: ${templateId}`);
+  console.log(`📋 메시지 내용: ${processedContent}`);
+  console.log(`🔑 발신프로필: ${pfId}`);
+
   const response = await fetch('https://api.coolsms.co.kr/messages/v4/send', {
     method: 'POST',
     headers: {
-      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_API_KEY}, date=${new Date().toISOString()}, salt=${Date.now()}, signature=${generateSignature()}`,
+      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_API_KEY}, date=${date}, salt=${salt}, signature=${signature}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -357,14 +451,23 @@ async function sendAlimtalk({
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`❌ CoolSMS API 오류: ${response.status} - ${errorText}`);
     throw new Error(`CoolSMS API 오류: ${response.status} - ${errorText}`);
   }
 
   const result = await response.json();
+  console.log(`✅ 알림톡 발송 성공: ${result.groupId || result.messageId}`);
+  
   return {
     messageId: result.groupId || result.messageId,
-    processedContent: templateContent.replace(/#{(\w+)}/g, (match, key) => variables[key] || match)
+    processedContent: processedContent
   };
+}
+
+// CoolSMS HMAC-SHA256 서명 생성
+function generateSignature(apiKey: string, apiSecret: string, date: string, salt: string): string {
+  const data = `${date}${salt}`;
+  return crypto.createHmac('sha256', apiSecret).update(data).digest('hex');
 }
 
 // 발신프로필 선택
@@ -382,9 +485,4 @@ function getPfIdForTemplate(templateId: string): string {
   }
   
   return KAKAO_SENDER_KEY || '';
-}
-
-// CoolSMS 서명 생성 (간단 버전)
-function generateSignature(): string {
-  return 'dummy_signature'; // 실제로는 HMAC-SHA256 계산 필요
 } 

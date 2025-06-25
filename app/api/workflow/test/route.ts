@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById, KakaoAlimtalkTemplateByNumber } from '@/lib/data/kakao-templates';
-import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
+import { getSupabase } from '@/lib/database/supabase-client';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
@@ -115,49 +115,31 @@ export async function POST(request: NextRequest) {
 
     // 스케줄 테스트인 경우 스케줄러에 등록
     if (isScheduledTest) {
-      try {
-        console.log('⏰ 스케줄 테스트 모드: 스케줄러에 등록 중...');
-        
-        // 직접 스케줄러 서비스 호출
-        const testWorkflow = {
-          ...workflow,
-          // 테스트용 워크플로우임을 표시
-          name: `${workflow.name} (스케줄 테스트)`,
-          id: `${workflow.id}_schedule_test_${Date.now()}`
-        };
-
-        const jobId = await persistentSchedulerService.scheduleWorkflow(testWorkflow);
-
-        return NextResponse.json({
-          success: true,
-          message: '스케줄 테스트가 등록되었습니다.',
-          scheduledTest: true,
-          scheduleInfo: {
-            type: scheduleSettings.type,
-            scheduledTime: scheduleSettings.scheduledTime,
-            delay: scheduleSettings.delay,
-            recurringPattern: scheduleSettings.recurringPattern,
-            timezone: scheduleSettings.timezone
-          },
-          jobId: jobId,
-          executionTime: new Date().toISOString(),
-          testSettings: {
-            enableRealSending,
-            fallbackToSMS,
-            phoneNumber
-          },
-          envStatus,
-          realSendingStatus: '스케줄러에 등록됨 - 설정된 시간에 발송 예정'
-        });
-      } catch (schedulerError) {
-        console.error('❌ 스케줄러 등록 실패:', schedulerError);
-        return NextResponse.json({
-          success: false,
-          message: `스케줄 테스트 등록에 실패했습니다: ${schedulerError instanceof Error ? schedulerError.message : '알 수 없는 오류'}`,
-          scheduledTest: true,
-          error: schedulerError
-        }, { status: 500 });
-      }
+      console.log('📅 스케줄 테스트 모드: 스케줄러에 등록 중...');
+      
+      // 크론잡 기반 시스템에서는 스케줄 테스트를 위해 별도 처리 필요
+      console.log('ℹ️ 크론잡 기반 스케줄러에서는 스케줄 테스트가 지원되지 않습니다.');
+      
+      return NextResponse.json({
+        success: true,
+        message: '스케줄 설정이 확인되었습니다. 실제 스케줄 실행은 워크플로우를 저장하고 활성화해주세요.',
+        scheduledTest: true,
+        scheduleInfo: {
+          type: scheduleSettings.type,
+          scheduledTime: scheduleSettings.scheduledTime,
+          delay: scheduleSettings.delay,
+          recurringPattern: scheduleSettings.recurringPattern,
+          timezone: scheduleSettings.timezone
+        },
+        executionTime: new Date().toISOString(),
+        testSettings: {
+          enableRealSending,
+          fallbackToSMS,
+          phoneNumber
+        },
+        envStatus,
+        realSendingStatus: '스케줄 설정 확인됨 - 워크플로우 저장 후 활성화 시 스케줄러에 등록됩니다'
+      });
     }
 
     // 즉시 테스트 실행 (기존 로직)
@@ -746,7 +728,6 @@ async function sendSMS({
     };
   }
 }
-
 // 실제 타겟 그룹에서 연락처 조회
 async function getContactsFromTargetGroups(targetGroups: any[]): Promise<Array<{
   name: string;
@@ -837,3 +818,4 @@ async function getContactsFromTargetGroups(targetGroups: any[]): Promise<Array<{
   console.log(`🎯 전체 조회된 연락처: ${allContacts.length}개`);
   return allContacts;
 }
+

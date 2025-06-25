@@ -61,6 +61,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   const [activeTab, setActiveTab] = useState('basic');
   const [name, setName] = useState(workflow?.name || '');
   const [description, setDescription] = useState(workflow?.description || '');
+  // 🔥 워크플로우 상태 관리 추가
+  const [workflowStatus, setWorkflowStatus] = useState<'draft' | 'active' | 'paused' | 'archived'>(workflow?.status || 'draft');
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>(workflow?.targetGroups || []);
   const [selectedTemplates, setSelectedTemplates] = useState<KakaoTemplate[]>([]);
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({
@@ -389,119 +391,146 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   }, []);
 
   const handleSave = async () => {
-    // 선택된 템플릿들을 워크플로우 단계로 변환 (개인화 설정 포함)
-    const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
-      id: `step_${template.id}_${Date.now()}`,
-      name: `${template.templateName} 발송`,
-      action: {
-        id: `action_${template.id}_${Date.now()}`,
-        type: 'send_alimtalk',
-        templateId: template.id,
-        templateCode: template.templateCode,
-        templateName: template.templateName,
-        variables: templateVariables[template.id] || {},
-        scheduleSettings: scheduleSettings,
-        personalization: templatePersonalizations[template.id]
-      } as any,
-      position: { x: 100, y: index * 150 + 100 }
-    }));
-
-    // 스케줄 설정에 따라 동적으로 트리거 설정
-    const getTriggerInfo = () => {
-      if (scheduleSettings.type === 'immediate') {
-        return {
-          type: 'manual' as const,
-          name: '수동 실행',
-          description: '관리자가 수동으로 실행하는 워크플로우'
-        };
-      } else {
-        return {
-          type: 'schedule' as const,
-          name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay}분 후)` :
-                scheduleSettings.type === 'scheduled' ? '예약 실행' :
-                scheduleSettings.type === 'recurring' ? '반복 실행' : '스케줄 실행',
-          description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay}분 후 자동 실행되는 워크플로우` :
-                      scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
-                      scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
-                      '스케줄에 따라 자동 실행되는 워크플로우'
-        };
+    try {
+      console.log("🎯 WorkflowBuilder handleSave 함수 호출됨:", {
+        name,
+        description,
+        scheduleSettings,
+        selectedTemplatesCount: selectedTemplates.length,
+        targetGroupsCount: targetGroups.length,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log("🔍 상세 상태 정보:", {
+        name: name,
+        description: description,
+        scheduleSettings: JSON.stringify(scheduleSettings, null, 2),
+        selectedTemplates: selectedTemplates.map(t => ({ id: t.id, name: t.templateName })),
+        targetGroups: targetGroups.map(tg => ({ id: tg.id, name: tg.name })),
+        onSave: typeof onSave,
+        onSaveExists: !!onSave
+      });
+      
+      if (!onSave) {
+        console.error("❌ onSave 함수가 존재하지 않습니다!");
+        alert("onSave 함수가 존재하지 않습니다!");
+        return;
       }
-    };
-
-    const triggerInfo = getTriggerInfo();
-    const defaultTrigger: WorkflowTrigger = {
-      id: 'trigger_auto',
-      type: triggerInfo.type,
-      name: triggerInfo.name,
-      description: triggerInfo.description,
-      conditions: [],
-      conditionLogic: 'AND'
-    };
-
-    const workflowData: Workflow = {
-      id: workflow?.id || `workflow_${Date.now()}`,
-      name,
-      description,
-      status: 'draft',
-      trigger: defaultTrigger,
-      targetGroups,
-      steps: templateSteps,
-      testSettings,
-      scheduleSettings,
-      createdAt: workflow?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      stats: {
-        totalRuns: 0,
-        successRate: 0
-      },
-      // 대상-템플릿 매핑 정보를 워크플로우 레벨에서 별도 저장
-      targetTemplateMappings: targetTemplateMappings
-    };
-
-    console.log('💾 워크플로우 저장:', {
-      name: workflowData.name,
-      triggerType: defaultTrigger.type,
-      triggerName: defaultTrigger.name,
-      scheduleType: scheduleSettings.type,
-      targetGroupsCount: targetGroups.length,
-      stepsCount: workflowData.steps.length,
-      mappingsCount: targetTemplateMappings.length
-    });
-
-    // 워크플로우 저장
-    onSave(workflowData);
-
-    // 스케줄 설정이 있고 즉시 실행이 아닌 경우 스케줄러에 등록
-    // 기존 워크플로우가 활성 상태이거나 새로 활성화하는 경우 스케줄러 업데이트
-    const isActiveWorkflow = workflow?.status === 'active' || workflowData.status === 'active';
-    
-    if (scheduleSettings.type !== 'immediate' && isActiveWorkflow) {
-      try {
-        console.log('🔄 활성 워크플로우의 스케줄 설정 변경, 스케줄러 업데이트 중...');
-        
-        const response = await fetch('/api/scheduler', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'update_workflow_schedule',
-            workflowId: workflowData.id,
-            scheduleConfig: scheduleSettings
-          })
+      
+      console.log("🚀 워크플로우 데이터 생성 시작...");
+      
+      console.log("📝 템플릿 단계 생성 중...", { selectedTemplatesLength: selectedTemplates.length });
+      
+      // 선택된 템플릿들을 워크플로우 단계로 변환 (개인화 설정 포함)
+      const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => {
+        console.log(`📋 템플릿 ${index + 1} 처리 중:`, { 
+          id: template.id, 
+          name: template.templateName,
+          hasVariables: !!templateVariables[template.id],
+          hasPersonalization: !!templatePersonalizations[template.id]
         });
-
-        const result = await response.json();
         
-        if (result.success) {
-          console.log('✅ 워크플로우 스케줄러가 업데이트되었습니다:', result.message);
-          // 성공 알림 표시 (선택사항)
+        return {
+          id: `step_${template.id}_${Date.now()}`,
+          name: `${template.templateName} 발송`,
+          action: {
+            id: `action_${template.id}_${Date.now()}`,
+            type: 'send_alimtalk',
+            templateId: template.id,
+            templateCode: template.templateCode,
+            templateName: template.templateName,
+            variables: templateVariables[template.id] || {},
+            scheduleSettings: scheduleSettings,
+            personalization: templatePersonalizations[template.id]
+          } as any,
+          position: { x: 100, y: index * 150 + 100 }
+        };
+      });
+      
+      console.log("✅ 템플릿 단계 생성 완료:", { stepsCount: templateSteps.length });
+
+      console.log("🔧 트리거 정보 생성 중...");
+      
+      // 스케줄 설정에 따라 동적으로 트리거 설정
+      const getTriggerInfo = () => {
+        if (scheduleSettings.type === 'immediate') {
+          return {
+            type: 'manual' as const,
+            name: '수동 실행',
+            description: '관리자가 수동으로 실행하는 워크플로우'
+          };
         } else {
-          console.error('❌ 스케줄러 업데이트 실패:', result.message);
+          return {
+            type: 'schedule' as const,
+            name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay}분 후)` :
+                  scheduleSettings.type === 'scheduled' ? '예약 실행' :
+                  scheduleSettings.type === 'recurring' ? '반복 실행' : '스케줄 실행',
+            description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay}분 후 자동 실행되는 워크플로우` :
+                        scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
+                        scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
+                        '스케줄에 따라 자동 실행되는 워크플로우'
+          };
         }
-      } catch (error) {
-        console.error('❌ 스케줄러 업데이트 중 오류:', error);
-      }
+      };
+
+      const triggerInfo = getTriggerInfo();
+      console.log("✅ 트리거 정보 생성 완료:", triggerInfo);
+      
+      const defaultTrigger: WorkflowTrigger = {
+        id: 'trigger_auto',
+        type: triggerInfo.type,
+        name: triggerInfo.name,
+        description: triggerInfo.description,
+        conditions: [],
+        conditionLogic: 'AND'
+      };
+
+      console.log("🏗️ 워크플로우 데이터 객체 생성 중...");
+      
+      const workflowData: Workflow = {
+        id: workflow?.id || `workflow_${Date.now()}`,
+        name,
+        description,
+        status: workflowStatus, // 🔥 하드코딩된 'draft' 대신 workflowStatus 사용
+        trigger: defaultTrigger,
+        targetGroups,
+        steps: templateSteps,
+        testSettings,
+        scheduleSettings,
+        createdAt: workflow?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        stats: {
+          totalRuns: 0,
+          successRate: 0
+        },
+        // 대상-템플릿 매핑 정보를 워크플로우 레벨에서 별도 저장
+        targetTemplateMappings: targetTemplateMappings
+      };
+
+      console.log('💾 워크플로우 저장:', {
+        name: workflowData.name,
+        triggerType: defaultTrigger.type,
+        triggerName: defaultTrigger.name,
+        scheduleType: scheduleSettings.type,
+        targetGroupsCount: targetGroups.length,
+        stepsCount: workflowData.steps.length,
+        mappingsCount: targetTemplateMappings.length
+      });
+
+      console.log("📞 onSave 함수 호출 중...");
+      
+      // 워크플로우 저장
+      onSave(workflowData);
+
+      console.log('✅ onSave 함수 호출 완료');
+      
+      // 🔥 크론잡 기반 시스템에서는 별도의 스케줄러 업데이트가 필요하지 않음
+      // 워크플로우가 활성화될 때 자동으로 크론잡에서 처리됨
+      console.log('✅ 워크플로우 저장 완료 - 크론잡 시스템에서 자동 처리됩니다.');
+    } catch (error) {
+      console.error("🔥 handleSave 함수에서 오류 발생:", error);
+      console.error("🔥 오류 스택:", error instanceof Error ? error.stack : '스택 정보 없음');
+      alert(`저장 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -792,6 +821,48 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   placeholder="이 워크플로우가 무엇을 하는지 설명해주세요"
                   rows={3}
                 />
+              </div>
+              
+              {/* 🔥 워크플로우 상태 선택 추가 */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">워크플로우 상태</label>
+                <Select value={workflowStatus} onValueChange={(value: 'draft' | 'active' | 'paused' | 'archived') => setWorkflowStatus(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="상태를 선택하세요" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                        <span>초안 (Draft)</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="active">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span>활성 (Active)</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="paused">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                        <span>일시정지 (Paused)</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="archived">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span>보관됨 (Archived)</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {workflowStatus === 'draft' && '초안 상태입니다. 스케줄러에 등록되지 않습니다.'}
+                  {workflowStatus === 'active' && '활성 상태입니다. 스케줄 설정에 따라 자동 실행됩니다.'}
+                  {workflowStatus === 'paused' && '일시정지 상태입니다. 스케줄 실행이 중단됩니다.'}
+                  {workflowStatus === 'archived' && '보관된 상태입니다. 실행되지 않습니다.'}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -1285,7 +1356,24 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">상태</label>
                     <div className="text-sm mt-1">
-                      <Badge variant="outline">Draft</Badge>
+                      <Badge variant={workflowStatus === 'active' ? 'default' : 'outline'} className={`
+                        ${workflowStatus === 'active' ? 'bg-green-100 text-green-800 border-green-300' : ''}
+                        ${workflowStatus === 'paused' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' : ''}
+                        ${workflowStatus === 'archived' ? 'bg-red-100 text-red-800 border-red-300' : ''}
+                        ${workflowStatus === 'draft' ? 'bg-gray-100 text-gray-800 border-gray-300' : ''}
+                      `}>
+                        <div className="flex items-center gap-1">
+                          <div className={`w-2 h-2 rounded-full ${
+                            workflowStatus === 'active' ? 'bg-green-500' :
+                            workflowStatus === 'paused' ? 'bg-yellow-500' :
+                            workflowStatus === 'archived' ? 'bg-red-500' : 'bg-gray-400'
+                          }`}></div>
+                          {workflowStatus === 'draft' && '초안'}
+                          {workflowStatus === 'active' && '활성'}
+                          {workflowStatus === 'paused' && '일시정지'}
+                          {workflowStatus === 'archived' && '보관됨'}
+                        </div>
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -1753,7 +1841,18 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     : '즉시 테스트 실행'}
                 </Button>
               )}
-              <Button onClick={handleSave}>
+              <Button onClick={() => {
+                try {
+                  console.log("🔥 저장 버튼 클릭됨! 시작...");
+                  alert('저장 버튼 클릭됨!');
+                  console.log("🔥 handleSave 호출 전...");
+                  handleSave();
+                  console.log("🔥 handleSave 호출 후...");
+                } catch (error) {
+                  console.error("🔥 저장 버튼 클릭 중 오류:", error);
+                  alert(`저장 버튼 클릭 중 오류: ${error}`);
+                }
+              }}>
                 <Save className="w-4 h-4 mr-2" />
                 워크플로우 저장
               </Button>

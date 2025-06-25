@@ -1,91 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
-import persistentSchedulerService from '@/lib/services/persistent-scheduler-service';
 
-// 테스트용 스케줄 설정 API
+// 한국시간 헬퍼 함수
+function getKoreaTime(): Date {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
+  return koreaTime;
+}
+
+// 테스트용 스케줄 생성 API
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { workflowId, time } = body;
+    const { workflowName, scheduledTime } = body;
     
-    if (!workflowId || !time) {
+    if (!workflowName || !scheduledTime) {
       return NextResponse.json({
         success: false,
-        message: 'workflowId와 time이 필요합니다.'
+        message: 'workflowName과 scheduledTime이 필요합니다.'
       }, { status: 400 });
     }
-
-    const client = getSupabase();
     
-    // 스케줄 설정 업데이트
-    const scheduleSettings = {
-      type: 'recurring',
-      timezone: 'Asia/Seoul',
-      recurringPattern: {
-        time: time,
-        interval: 1,
-        frequency: 'daily'
-      }
-    };
-
-    console.log(`📅 워크플로우 ${workflowId} 스케줄을 ${time}으로 설정 중...`);
-
-    // 1. 워크플로우 업데이트
-    const { data: workflow, error: updateError } = await client
-      .from('workflows')
-      .update({ 
-        schedule_settings: scheduleSettings,
-        status: 'active'
+    const client = getSupabase();
+    const now = getKoreaTime();
+    
+    // 테스트 작업을 scheduled_jobs 테이블에 직접 추가
+    const { data: newJob, error } = await client
+      .from('scheduled_jobs')
+      .insert({
+        workflow_id: `test-${Date.now()}`,
+        workflow_data: {
+          id: `test-${Date.now()}`,
+          name: workflowName,
+          description: '테스트용 워크플로우',
+          message_config: {
+            steps: [
+              {
+                type: 'alimtalk',
+                templateCode: 'test_template',
+                message: '테스트 메시지입니다.'
+              }
+            ]
+          }
+        },
+        scheduled_time: new Date(scheduledTime).toISOString(),
+        status: 'pending',
+        retry_count: 0,
+        max_retries: 1,
+        created_at: now.toISOString()
       })
-      .eq('id', workflowId)
       .select()
       .single();
-
-    if (updateError) {
-      console.error('❌ 워크플로우 업데이트 실패:', updateError);
+    
+    if (error) {
+      console.error('❌ 테스트 스케줄 생성 실패:', error);
       return NextResponse.json({
         success: false,
-        message: '워크플로우 업데이트 실패: ' + updateError.message
+        message: '테스트 스케줄 생성 실패: ' + error.message
       }, { status: 500 });
     }
-
-    console.log('✅ 워크플로우 업데이트 완료:', workflow);
-
-    // 2. 기존 예약된 작업들 취소
-    await persistentSchedulerService.cancelWorkflowJobs(workflowId);
-
-    // 3. 새로운 스케줄로 작업 예약
-    const newWorkflow = {
-      id: workflow.id,
-      name: workflow.name,
-      description: workflow.description || '',
-      status: 'active' as const,
-      trigger: workflow.trigger || { type: 'schedule' },
-      steps: workflow.steps || [],
-      scheduleSettings: scheduleSettings,
-      createdAt: workflow.created_at,
-      updatedAt: workflow.updated_at
-    };
-
-    const jobId = await persistentSchedulerService.scheduleWorkflow(newWorkflow as any);
-
-    console.log(`✅ 새로운 스케줄 작업 예약 완료: ${jobId}`);
-
+    
+    console.log('✅ 테스트 스케줄 생성 완료:', newJob);
+    
     return NextResponse.json({
       success: true,
-      message: `워크플로우가 ${time}으로 스케줄되었습니다.`,
       data: {
-        workflowId,
-        scheduledTime: time,
-        jobId
+        jobId: newJob.id,
+        workflowName,
+        scheduledTime: new Date(scheduledTime).toLocaleString('ko-KR'),
+        message: '테스트 스케줄이 생성되었습니다.'
       }
     });
-
+    
   } catch (error) {
-    console.error('❌ 테스트 스케줄 설정 실패:', error);
+    console.error('❌ 테스트 스케줄 API 오류:', error);
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: '테스트 스케줄 생성 실패: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 } 

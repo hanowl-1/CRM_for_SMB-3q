@@ -6,11 +6,97 @@ import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json();
+    const { action } = body;
+
     if (!supabaseAdmin) {
       return NextResponse.json({
         success: false,
         message: 'Supabase admin client가 초기화되지 않았습니다. 환경변수를 확인해주세요.'
       }, { status: 500 });
+    }
+
+    // mapping_templates 테이블 생성 액션
+    if (action === 'create_mapping_templates_table') {
+      const createTableSQL = `
+        -- 매핑 템플릿 테이블 생성
+        CREATE TABLE IF NOT EXISTS mapping_templates (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name VARCHAR(255) NOT NULL,
+          description TEXT,
+          category VARCHAR(100) DEFAULT 'general',
+          tags TEXT[] DEFAULT '{}',
+          
+          -- 매핑 정보
+          target_template_mappings JSONB NOT NULL DEFAULT '[]',
+          
+          -- 메타데이터
+          usage_count INTEGER DEFAULT 0,
+          last_used_at TIMESTAMP WITH TIME ZONE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          created_by UUID,
+          
+          -- 공유 설정
+          is_public BOOLEAN DEFAULT false,
+          is_favorite BOOLEAN DEFAULT false,
+          
+          -- 인덱스
+          CONSTRAINT mapping_templates_name_check CHECK (LENGTH(name) >= 1)
+        );
+
+        -- 인덱스 생성
+        CREATE INDEX IF NOT EXISTS idx_mapping_templates_category ON mapping_templates(category);
+        CREATE INDEX IF NOT EXISTS idx_mapping_templates_created_at ON mapping_templates(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_mapping_templates_usage_count ON mapping_templates(usage_count DESC);
+        CREATE INDEX IF NOT EXISTS idx_mapping_templates_is_public ON mapping_templates(is_public);
+        CREATE INDEX IF NOT EXISTS idx_mapping_templates_is_favorite ON mapping_templates(is_favorite);
+
+        -- 업데이트 트리거 함수
+        CREATE OR REPLACE FUNCTION update_mapping_templates_updated_at()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          NEW.updated_at = NOW();
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        -- 트리거 생성
+        DROP TRIGGER IF EXISTS trigger_mapping_templates_updated_at ON mapping_templates;
+        CREATE TRIGGER trigger_mapping_templates_updated_at
+          BEFORE UPDATE ON mapping_templates
+          FOR EACH ROW
+          EXECUTE FUNCTION update_mapping_templates_updated_at();
+      `;
+
+      try {
+        // 직접 SQL 실행
+        const { data, error } = await supabaseAdmin.rpc('exec_sql', {
+          sql_query: createTableSQL
+        });
+
+        if (error) {
+          console.error('❌ mapping_templates 테이블 생성 실패:', error);
+          return NextResponse.json({
+            success: false,
+            message: `테이블 생성 실패: ${error.message}`
+          }, { status: 500 });
+        }
+
+        console.log('✅ mapping_templates 테이블 생성 성공');
+        
+        return NextResponse.json({
+          success: true,
+          message: 'mapping_templates 테이블이 성공적으로 생성되었습니다.'
+        });
+
+      } catch (sqlError) {
+        console.error('❌ SQL 실행 오류:', sqlError);
+        return NextResponse.json({
+          success: false,
+          message: `SQL 실행 오류: ${sqlError instanceof Error ? sqlError.message : '알 수 없는 오류'}`
+        }, { status: 500 });
+      }
     }
 
     // 스키마 파일 읽기

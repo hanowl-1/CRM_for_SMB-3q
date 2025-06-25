@@ -243,14 +243,8 @@ function DashboardContent() {
     try {
       console.log('🔄 스케줄러 상태 로드 시도...');
       
-      // 절대 URL로 변경하여 네트워크 오류 방지
-      const baseUrl = typeof window !== 'undefined' 
-        ? window.location.origin 
-        : (process.env.NODE_ENV === 'production' 
-          ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
-          : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'));
-      
-      const url = `${baseUrl}/api/scheduler?action=status`;
+      // 상대 경로로 단순화
+      const url = '/api/scheduler/monitor';
       console.log('📡 요청 URL:', url);
       
       const response = await fetch(url, {
@@ -258,8 +252,8 @@ function DashboardContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        // 네트워크 타임아웃 설정
-        signal: AbortSignal.timeout(10000) // 10초 타임아웃
+        // 캐시 방지
+        cache: 'no-store'
       });
       
       console.log('📡 스케줄러 API 응답:', response.status, response.statusText);
@@ -268,79 +262,82 @@ function DashboardContent() {
         const result = await response.json();
         console.log('📊 스케줄러 상태 결과:', result);
         
-        if (result.success) {
-          setSchedulerStatus(result.data);
-          console.log('✅ 스케줄러 상태 업데이트 완료:', result.data);
+        if (result.success && result.data) {
+          const { stats, upcomingJobs, recentJobs } = result.data;
+          
+          // 새로운 데이터 구조에 맞게 상태 설정
+          setSchedulerStatus({
+            isRunning: stats.isRunning,
+            totalJobs: stats.totalJobs,
+            pendingJobs: stats.pendingJobs,
+            runningJobs: stats.runningJobs,
+            completedJobs: stats.completedJobs,
+            failedJobs: stats.failedJobs,
+            activeWorkflows: workflows.filter(w => w.status === 'active').length,
+            scheduledWorkflows: stats.pendingJobs, // 대기 중인 작업 수를 스케줄된 워크플로우로 표시
+            totalExecutions: stats.completedJobs + stats.failedJobs,
+            todayExecutions: recentJobs?.length || 0,
+            currentJobs: {
+              pending: stats.pendingJobs,
+              running: stats.runningJobs
+            },
+            lastExecutionTime: recentJobs && recentJobs.length > 0 
+              ? recentJobs[0].completedTimeKST || '실행 중'
+              : '실행 기록 없음',
+            nextJob: upcomingJobs && upcomingJobs.length > 0 ? {
+              workflow: { name: upcomingJobs[0].workflowName },
+              scheduledTime: upcomingJobs[0].scheduledTime
+            } : null
+          });
+          
+          console.log('✅ 스케줄러 상태 업데이트 완료:', {
+            pendingJobs: stats.pendingJobs,
+            runningJobs: stats.runningJobs,
+            upcomingJobsCount: upcomingJobs?.length || 0
+          });
         } else {
           console.warn('⚠️ 스케줄러 상태 로드 실패:', result.message);
           // 실패 시 기본값 설정
-          setSchedulerStatus({
-            isRunning: false,
-            totalJobs: 0,
-            pendingJobs: 0,
-            runningJobs: 0,
-            completedJobs: 0,
-            failedJobs: 0,
-            activeWorkflows: 0,
-            scheduledWorkflows: 0,
-            totalExecutions: 0,
-            todayExecutions: 0,
-            currentJobs: {
-              pending: 0,
-              running: 0
-            },
-            lastExecutionTime: '실행 기록 없음'
-          });
+          setSchedulerStatus(getDefaultSchedulerStatus());
         }
       } else {
         console.error('❌ 스케줄러 API 호출 실패:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('❌ 오류 응답:', errorText);
+        
+        // 404 오류인 경우 특별 처리
+        if (response.status === 404) {
+          console.error('❌ API 엔드포인트를 찾을 수 없습니다. 라우트를 확인하세요.');
+        }
         
         // HTTP 오류 시 기본값 설정
-        setSchedulerStatus({
-          isRunning: false,
-          totalJobs: 0,
-          pendingJobs: 0,
-          runningJobs: 0,
-          completedJobs: 0,
-          failedJobs: 0,
-          activeWorkflows: 0,
-          scheduledWorkflows: 0,
-          totalExecutions: 0,
-          todayExecutions: 0,
-          currentJobs: {
-            pending: 0,
-            running: 0
-          },
-          lastExecutionTime: '실행 기록 없음'
-        });
+        setSchedulerStatus(getDefaultSchedulerStatus());
       }
     } catch (error) {
       console.error('❌ 스케줄러 상태 로드 실패:', error);
-      console.error('❌ 오류 타입:', error instanceof Error ? error.constructor.name : typeof error);
-      console.error('❌ 오류 메시지:', error instanceof Error ? error.message : String(error));
       
       // 네트워크 오류나 타임아웃 시 기본값 설정
-      setSchedulerStatus({
-        isRunning: false,
-        totalJobs: 0,
-        pendingJobs: 0,
-        runningJobs: 0,
-        completedJobs: 0,
-        failedJobs: 0,
-        activeWorkflows: 0,
-        scheduledWorkflows: 0,
-        totalExecutions: 0,
-        todayExecutions: 0,
-        currentJobs: {
-          pending: 0,
-          running: 0
-        },
-        lastExecutionTime: '실행 기록 없음'
-      });
+      setSchedulerStatus(getDefaultSchedulerStatus());
     }
   };
+
+  // 기본 스케줄러 상태 함수
+  const getDefaultSchedulerStatus = () => ({
+    isRunning: false,
+    totalJobs: 0,
+    pendingJobs: 0,
+    runningJobs: 0,
+    completedJobs: 0,
+    failedJobs: 0,
+    activeWorkflows: 0,
+    scheduledWorkflows: 0,
+    totalExecutions: 0,
+    todayExecutions: 0,
+    currentJobs: {
+      pending: 0,
+      running: 0
+    },
+    lastExecutionTime: '실행 기록 없음',
+    nextJob: null
+  });
 
   // 워크플로우 상태 변경 핸들러
   const handleToggleWorkflowStatus = async (workflowId: string, currentStatus: string) => {
@@ -380,134 +377,16 @@ function DashboardContent() {
         
         // 활성화된 워크플로우인 경우 스케줄러에 등록 시도
         if (newStatus === 'active') {
-          console.log('🚀 워크플로우 활성화됨, 스케줄러 등록 확인 중...');
-          try {
-            // 워크플로우 전체 정보를 가져와서 스케줄러에 등록
-            const workflowResponse = await fetch(`/api/supabase/workflows/${workflowId}`);
-            if (workflowResponse.ok) {
-              const workflowResult = await workflowResponse.json();
-              if (workflowResult.success && workflowResult.data) {
-                const supabaseWorkflow = workflowResult.data;
-                
-                console.log('📊 Supabase 워크플로우 데이터:', {
-                  id: supabaseWorkflow.id,
-                  name: supabaseWorkflow.name,
-                  schedule_config: supabaseWorkflow.schedule_config,
-                  trigger_type: supabaseWorkflow.trigger_type
-                });
-                
-                // Supabase 데이터를 스케줄러가 이해할 수 있는 형태로 변환
-                const scheduleSettings = supabaseWorkflow.schedule_config || { type: 'immediate', timezone: 'Asia/Seoul' };
-                
-                // 스케줄 설정이 있고 즉시 실행이 아닌 경우에만 스케줄러에 등록
-                if (scheduleSettings.type && scheduleSettings.type !== 'immediate') {
-                  console.log('⏰ 스케줄 설정 발견, 스케줄러에 등록 중...', scheduleSettings);
-                  
-                  // 스케줄러가 예상하는 워크플로우 형태로 변환
-                  const schedulerWorkflow = {
-                    id: supabaseWorkflow.id,
-                    name: supabaseWorkflow.name,
-                    description: supabaseWorkflow.description || '',
-                    status: 'active',
-                    scheduleSettings: scheduleSettings,
-                    // 스케줄 설정에 따라 동적으로 트리거 설정
-                    trigger: {
-                      id: 'trigger_schedule',
-                      type: scheduleSettings.type === 'immediate' ? 'manual' : 'schedule',
-                      name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay || 60}분 후)` :
-                            scheduleSettings.type === 'scheduled' ? '예약 실행' :
-                            scheduleSettings.type === 'recurring' ? '반복 실행' :
-                            scheduleSettings.type === 'immediate' ? '수동 실행' : '스케줄 실행',
-                      description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay || 60}분 후 자동 실행되는 워크플로우` :
-                                  scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
-                                  scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
-                                  scheduleSettings.type === 'immediate' ? '관리자가 수동으로 실행하는 워크플로우' :
-                                  '스케줄에 따라 자동 실행되는 워크플로우',
-                      conditions: [],
-                      conditionLogic: 'AND'
-                    },
-                    // 기본 단계 설정 (실제 실행 시에는 Supabase에서 다시 조회)
-                    steps: supabaseWorkflow.message_config?.steps || [],
-                    targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
-                    testSettings: supabaseWorkflow.variables?.testSettings || {
-                      testPhoneNumber: '',
-                      enableRealSending: true,
-                      fallbackToSMS: false
-                    },
-                    createdAt: supabaseWorkflow.created_at,
-                    updatedAt: supabaseWorkflow.updated_at,
-                    stats: {
-                      totalRuns: 0,
-                      successRate: 0
-                    }
-                  };
-                  
-                  console.log('🔄 스케줄러 등록용 워크플로우 데이터:', {
-                    id: schedulerWorkflow.id,
-                    name: schedulerWorkflow.name,
-                    scheduleType: schedulerWorkflow.scheduleSettings.type,
-                    scheduledTime: schedulerWorkflow.scheduleSettings.scheduledTime,
-                    delay: schedulerWorkflow.scheduleSettings.delay
-                  });
-                  
-                  const scheduleResponse = await fetch('/api/scheduler', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      action: 'schedule',
-                      workflow: schedulerWorkflow
-                    })
-                  });
-                  
-                  if (scheduleResponse.ok) {
-                    const scheduleResult = await scheduleResponse.json();
-                    console.log('✅ 워크플로우가 스케줄러에 등록되었습니다:', scheduleResult.data?.jobId);
-                    
-                    // 스케줄러 상태 즉시 새로고침 (여러 번 시도)
-                    setTimeout(() => loadSchedulerStatus(), 500);
-                    setTimeout(() => loadSchedulerStatus(), 2000);
-                    setTimeout(() => loadSchedulerStatus(), 5000);
-                  } else {
-                    const errorText = await scheduleResponse.text();
-                    console.error('❌ 스케줄러 등록 실패:', errorText);
-                  }
-                } else {
-                  console.log('ℹ️ 즉시 실행 워크플로우이므로 스케줄러에 등록하지 않습니다.');
-                }
-              }
-            }
-          } catch (scheduleError) {
-            console.error('스케줄러 등록 실패:', scheduleError);
-          }
+          console.log('🚀 워크플로우 활성화됨, 크론잡 시스템에서 자동 처리됩니다.');
+          
+          // 🔥 크론잡 기반 시스템에서는 별도의 스케줄러 등록이 필요하지 않음
+          // 활성 워크플로우는 크론잡에서 자동으로 감지하여 처리됨
+          console.log('ℹ️ 크론잡 시스템: 활성 워크플로우는 자동으로 스케줄링됩니다.');
+          
         } else if (newStatus === 'paused') {
-          // 일시정지된 워크플로우의 경우 스케줄러에서 작업 취소
-          console.log('⏸️ 워크플로우 일시정지됨, 스케줄러에서 작업 취소 중...');
-          try {
-            const cancelResponse = await fetch('/api/scheduler', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                action: 'cancel_workflow',
-                workflowId: workflowId
-              })
-            });
-            
-            if (cancelResponse.ok) {
-              const cancelResult = await cancelResponse.json();
-              console.log('✅ 스케줄러에서 작업 취소 완료:', cancelResult.data?.cancelledCount);
-              
-              // 스케줄러 상태 새로고침
-              setTimeout(() => loadSchedulerStatus(), 500);
-            } else {
-              console.error('❌ 스케줄러 작업 취소 실패:', await cancelResponse.text());
-            }
-          } catch (cancelError) {
-            console.error('스케줄러 작업 취소 실패:', cancelError);
-          }
+          // 일시정지된 워크플로우의 경우 크론잡 시스템에서 자동으로 처리됨
+          console.log('⏸️ 워크플로우 일시정지됨, 크론잡 시스템에서 자동으로 비활성화됩니다.');
+          console.log('ℹ️ 크론잡 시스템: 비활성 워크플로우는 자동으로 스케줄에서 제외됩니다.');
         }
         
       } else {

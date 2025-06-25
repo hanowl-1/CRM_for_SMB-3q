@@ -1,5 +1,5 @@
-# 데이터베이스 스키마 문서
-## 메시지 자동화 플랫폼 - 데이터베이스 스키마
+# 데이터베이스 스키마 문서 v2.0
+## 메시지 자동화 플랫폼 - 최적화된 데이터베이스 스키마
 
 ### 1. 개요
 
@@ -9,17 +9,25 @@
 - **MySQL (기존 운영 DB)**: 고객 데이터, 구독 정보 (읽기 전용)
 - **Supabase PostgreSQL**: 메시지 플랫폼 전용 데이터 (읽기/쓰기)
 
-#### 1.2 설계 원칙
+#### 1.2 워크플로우 기반 설계 원칙
+**3단계 워크플로우 최적화**
+1. **알림톡 선택**: 템플릿 변수 동적 쿼리 설정
+2. **대상 선정**: MySQL 동적 쿼리로 상황별 대상자 추출  
+3. **대상-템플릿 매핑**: 개인화 메시지를 위한 변수-컬럼 매핑
+
+#### 1.3 설계 원칙
+- **워크플로우 중심**: 3단계 프로세스에 최적화된 구조
 - **안전한 분리**: 운영 DB와 플랫폼 DB 완전 분리
 - **실시간 연동**: MySQL 데이터 실시간 조회 및 활용
+- **매핑 효율성**: 변수-컬럼 매핑 정보의 재사용성 극대화
 - **확장성**: 플랫폼 기능 확장에 유연한 구조
 - **보안**: RLS(Row Level Security) 적용
 
 ### 2. ✅ Supabase 스키마 (플랫폼 전용)
 
-#### 2.1 ✅ 워크플로우 관리
+#### 2.1 ✅ 워크플로우 관리 (핵심 테이블)
 
-##### 2.1.1 ✅ workflows 테이블
+##### 2.1.1 ✅ workflows 테이블 (개선됨)
 ```sql
 CREATE TABLE workflows (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -27,13 +35,22 @@ CREATE TABLE workflows (
   description TEXT,
   status VARCHAR(50) DEFAULT 'draft' 
     CHECK (status IN ('draft', 'active', 'paused', 'archived')),
+  
+  -- 트리거 설정
   trigger_type VARCHAR(100) NOT NULL 
     CHECK (trigger_type IN ('manual', 'schedule', 'event', 'webhook')),
   trigger_config JSONB DEFAULT '{}',
-  target_config JSONB DEFAULT '{}',    -- MySQL 쿼리 설정
-  message_config JSONB DEFAULT '{}',   -- 메시지 템플릿 설정
-  variables JSONB DEFAULT '{}',        -- 변수 매핑
+  
+  -- 🔥 핵심: 3단계 워크플로우 데이터
+  target_config JSONB DEFAULT '{}',    -- 대상 선정 (MySQL 쿼리 + 정적 그룹)
+  message_config JSONB DEFAULT '{}',   -- 알림톡 템플릿 선택 정보
+  mapping_config JSONB DEFAULT '{}',   -- 대상-템플릿 매핑 정보 (NEW)
+  
+  -- 실행 설정
   schedule_config JSONB DEFAULT '{}',  -- 스케줄 설정
+  variables JSONB DEFAULT '{}',        -- 템플릿 변수 설정 (레거시 호환)
+  
+  -- 메타데이터
   statistics JSONB DEFAULT '{}',       -- 실행 통계
   last_run_at TIMESTAMP WITH TIME ZONE,
   next_run_at TIMESTAMP WITH TIME ZONE,
@@ -43,11 +60,69 @@ CREATE TABLE workflows (
 );
 ```
 
-**주요 필드 설명:**
-- `target_config`: MySQL 쿼리 또는 정적 대상 설정
-- `message_config`: 선택된 템플릿 및 메시지 설정
-- `variables`: 대상-템플릿 간 변수 매핑 정보
-- `schedule_config`: 발송 타이밍 및 스케줄 설정
+**주요 개선사항:**
+- `mapping_config`: 대상-템플릿 매핑 정보를 별도 필드로 분리
+- `target_config`: 동적 쿼리 그룹과 정적 그룹을 통합 관리
+- `message_config`: 선택된 알림톡 템플릿과 변수 쿼리 설정
+
+**필드별 JSON 구조:**
+```typescript
+// target_config 구조
+{
+  "targetGroups": [
+    {
+      "id": "group_1",
+      "name": "명덕가는 테스트",
+      "type": "dynamic",
+      "dynamicQuery": {
+        "sql": "SELECT id, contacts, company_name FROM customers WHERE ...",
+        "description": "특정 조건의 고객 조회"
+      }
+    }
+  ]
+}
+
+// message_config 구조  
+{
+  "templates": [
+    {
+      "id": "template_1",
+      "templateCode": "TK_001",
+      "templateName": "성과 리포트",
+      "variables": {
+        "total_reviews": {
+          "sourceType": "query",
+          "sql": "SELECT COUNT(*) FROM reviews WHERE company_id = ?",
+          "defaultValue": "0"
+        }
+      }
+    }
+  ]
+}
+
+// mapping_config 구조 (NEW)
+{
+  "targetTemplateMappings": [
+    {
+      "id": "mapping_1", 
+      "targetGroupId": "group_1",
+      "templateId": "template_1",
+      "fieldMappings": [
+        {
+          "templateVariable": "company_name",
+          "targetField": "company_name", 
+          "formatter": "text"
+        },
+        {
+          "templateVariable": "total_reviews",
+          "targetField": "review_count",
+          "formatter": "number"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ##### 2.1.2 ✅ workflow_runs 테이블
 ```sql
@@ -69,23 +144,31 @@ CREATE TABLE workflow_runs (
 );
 ```
 
-#### 2.2 ✅ 메시지 템플릿 관리
+#### 2.2 ✅ 알림톡 템플릿 관리 (1단계: 알림톡 선택)
 
-##### 2.2.1 ✅ message_templates 테이블
+##### 2.2.1 ✅ kakao_templates 테이블 (개선됨)
 ```sql
-CREATE TABLE message_templates (
+CREATE TABLE kakao_templates (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  description TEXT,
+  template_code VARCHAR(100) NOT NULL UNIQUE, -- CoolSMS 템플릿 코드
+  template_name VARCHAR(255) NOT NULL,
   category VARCHAR(100) 
     CHECK (category IN ('welcome', 'reminder', 'promotion', 
-                       'notification', 'alert', 'survey', 'thanks', 'others')),
-  message_type VARCHAR(50) NOT NULL 
-    CHECK (message_type IN ('sms', 'lms', 'kakao')),
-  template_code VARCHAR(100),  -- CoolSMS 템플릿 코드
-  content TEXT NOT NULL,
-  variables JSONB DEFAULT '[]',
-  buttons JSONB DEFAULT '[]',  -- 알림톡 버튼 설정
+                       'notification', 'alert', 'survey', 'thanks', 'performance')),
+  
+  -- 템플릿 내용
+  template_content TEXT NOT NULL,
+  template_extra TEXT,
+  template_ad TEXT,
+  
+  -- 🔥 변수 정보 (동적 쿼리 포함)
+  variables JSONB DEFAULT '[]',        -- 추출된 변수 목록
+  variable_queries JSONB DEFAULT '{}', -- 각 변수별 동적 쿼리 설정
+  
+  -- 버튼 설정
+  buttons JSONB DEFAULT '[]',
+  
+  -- 메타데이터
   status VARCHAR(50) DEFAULT 'active' 
     CHECK (status IN ('draft', 'active', 'archived')),
   usage_count INTEGER DEFAULT 0,
@@ -96,88 +179,181 @@ CREATE TABLE message_templates (
 );
 ```
 
-**카테고리 분류:**
-- `welcome`: 환영, 온보딩 메시지
-- `reminder`: 리마인더, 알림
-- `promotion`: 프로모션, 마케팅
-- `notification`: 일반 알림
-- `alert`: 긴급 알림
-- `survey`: 설문, 피드백
-- `thanks`: 감사 인사
-- `others`: 기타
-
-##### 2.2.2 ✅ template_usage_logs 테이블
-```sql
-CREATE TABLE template_usage_logs (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  template_id UUID REFERENCES message_templates(id) ON DELETE CASCADE,
-  workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
-  used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  variables_used JSONB DEFAULT '{}',
-  success BOOLEAN DEFAULT true,
-  error_message TEXT
-);
+**variable_queries JSON 구조:**
+```typescript
+{
+  "total_reviews": {
+    "sourceType": "query",
+    "sql": "SELECT COUNT(*) FROM reviews WHERE company_id = ?",
+    "description": "총 리뷰 수 조회",
+    "defaultValue": "0",
+    "formatter": "number"
+  },
+  "company_name": {
+    "sourceType": "field",
+    "field": "company_name", 
+    "description": "회사명",
+    "defaultValue": "회사명",
+    "formatter": "text"
+  }
+}
 ```
 
-#### 2.3 ✅ 변수 매핑 관리
+#### 2.3 ✅ 대상 선정 관리 (2단계: 대상 선정)
 
-##### 2.3.1 ✅ individual_variable_mappings 테이블
+##### 2.3.1 ✅ target_query_templates 테이블 (NEW)
 ```sql
-CREATE TABLE individual_variable_mappings (
+CREATE TABLE target_query_templates (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  variable_name VARCHAR(255) NOT NULL,
-  display_name VARCHAR(255),
-  source_type VARCHAR(50) NOT NULL 
-    CHECK (source_type IN ('static', 'query', 'function')),
-  source_field TEXT,           -- 정적값 또는 쿼리
-  selected_column VARCHAR(255), -- 선택된 컬럼명
-  default_value TEXT,
-  usage_count INTEGER DEFAULT 0,
-  last_used_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
-
-**소스 타입:**
-- `static`: 정적 값
-- `query`: MySQL 쿼리 결과
-- `function`: 함수 기반 (현재시간 등)
-
-##### 2.3.2 ✅ variable_query_templates 테이블
-```sql
-CREATE TABLE variable_query_templates (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  template_name VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(255) NOT NULL,
   description TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  
+  -- 🔥 MySQL 동적 쿼리
   query_sql TEXT NOT NULL,
-  variables JSONB DEFAULT '[]',
+  query_description TEXT,
+  expected_columns JSONB DEFAULT '[]', -- 예상 결과 컬럼 정보
+  
+  -- 메타데이터
   usage_count INTEGER DEFAULT 0,
   last_used_at TIMESTAMP WITH TIME ZONE,
+  is_public BOOLEAN DEFAULT false,
+  created_by VARCHAR(255),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
-#### 2.4 ✅ 메시지 발송 로그
+**expected_columns JSON 구조:**
+```typescript
+{
+  "columns": [
+    {
+      "name": "id",
+      "type": "number",
+      "description": "고객 ID"
+    },
+    {
+      "name": "contacts", 
+      "type": "string",
+      "description": "연락처"
+    },
+    {
+      "name": "company_name",
+      "type": "string", 
+      "description": "회사명"
+    }
+  ]
+}
+```
 
-##### 2.4.1 ✅ message_logs 테이블
+#### 2.4 ✅ 대상-템플릿 매핑 관리 (3단계: 매핑)
+
+##### 2.4.1 ✅ mapping_templates 테이블 (핵심 개선)
+```sql
+CREATE TABLE mapping_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  tags TEXT[] DEFAULT '{}',
+  
+  -- 🔥 핵심: 재사용 가능한 매핑 정보
+  target_template_mappings JSONB NOT NULL DEFAULT '[]',
+  
+  -- 사용 패턴 분석
+  usage_count INTEGER DEFAULT 0,
+  last_used_at TIMESTAMP WITH TIME ZONE,
+  
+  -- 공유 설정
+  is_public BOOLEAN DEFAULT false,
+  is_favorite BOOLEAN DEFAULT false,
+  
+  -- 메타데이터
+  created_by VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+**target_template_mappings JSON 구조:**
+```typescript
+[
+  {
+    "id": "mapping_1",
+    "targetGroupId": "group_1", 
+    "templateId": "template_1",
+    "fieldMappings": [
+      {
+        "templateVariable": "company_name",
+        "targetField": "company_name",
+        "formatter": "text",
+        "defaultValue": "회사명"
+      },
+      {
+        "templateVariable": "total_reviews", 
+        "targetField": "review_count",
+        "formatter": "number",
+        "defaultValue": "0"
+      }
+    ],
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+]
+```
+
+##### 2.4.2 ✅ variable_mapping_templates 테이블 (개별 변수 매핑)
+```sql
+CREATE TABLE variable_mapping_templates (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  
+  -- 🔥 개별 변수 매핑 정보
+  variable_mappings JSONB NOT NULL DEFAULT '[]',
+  
+  -- 메타데이터
+  usage_count INTEGER DEFAULT 0,
+  last_used_at TIMESTAMP WITH TIME ZONE,
+  is_public BOOLEAN DEFAULT false,
+  is_favorite BOOLEAN DEFAULT false,
+  created_by VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+#### 2.5 ✅ 실행 및 로그 관리
+
+##### 2.5.1 ✅ message_logs 테이블
 ```sql
 CREATE TABLE message_logs (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   workflow_run_id UUID REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  template_id UUID REFERENCES message_templates(id) ON DELETE SET NULL,
+  workflow_id UUID REFERENCES workflows(id) ON DELETE SET NULL,
+  template_id UUID,  -- kakao_templates 참조 (FK 제약 없음)
+  
+  -- 수신자 정보
   recipient_phone VARCHAR(20),
   recipient_name VARCHAR(255),
+  recipient_data JSONB DEFAULT '{}', -- 대상자 원본 데이터
+  
+  -- 메시지 정보
   message_type VARCHAR(50) NOT NULL 
     CHECK (message_type IN ('sms', 'lms', 'kakao')),
   message_content TEXT,
-  variables_used JSONB DEFAULT '{}',
+  variables_used JSONB DEFAULT '{}',  -- 실제 사용된 변수값
+  
+  -- 발송 상태
   status VARCHAR(50) NOT NULL 
     CHECK (status IN ('pending', 'sent', 'delivered', 'failed', 'cancelled')),
   provider VARCHAR(50),           -- CoolSMS
   provider_message_id VARCHAR(255),
   cost DECIMAL(8,2) DEFAULT 0,
+  
+  -- 타임스탬프
   sent_at TIMESTAMP WITH TIME ZONE,
   delivered_at TIMESTAMP WITH TIME ZONE,
   failed_at TIMESTAMP WITH TIME ZONE,
@@ -187,419 +363,168 @@ CREATE TABLE message_logs (
 );
 ```
 
-#### 2.5 ✅ 시스템 관리
-
-##### 2.5.1 ✅ system_settings 테이블
+##### 2.5.2 ✅ scheduled_jobs 테이블 (스케줄러)
 ```sql
-CREATE TABLE system_settings (
+CREATE TABLE scheduled_jobs (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  setting_key VARCHAR(255) NOT NULL UNIQUE,
-  setting_value JSONB NOT NULL,
-  description TEXT,
-  category VARCHAR(100) DEFAULT 'general',
-  is_encrypted BOOLEAN DEFAULT false,
-  updated_by VARCHAR(255),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
-
-##### 2.5.2 ✅ user_activity_logs 테이블
-```sql
-CREATE TABLE user_activity_logs (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id VARCHAR(255),
-  action VARCHAR(100) NOT NULL,
-  resource_type VARCHAR(100),  -- 'workflow', 'template' 등
-  resource_id VARCHAR(255),
-  details JSONB DEFAULT '{}',
-  ip_address INET,
-  user_agent TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
-
-#### 2.6 ✅ 통계 및 분석
-
-##### 2.6.1 ✅ daily_statistics 테이블
-```sql
-CREATE TABLE daily_statistics (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  stat_date DATE NOT NULL UNIQUE,
-  workflows_created INTEGER DEFAULT 0,
-  workflows_executed INTEGER DEFAULT 0,
-  messages_sent INTEGER DEFAULT 0,
-  messages_failed INTEGER DEFAULT 0,
-  total_cost DECIMAL(10,2) DEFAULT 0,
-  templates_used INTEGER DEFAULT 0,
-  unique_users INTEGER DEFAULT 0,
+  workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
+  job_name VARCHAR(255) NOT NULL,
+  job_type VARCHAR(50) NOT NULL 
+    CHECK (job_type IN ('immediate', 'delay', 'scheduled', 'recurring')),
+  
+  -- 스케줄 설정
+  schedule_config JSONB NOT NULL,
+  
+  -- 실행 상태
+  status VARCHAR(50) DEFAULT 'pending' 
+    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  
+  -- 실행 시간
+  scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  started_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  
+  -- 결과
+  execution_result JSONB DEFAULT '{}',
+  error_message TEXT,
+  
+  -- 메타데이터
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
-#### 2.6 ✅ 스케줄러 시스템 (NEW)
+### 3. 📊 효율성 분석 및 개선사항
 
-##### 2.6.1 ✅ scheduled_jobs 테이블
+#### 3.1 ✅ 현재 구조의 강점
+1. **워크플로우 중심 설계**: 3단계 프로세스에 최적화
+2. **매핑 재사용성**: `mapping_templates`로 설정 재사용 가능
+3. **동적 쿼리 지원**: MySQL 실시간 데이터 활용
+4. **확장성**: JSON 필드로 유연한 데이터 구조
+
+#### 3.2 🔥 주요 개선사항
+
+##### 3.2.1 workflows 테이블 구조 개선
+**AS-IS (문제점):**
 ```sql
-CREATE TABLE scheduled_jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workflow_id UUID NOT NULL,
-  scheduled_time TIMESTAMPTZ NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' 
-    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
-  workflow_data JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  executed_at TIMESTAMPTZ,
-  error_message TEXT,
-  retry_count INTEGER DEFAULT 0,
-  max_retries INTEGER DEFAULT 3
-);
+-- 모든 설정이 하나의 JSON 필드에 혼재
+target_config JSONB DEFAULT '{}',    -- 대상 + 매핑 + 기타 모든 정보
 ```
 
-**주요 필드 설명:**
-- `workflow_id`: 실행할 워크플로우 ID
-- `scheduled_time`: 예약된 실행 시간
-- `status`: 작업 상태 (대기/실행중/완료/실패/취소)
-- `workflow_data`: 실행할 워크플로우 전체 데이터 (JSON)
-- `retry_count`: 현재 재시도 횟수
-- `max_retries`: 최대 재시도 횟수
-
-##### 2.6.2 ✅ workflows 테이블 확장
+**TO-BE (개선됨):**
 ```sql
--- 기존 workflows 테이블에 스케줄 설정 컬럼 추가
-ALTER TABLE workflows ADD COLUMN IF NOT EXISTS schedule_settings JSONB;
+-- 단계별로 명확히 분리
+target_config JSONB DEFAULT '{}',    -- 2단계: 대상 선정만
+message_config JSONB DEFAULT '{}',   -- 1단계: 알림톡 선택만  
+mapping_config JSONB DEFAULT '{}',   -- 3단계: 매핑 정보만
 ```
 
-**schedule_settings 구조:**
-```json
-{
-  "type": "recurring",
-  "timezone": "Asia/Seoul",
-  "recurringPattern": {
-    "time": "09:00",
-    "interval": 1,
-    "frequency": "daily"
-  }
-}
-```
+##### 3.2.2 매핑 정보 정규화
+**AS-IS (문제점):**
+- 매핑 정보가 워크플로우에만 저장되어 재사용 불가
+- 동일한 매핑 설정을 반복해서 입력해야 함
 
-##### 2.6.3 ✅ 스케줄러 인덱스
+**TO-BE (개선됨):**
+- `mapping_templates` 테이블로 매핑 설정 재사용
+- 워크플로우에서는 매핑 템플릿 ID만 참조
+- 매핑 히스토리 및 사용 패턴 분석 가능
+
+##### 3.2.3 변수 쿼리 관리 개선
+**AS-IS (문제점):**
+- 알림톡 템플릿과 변수 쿼리가 분리되어 관리 복잡
+
+**TO-BE (개선됨):**
+- `kakao_templates.variable_queries`에 변수별 쿼리 통합
+- 템플릿 선택 시 변수 쿼리도 함께 설정 가능
+
+#### 3.3 📈 성능 최적화
+
+##### 3.3.1 인덱스 전략
 ```sql
--- 성능 최적화를 위한 인덱스
-CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status ON scheduled_jobs(status);
-CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_scheduled_time ON scheduled_jobs(scheduled_time);
-CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_workflow_id ON scheduled_jobs(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_time ON scheduled_jobs(status, scheduled_time);
-```
-
-##### 2.6.4 ✅ 자동 업데이트 트리거
-```sql
--- updated_at 자동 업데이트 함수
-CREATE OR REPLACE FUNCTION update_scheduled_jobs_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- 트리거 생성
-CREATE TRIGGER trigger_update_scheduled_jobs_updated_at
-  BEFORE UPDATE ON scheduled_jobs
-  FOR EACH ROW
-  EXECUTE FUNCTION update_scheduled_jobs_updated_at();
-```
-
-##### 2.6.5 ✅ 모니터링 뷰
-```sql
--- 스케줄러 상태 요약 뷰
-CREATE OR REPLACE VIEW scheduled_jobs_summary AS
-SELECT 
-  status,
-  COUNT(*) as count,
-  MIN(scheduled_time) as earliest_scheduled,
-  MAX(scheduled_time) as latest_scheduled,
-  COUNT(*) FILTER (WHERE scheduled_time < NOW() AND status = 'pending') as overdue_count
-FROM scheduled_jobs 
-GROUP BY status;
-```
-
-##### 2.6.6 ✅ 정리 함수
-```sql
--- 오래된 로그 정리 함수
-CREATE OR REPLACE FUNCTION cleanup_old_scheduled_jobs(days_to_keep INTEGER DEFAULT 30)
-RETURNS INTEGER AS $$
-DECLARE
-  deleted_count INTEGER;
-BEGIN
-  DELETE FROM scheduled_jobs 
-  WHERE status IN ('completed', 'failed', 'cancelled') 
-    AND updated_at < NOW() - INTERVAL '1 day' * days_to_keep;
-  
-  GET DIAGNOSTICS deleted_count = ROW_COUNT;
-  
-  RETURN deleted_count;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-### 3. ✅ MySQL 스키마 (기존 운영 DB)
-
-#### 3.1 읽기 전용 연결
-```sql
--- 읽기 전용 사용자 생성 예시
-CREATE USER 'crm_readonly'@'%' IDENTIFIED BY 'secure_password';
-GRANT SELECT ON your_database.* TO 'crm_readonly'@'%';
-FLUSH PRIVILEGES;
-```
-
-#### 3.2 주요 테이블 (예시)
-```sql
--- 고객 정보 테이블
-CREATE TABLE customers (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  name VARCHAR(100) NOT NULL,
-  phone VARCHAR(20),
-  email VARCHAR(100),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 구독 정보 테이블
-CREATE TABLE subscriptions (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  customer_id INT,
-  status VARCHAR(50),
-  start_date DATE,
-  end_date DATE,
-  FOREIGN KEY (customer_id) REFERENCES customers(id)
-);
-```
-
-### 4. ✅ 인덱스 최적화
-
-#### 4.1 ✅ Supabase 인덱스
-```sql
--- 워크플로우 관련
+-- workflows 테이블
 CREATE INDEX idx_workflows_status ON workflows(status);
-CREATE INDEX idx_workflows_created_at ON workflows(created_at);
-CREATE INDEX idx_workflows_next_run ON workflows(next_run_at) 
-  WHERE next_run_at IS NOT NULL;
+CREATE INDEX idx_workflows_next_run_at ON workflows(next_run_at) WHERE status = 'active';
+CREATE INDEX idx_workflows_created_at ON workflows(created_at DESC);
 
--- 워크플로우 실행 기록
-CREATE INDEX idx_workflow_runs_workflow_id ON workflow_runs(workflow_id);
-CREATE INDEX idx_workflow_runs_status ON workflow_runs(status);
-CREATE INDEX idx_workflow_runs_started_at ON workflow_runs(started_at);
+-- mapping_templates 테이블  
+CREATE INDEX idx_mapping_templates_category ON mapping_templates(category);
+CREATE INDEX idx_mapping_templates_usage_count ON mapping_templates(usage_count DESC);
+CREATE INDEX idx_mapping_templates_is_public ON mapping_templates(is_public);
 
--- 메시지 템플릿
-CREATE INDEX idx_message_templates_status ON message_templates(status);
-CREATE INDEX idx_message_templates_message_type ON message_templates(message_type);
-CREATE INDEX idx_message_templates_category ON message_templates(category);
-
--- 메시지 로그
-CREATE INDEX idx_message_logs_workflow_run_id ON message_logs(workflow_run_id);
+-- message_logs 테이블
+CREATE INDEX idx_message_logs_workflow_id ON message_logs(workflow_id);
 CREATE INDEX idx_message_logs_status ON message_logs(status);
-CREATE INDEX idx_message_logs_sent_at ON message_logs(sent_at);
+CREATE INDEX idx_message_logs_created_at ON message_logs(created_at DESC);
 CREATE INDEX idx_message_logs_recipient_phone ON message_logs(recipient_phone);
-
--- 사용자 활동 로그
-CREATE INDEX idx_user_activity_logs_user_id ON user_activity_logs(user_id);
-CREATE INDEX idx_user_activity_logs_created_at ON user_activity_logs(created_at);
-
--- 통계
-CREATE INDEX idx_daily_statistics_stat_date ON daily_statistics(stat_date);
 ```
 
-### 5. ✅ 트리거 및 함수
-
-#### 5.1 ✅ 자동 업데이트 트리거
+##### 3.3.2 쿼리 최적화
 ```sql
--- updated_at 자동 업데이트 함수
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- 트리거 적용
-CREATE TRIGGER update_workflows_updated_at 
-  BEFORE UPDATE ON workflows 
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_message_templates_updated_at 
-  BEFORE UPDATE ON message_templates 
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-```
-
-#### 5.2 ✅ 사용 통계 업데이트 함수
-```sql
--- 사용 횟수 자동 업데이트 함수
-CREATE OR REPLACE FUNCTION update_usage_count()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_TABLE_NAME = 'template_usage_logs' THEN
-        UPDATE message_templates 
-        SET usage_count = usage_count + 1,
-            last_used_at = NOW()
-        WHERE id = NEW.template_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- 트리거 적용
-CREATE TRIGGER update_template_usage_count 
-  AFTER INSERT ON template_usage_logs 
-  FOR EACH ROW EXECUTE FUNCTION update_usage_count();
-```
-
-### 6. ✅ 보안 설정
-
-#### 6.1 ✅ Row Level Security (RLS)
-```sql
--- RLS 활성화
-ALTER TABLE workflows ENABLE ROW LEVEL SECURITY;
-ALTER TABLE message_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE individual_variable_mappings ENABLE ROW LEVEL SECURITY;
-
--- 기본 정책 (개발용 - 모든 접근 허용)
-CREATE POLICY "dev_full_access" ON workflows
-  FOR ALL TO anon, authenticated
-  USING (true) WITH CHECK (true);
-
-CREATE POLICY "dev_full_access" ON message_templates
-  FOR ALL TO anon, authenticated
-  USING (true) WITH CHECK (true);
-
-CREATE POLICY "dev_full_access" ON individual_variable_mappings
-  FOR ALL TO anon, authenticated
-  USING (true) WITH CHECK (true);
-```
-
-#### 6.2 ✅ Service Role 우회
-```sql
--- Service Role에 대한 완전한 우회 정책
-CREATE POLICY "service_role_bypass_rls" ON workflows
-  FOR ALL TO service_role
-  USING (true) WITH CHECK (true);
-
-CREATE POLICY "service_role_bypass_rls" ON message_templates
-  FOR ALL TO service_role
-  USING (true) WITH CHECK (true);
-
-CREATE POLICY "service_role_bypass_rls" ON individual_variable_mappings
-  FOR ALL TO service_role
-  USING (true) WITH CHECK (true);
-```
-
-### 7. ✅ 뷰 (Views)
-
-#### 7.1 ✅ 워크플로우 요약 뷰
-```sql
-CREATE OR REPLACE VIEW workflow_summary AS
+-- 워크플로우 실행 시 필요한 모든 정보를 한 번에 조회
 SELECT 
   w.id,
   w.name,
-  w.status,
-  w.created_at,
-  COUNT(wr.id) as total_runs,
-  COUNT(CASE WHEN wr.status = 'completed' THEN 1 END) as successful_runs,
-  COUNT(CASE WHEN wr.status = 'failed' THEN 1 END) as failed_runs,
-  MAX(wr.started_at) as last_run_at,
-  SUM(wr.total_cost) as total_cost
+  w.target_config,
+  w.message_config, 
+  w.mapping_config,
+  w.schedule_config,
+  kt.template_content,
+  kt.variable_queries
 FROM workflows w
-LEFT JOIN workflow_runs wr ON w.id = wr.workflow_id
-GROUP BY w.id, w.name, w.status, w.created_at;
+LEFT JOIN kakao_templates kt ON (w.message_config->>'templateId')::text = kt.id::text
+WHERE w.status = 'active' 
+  AND w.next_run_at <= NOW();
 ```
 
-#### 7.2 ✅ 일간 통계 요약 뷰
+### 4. 🚀 마이그레이션 가이드
+
+#### 4.1 기존 데이터 마이그레이션
 ```sql
-CREATE OR REPLACE VIEW daily_stats_summary AS
-SELECT 
-  stat_date,
-  workflows_created,
-  workflows_executed,
-  messages_sent,
-  messages_failed,
-  CASE 
-    WHEN messages_sent > 0 
-    THEN ROUND((messages_sent - messages_failed) * 100.0 / messages_sent, 2)
-    ELSE 0 
-  END as success_rate,
-  total_cost
-FROM daily_statistics
-ORDER BY stat_date DESC;
+-- 1. workflows 테이블 컬럼 추가
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS mapping_config JSONB DEFAULT '{}';
+
+-- 2. 기존 target_config에서 매핑 정보 분리
+UPDATE workflows 
+SET mapping_config = target_config->'targetTemplateMappings',
+    target_config = target_config - 'targetTemplateMappings'
+WHERE target_config ? 'targetTemplateMappings';
+
+-- 3. mapping_templates 테이블 생성 (이미 생성됨)
+-- 4. 기존 매핑 정보를 mapping_templates로 이관
 ```
 
-### 8. 데이터 흐름
-
-#### 8.1 ✅ 워크플로우 실행 흐름
-1. **워크플로우 생성** → `workflows` 테이블에 저장
-2. **실행 시작** → `workflow_runs` 테이블에 실행 기록 생성
-3. **MySQL 쿼리** → 기존 DB에서 대상 데이터 조회
-4. **메시지 발송** → CoolSMS API 호출
-5. **결과 로깅** → `message_logs` 테이블에 발송 결과 저장
-6. **통계 업데이트** → `daily_statistics` 테이블 업데이트
-
-#### 8.2 ✅ 변수 매핑 흐름
-1. **변수 정의** → `individual_variable_mappings`에 저장
-2. **쿼리 템플릿** → `variable_query_templates`에 저장
-3. **실행 시 매핑** → MySQL 쿼리 결과와 템플릿 변수 매칭
-4. **메시지 생성** → 변수 치환된 최종 메시지 생성
-
-### 9. 백업 및 복구
-
-#### 9.1 ✅ 자동 백업
-- **Supabase**: 자동 백업 활성화 (Point-in-time Recovery)
-- **중요 설정**: `system_settings` 테이블 정기 백업
-- **워크플로우**: 중요 워크플로우 JSON 내보내기
-
-#### 9.2 ✅ 재해 복구
-- **RTO (Recovery Time Objective)**: 1시간 이내
-- **RPO (Recovery Point Objective)**: 15분 이내
-- **백업 전략**: 일일 전체 백업 + 실시간 증분 백업
-
-### 10. 성능 모니터링
-
-#### 10.1 ✅ 주요 지표
-- **쿼리 성능**: 평균 응답 시간 < 2초
-- **동시 연결**: 최대 100개 동시 연결 지원
-- **디스크 사용량**: 월 10GB 이하 증가
-- **메모리 사용**: 평균 메모리 사용률 < 80%
-
-#### 10.2 ✅ 모니터링 도구
-- **Supabase Dashboard**: 실시간 성능 모니터링
-- **PostgreSQL Stats**: `pg_stat_statements` 확장 활용
-- **Custom Metrics**: 애플리케이션 레벨 메트릭 수집
-
-### 11. 마이그레이션 가이드
-
-#### 11.1 ✅ 초기 설정
-```bash
-# 1. Supabase 프로젝트 생성
-# 2. 스키마 파일 실행
-psql -h your-supabase-host -U postgres -d postgres -f supabase_hybrid_schema.sql
-
-# 3. RLS 정책 적용
-psql -h your-supabase-host -U postgres -d postgres -f supabase_rls_fix.sql
+#### 4.2 API 업데이트 가이드
+```typescript
+// 워크플로우 저장 시 구조 변경
+const workflowData = {
+  // 기존 방식
+  target_config: {
+    targetGroups: [...],
+    targetTemplateMappings: [...] // ❌ 제거
+  },
+  
+  // 새로운 방식  
+  target_config: {
+    targetGroups: [...] // ✅ 대상 선정만
+  },
+  mapping_config: {
+    targetTemplateMappings: [...] // ✅ 매핑 정보 분리
+  }
+};
 ```
 
-#### 11.2 ✅ 데이터 마이그레이션
-- **기존 데이터**: MySQL에서 Supabase로 필요 시 마이그레이션
-- **설정 데이터**: `system_settings` 테이블에 초기 설정 입력
-- **테스트 데이터**: 개발/테스트용 샘플 데이터 생성
+### 5. 📋 결론
 
-### 12. 결론
+#### 5.1 개선 효과
+1. **명확한 구조**: 3단계 워크플로우에 맞는 데이터 구조
+2. **재사용성 향상**: 매핑 템플릿으로 설정 재사용 가능
+3. **성능 최적화**: 적절한 인덱스와 쿼리 최적화
+4. **확장성**: 새로운 기능 추가 시 유연한 대응
 
-이 데이터베이스 스키마는 **메시지 자동화 플랫폼의 완전한 데이터 관리 기반**을 제공합니다.
+#### 5.2 다음 단계
+1. **테이블 마이그레이션**: `mapping_config` 컬럼 추가
+2. **API 업데이트**: 새로운 구조에 맞는 API 수정
+3. **UI 개선**: 매핑 템플릿 재사용 기능 추가
+4. **모니터링**: 성능 및 사용 패턴 분석
 
-#### ✅ 주요 특징:
-- **하이브리드 구조**: 기존 DB 보존 + 신규 기능 확장
-- **확장 가능한 설계**: 미래 기능 확장에 유연한 구조
-- **성능 최적화**: 적절한 인덱스 및 뷰 활용
-- **보안 강화**: RLS 및 권한 관리 완비
-- **모니터링**: 종합적인 로깅 및 통계 시스템
-
-현재 스키마는 **실제 운영 환경에서 안정적으로 동작**하며, 플랫폼의 모든 기능을 완벽하게 지원합니다. 
+이 구조는 현재 워크플로우(알림톡 선택 → 대상 선정 → 매핑)에 최적화되어 있으며, 향후 확장성도 고려한 설계입니다. 

@@ -9,80 +9,53 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
+// UUID 생성 함수 추가
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 export default function NewWorkflowPage() {
   const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async (workflow: Workflow) => {
-    setIsLoading(true)
-    let supabaseSuccess = false;
-    let supabaseData = null;
-    
+    setIsSaving(true)
     try {
-      console.log("워크플로우 저장 시도:", workflow)
+      console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
       
-      // Supabase API를 통해 워크플로우 저장
-      const response = await fetch('/api/supabase/workflows', {
-        method: 'POST',
+      // Supabase에 워크플로우 저장
+      const response = await fetch("/api/supabase/workflows", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          action: 'create',
-          ...workflow
-        })
-      });
+        body: JSON.stringify(workflow),
+      })
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        console.log("✅ Supabase 워크플로우 저장 성공:", result.data);
-        supabaseSuccess = true;
-        supabaseData = result.data;
-        
-        // 기존 localStorage 저장도 유지 (호환성을 위해)
-        try {
-          const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
-          savedWorkflows.push(result.data)
-          localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
-          console.log("✅ localStorage 백업 저장 성공");
-        } catch (localError) {
-          console.warn("⚠️ localStorage 백업 저장 실패:", localError);
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          console.log("✅ Supabase 저장 성공:", result.data.id);
+          alert("워크플로우가 성공적으로 저장되었습니다!")
+          router.push("/")
+          return;
+        } else {
+          throw new Error(result.message || 'Supabase 저장 실패');
         }
-        
-        alert("🎉 워크플로우가 Supabase에 성공적으로 저장되었습니다!")
-        router.push("/")
-        return; // 성공 시 여기서 종료
       } else {
-        console.error("❌ Supabase 저장 실패:", result);
-        throw new Error(result.message || '워크플로우 저장에 실패했습니다.');
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-
+      
     } catch (error) {
       console.error("❌ 워크플로우 저장 실패:", error)
-      
-      // Supabase 저장 실패 시에만 localStorage에 저장
-      if (!supabaseSuccess) {
-        try {
-          const workflowWithId = {
-            ...workflow,
-            id: workflow.id || `workflow_${Date.now()}`,
-            createdAt: workflow.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
-          
-          const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]")
-          savedWorkflows.push(workflowWithId)
-          localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
-          alert("⚠️ Supabase 저장에 실패했지만 로컬에 임시 저장되었습니다.\n\n오류: " + (error instanceof Error ? error.message : String(error)))
-          router.push("/")
-        } catch (localError) {
-          console.error("❌ localStorage 저장도 실패:", localError);
-          alert("❌ 저장에 완전히 실패했습니다.\n\nSupabase 오류: " + (error instanceof Error ? error.message : String(error)) + "\nLocalStorage 오류: " + (localError instanceof Error ? localError.message : String(localError)))
-        }
-      }
+      alert(`저장에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
     } finally {
-      setIsLoading(false)
+      setIsSaving(false)
     }
   }
 

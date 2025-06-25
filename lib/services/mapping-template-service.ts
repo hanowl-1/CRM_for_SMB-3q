@@ -4,305 +4,198 @@ import type {
   MappingSuggestion,
   MappingTemplateFilter 
 } from '@/lib/types/workflow';
-import supabaseWorkflowService from './supabase-workflow-service';
+import { supabase } from '../database/supabase-client';
 
+/**
+ * 변수 매핑 템플릿 관리 서비스 (Supabase 전용)
+ */
 export class MappingTemplateService {
-  private static readonly STORAGE_KEY = 'variable_mapping_templates';
-  // TODO: Supabase 연동 시 사용할 테이블명
-  private static readonly TABLE_NAME = 'variable_mapping_templates';
-
   /**
-   * 모든 매핑 템플릿 조회 (Supabase 우선, localStorage 백업)
+   * 모든 매핑 템플릿 조회 (Supabase 전용)
    */
-  static async getTemplates(filter?: MappingTemplateFilter): Promise<VariableMappingTemplate[]> {
+  static async getAllTemplates(): Promise<VariableMappingTemplate[]> {
     try {
-      // 1. Supabase에서 템플릿 조회 시도
-      const supabaseResult = await supabaseWorkflowService.getVariableMappingTemplates(filter);
+      console.log('📊 Supabase에서 변수 매핑 템플릿 조회 중...');
       
-      if (supabaseResult.success && supabaseResult.data) {
-        console.log(`📊 Supabase에서 ${supabaseResult.data.length}개 변수 매핑 템플릿 조회 성공`);
-        return supabaseResult.data;
+      const { data, error } = await supabase
+        .from('variable_mapping_templates')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Supabase 조회 실패:', error);
+        throw new Error(`변수 매핑 템플릿 조회 실패: ${error.message}`);
       }
+
+      const templates = data || [];
+      console.log(`📊 Supabase에서 ${templates.length}개 변수 매핑 템플릿 조회 성공`);
       
-      console.warn('⚠️ Supabase 조회 실패, localStorage 백업 사용:', supabaseResult.error);
+      return templates;
     } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage 백업 사용:', error);
+      console.error('❌ 변수 매핑 템플릿 조회 실패:', error);
+      throw error;
     }
-
-    // 2. localStorage 백업 사용
-    const templates = this.loadFromStorage();
-    let filtered = templates;
-
-    // 필터링
-    if (filter) {
-      if (filter.category) {
-        filtered = filtered.filter(t => t.category === filter.category);
-      }
-      if (filter.tags && filter.tags.length > 0) {
-        filtered = filtered.filter(t => 
-          filter.tags!.some(tag => t.tags.includes(tag))
-        );
-      }
-      if (filter.searchTerm) {
-        const term = filter.searchTerm.toLowerCase();
-        filtered = filtered.filter(t => 
-          t.name.toLowerCase().includes(term) ||
-          t.description.toLowerCase().includes(term) ||
-          t.tags.some(tag => tag.toLowerCase().includes(term))
-        );
-      }
-      if (filter.isPublic !== undefined) {
-        filtered = filtered.filter(t => t.isPublic === filter.isPublic);
-      }
-      if (filter.isFavorite !== undefined) {
-        filtered = filtered.filter(t => t.isFavorite === filter.isFavorite);
-      }
-    }
-
-    console.log(`📊 localStorage에서 ${filtered.length}개 변수 매핑 템플릿 조회`);
-    return filtered;
   }
 
   /**
-   * 특정 템플릿 조회
+   * 특정 템플릿 조회 (Supabase 전용)
    */
-  static async getTemplate(id: string): Promise<VariableMappingTemplate | null> {
+  static async getTemplateById(id: string): Promise<VariableMappingTemplate | null> {
     try {
-      // 1. Supabase에서 조회 시도
-      const supabaseResult = await supabaseWorkflowService.getVariableMappingTemplate(id);
+      console.log(`📄 Supabase에서 템플릿 ${id} 조회 중...`);
       
-      if (supabaseResult.success && supabaseResult.data) {
-        console.log(`📄 Supabase에서 템플릿 ${id} 조회 성공`);
-        return supabaseResult.data;
-      }
-      
-      console.warn('⚠️ Supabase 조회 실패, localStorage 백업 사용:', supabaseResult.error);
-    } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage 백업 사용:', error);
-    }
+      const { data, error } = await supabase
+        .from('variable_mapping_templates')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-    // 2. localStorage 백업 사용
-    const templates = this.loadFromStorage();
-    const template = templates.find(t => t.id === id);
-    
-    if (template) {
-      console.log(`📄 localStorage에서 템플릿 ${id} 조회 성공`);
+      if (error) {
+        if (error.code === 'PGRST116') {
+          console.log(`📄 템플릿 ${id}를 찾을 수 없음`);
+          return null;
+        }
+        console.error('❌ Supabase 조회 실패:', error);
+        throw new Error(`템플릿 조회 실패: ${error.message}`);
+      }
+
+      console.log(`📄 Supabase에서 템플릿 ${id} 조회 성공`);
+      return data;
+    } catch (error) {
+      console.error('❌ 템플릿 조회 실패:', error);
+      throw error;
     }
-    
-    return template || null;
   }
 
   /**
-   * 새 템플릿 저장 (Supabase 우선, localStorage 백업)
+   * 새 템플릿 저장 (Supabase 전용)
    */
   static async saveTemplate(template: Omit<VariableMappingTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<VariableMappingTemplate> {
-    const newTemplate: VariableMappingTemplate = {
-      ...template,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      usageCount: 0
-    };
-
     try {
-      // 1. Supabase에 저장 시도
-      const supabaseResult = await supabaseWorkflowService.createVariableMappingTemplate(newTemplate);
+      console.log('💾 Supabase에 새 매핑 템플릿 저장 중...', template.name);
       
-      if (supabaseResult.success && supabaseResult.data) {
-        console.log(`💾 Supabase에 템플릿 저장 성공:`, supabaseResult.data.id);
-        
-        // localStorage에도 백업 저장
-        this.saveToStorage(newTemplate);
-        
-        return supabaseResult.data;
-      }
-      
-      console.warn('⚠️ Supabase 저장 실패, localStorage만 사용:', supabaseResult.error);
-    } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
-    }
+      const newTemplate: VariableMappingTemplate = {
+        ...template,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    // 2. localStorage에만 저장
-    this.saveToStorage(newTemplate);
-    console.log(`💾 localStorage에 템플릿 저장: ${newTemplate.id}`);
-    
-    return newTemplate;
+      const { data, error } = await supabase
+        .from('variable_mapping_templates')
+        .insert([newTemplate])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase 저장 실패:', error);
+        throw new Error(`템플릿 저장 실패: ${error.message}`);
+      }
+
+      console.log(`💾 Supabase에 템플릿 저장 성공: ${data.id}`);
+      return data;
+    } catch (error) {
+      console.error('❌ 템플릿 저장 실패:', error);
+      throw error;
+    }
   }
 
   /**
-   * 템플릿 업데이트 (Supabase 우선, localStorage 백업)
+   * 템플릿 업데이트 (Supabase 전용)
    */
-  static async updateTemplate(id: string, updates: Partial<VariableMappingTemplate>): Promise<VariableMappingTemplate | null> {
-    const updateData = {
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
-
+  static async updateTemplate(id: string, updates: Partial<VariableMappingTemplate>): Promise<VariableMappingTemplate> {
     try {
-      // 1. Supabase에서 업데이트 시도
-      const supabaseResult = await supabaseWorkflowService.updateVariableMappingTemplate(id, updateData);
+      console.log(`🔄 Supabase에서 템플릿 ${id} 업데이트 중...`);
       
-      if (supabaseResult.success && supabaseResult.data) {
-        console.log(`🔄 Supabase에서 템플릿 ${id} 업데이트 성공`);
-        
-        // localStorage에도 백업 업데이트
-        this.updateInStorage(id, updateData);
-        
-        return supabaseResult.data;
-      }
-      
-      console.warn('⚠️ Supabase 업데이트 실패, localStorage만 사용:', supabaseResult.error);
-    } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
-    }
+      const updateData = {
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
 
-    // 2. localStorage에서만 업데이트
-    const updated = this.updateInStorage(id, updateData);
-    if (updated) {
-      console.log(`🔄 localStorage에서 템플릿 ${id} 업데이트 성공`);
+      const { data, error } = await supabase
+        .from('variable_mapping_templates')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase 업데이트 실패:', error);
+        throw new Error(`템플릿 업데이트 실패: ${error.message}`);
+      }
+
+      console.log(`🔄 Supabase에서 템플릿 ${id} 업데이트 성공`);
+      return data;
+    } catch (error) {
+      console.error('❌ 템플릿 업데이트 실패:', error);
+      throw error;
     }
-    
-    return updated;
   }
 
   /**
-   * 템플릿 삭제 (Supabase 우선, localStorage 백업)
+   * 템플릿 삭제 (Supabase 전용)
    */
-  static async deleteTemplate(id: string): Promise<boolean> {
+  static async deleteTemplate(id: string): Promise<void> {
     try {
-      // 1. Supabase에서 삭제 시도
-      const supabaseResult = await supabaseWorkflowService.deleteVariableMappingTemplate(id);
+      console.log(`🗑️ Supabase에서 템플릿 ${id} 삭제 중...`);
       
-      if (supabaseResult.success) {
-        console.log(`🗑️ Supabase에서 템플릿 ${id} 삭제 성공`);
-        
-        // localStorage에서도 삭제
-        this.deleteFromStorage(id);
-        
-        return true;
-      }
-      
-      console.warn('⚠️ Supabase 삭제 실패, localStorage만 사용:', supabaseResult.error);
-    } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
-    }
+      const { error } = await supabase
+        .from('variable_mapping_templates')
+        .delete()
+        .eq('id', id);
 
-    // 2. localStorage에서만 삭제
-    const deleted = this.deleteFromStorage(id);
-    if (deleted) {
-      console.log(`🗑️ localStorage에서 템플릿 ${id} 삭제 성공`);
+      if (error) {
+        console.error('❌ Supabase 삭제 실패:', error);
+        throw new Error(`템플릿 삭제 실패: ${error.message}`);
+      }
+
+      console.log(`🗑️ Supabase에서 템플릿 ${id} 삭제 성공`);
+    } catch (error) {
+      console.error('❌ 템플릿 삭제 실패:', error);
+      throw error;
     }
-    
-    return deleted;
   }
 
   /**
-   * 템플릿 사용 기록 (Supabase 우선, localStorage 백업)
+   * 템플릿 사용 기록 (Supabase 전용)
    */
   static async recordUsage(id: string): Promise<void> {
     try {
-      // 1. Supabase에서 사용 기록 시도
-      const supabaseResult = await supabaseWorkflowService.recordVariableMappingTemplateUsage(id);
+      console.log(`📈 템플릿 ${id} 사용 기록 중...`);
       
-      if (supabaseResult.success) {
-        console.log(`📈 Supabase에서 템플릿 ${id} 사용 기록 성공`);
-        
-        // localStorage에도 백업 기록
-        this.recordUsageInStorage(id);
-        
-        return;
+      // 먼저 현재 사용 횟수를 조회
+      const { data: currentData, error: fetchError } = await supabase
+        .from('variable_mapping_templates')
+        .select('usageCount')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ 현재 사용 횟수 조회 실패:', fetchError);
+        throw new Error(`사용 기록 실패: ${fetchError.message}`);
       }
-      
-      console.warn('⚠️ Supabase 사용 기록 실패, localStorage만 사용:', supabaseResult.error);
-    } catch (error) {
-      console.error('❌ Supabase 연결 오류, localStorage만 사용:', error);
-    }
 
-    // 2. localStorage에서만 기록
-    this.recordUsageInStorage(id);
-    console.log(`📈 localStorage에서 템플릿 ${id} 사용 기록`);
-  }
+      const currentUsageCount = currentData?.usageCount || 0;
 
-  // =====================================================
-  // localStorage 백업 메서드들 (기존 유지)
-  // =====================================================
+      // 사용 횟수 증가 및 마지막 사용 시간 업데이트
+      const { error } = await supabase
+        .from('variable_mapping_templates')
+        .update({
+          usageCount: currentUsageCount + 1,
+          lastUsedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', id);
 
-  private static loadFromStorage(): VariableMappingTemplate[] {
-    try {
-      const stored = localStorage.getItem(this.STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch (error) {
-      console.error('localStorage 로드 실패:', error);
-      return [];
-    }
-  }
-
-  private static saveToStorage(template: VariableMappingTemplate): void {
-    try {
-      const templates = this.loadFromStorage();
-      const existingIndex = templates.findIndex(t => t.id === template.id);
-      
-      if (existingIndex >= 0) {
-        templates[existingIndex] = template;
-      } else {
-        templates.push(template);
+      if (error) {
+        console.error('❌ Supabase 사용 기록 실패:', error);
+        throw new Error(`사용 기록 실패: ${error.message}`);
       }
-      
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
-    } catch (error) {
-      console.error('localStorage 저장 실패:', error);
-    }
-  }
 
-  private static updateInStorage(id: string, updates: Partial<VariableMappingTemplate>): VariableMappingTemplate | null {
-    try {
-      const templates = this.loadFromStorage();
-      const index = templates.findIndex(t => t.id === id);
-      
-      if (index >= 0) {
-        templates[index] = { ...templates[index], ...updates };
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
-        return templates[index];
-      }
-      
-      return null;
+      console.log(`📈 템플릿 ${id} 사용 기록 성공`);
     } catch (error) {
-      console.error('localStorage 업데이트 실패:', error);
-      return null;
-    }
-  }
-
-  private static deleteFromStorage(id: string): boolean {
-    try {
-      const templates = this.loadFromStorage();
-      const filteredTemplates = templates.filter(t => t.id !== id);
-      
-      if (filteredTemplates.length < templates.length) {
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filteredTemplates));
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('localStorage 삭제 실패:', error);
-      return false;
-    }
-  }
-
-  private static recordUsageInStorage(id: string): void {
-    try {
-      const templates = this.loadFromStorage();
-      const index = templates.findIndex(t => t.id === id);
-      
-      if (index >= 0) {
-        templates[index].usageCount = (templates[index].usageCount || 0) + 1;
-        templates[index].lastUsedAt = new Date().toISOString();
-        templates[index].updatedAt = new Date().toISOString();
-        
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
-      }
-    } catch (error) {
-      console.error('localStorage 사용 기록 실패:', error);
+      console.error('❌ 사용 기록 실패:', error);
+      throw error;
     }
   }
 
@@ -459,7 +352,7 @@ export class MappingTemplateService {
   }
 
   static getPopularTemplates(limit: number = 5): Promise<VariableMappingTemplate[]> {
-    return this.getTemplates().then(templates => 
+    return this.getAllTemplates().then(templates => 
       templates
         .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0))
         .slice(0, limit)
@@ -467,7 +360,7 @@ export class MappingTemplateService {
   }
 
   static getRecentTemplates(limit: number = 5): Promise<VariableMappingTemplate[]> {
-    return this.getTemplates().then(templates =>
+    return this.getAllTemplates().then(templates =>
       templates
         .filter(t => t.lastUsedAt)
         .sort((a, b) => new Date(b.lastUsedAt!).getTime() - new Date(a.lastUsedAt!).getTime())
@@ -476,15 +369,15 @@ export class MappingTemplateService {
   }
 
   static getFavoriteTemplates(): Promise<VariableMappingTemplate[]> {
-    return this.getTemplates({ isFavorite: true });
+    return this.getAllTemplates().then(templates => templates.filter(t => t.isFavorite));
   }
 
   static getTemplatesByCategory(category: string): Promise<VariableMappingTemplate[]> {
-    return this.getTemplates({ category });
+    return this.getAllTemplates().then(templates => templates.filter(t => t.category === category));
   }
 
   static searchTemplates(query: string): Promise<VariableMappingTemplate[]> {
-    return this.getTemplates().then(templates =>
+    return this.getAllTemplates().then(templates =>
       templates.filter(template =>
         template.name.toLowerCase().includes(query.toLowerCase()) ||
         (template.description && template.description.toLowerCase().includes(query.toLowerCase())) ||
@@ -494,7 +387,7 @@ export class MappingTemplateService {
   }
 
   static async toggleFavorite(id: string): Promise<VariableMappingTemplate | null> {
-    const template = await this.getTemplate(id);
+    const template = await this.getTemplateById(id);
     if (!template) return null;
 
     return this.updateTemplate(id, {
@@ -503,7 +396,7 @@ export class MappingTemplateService {
   }
 
   static async duplicateTemplate(id: string, newName?: string): Promise<VariableMappingTemplate | null> {
-    const original = await this.getTemplate(id);
+    const original = await this.getTemplateById(id);
     if (!original) return null;
 
     const duplicate = {

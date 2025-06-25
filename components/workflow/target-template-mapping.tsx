@@ -12,7 +12,8 @@ import {
   AlertCircle,
   Settings,
   Save,
-  FolderOpen
+  FolderOpen,
+  Code
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,7 +80,13 @@ export function TargetTemplateMapping({
     }
   }, [currentMappings]);
 
-  // 동적 쿼리가 있는 대상 그룹만 필터링 (안정적인 메모이제이션)
+  // 모든 대상 그룹 처리 (동적 + 정적)
+  const allTargetGroups = useMemo(() => {
+    console.log('🎯 전체 대상 그룹:', targetGroups.length);
+    return targetGroups;
+  }, [targetGroups]);
+
+  // 동적 쿼리가 있는 대상 그룹만 필터링 (기존 호환성 유지)
   const dynamicTargetGroups = useMemo(() => {
     const filtered = targetGroups.filter(group => 
       group.type === 'dynamic' && group.dynamicQuery
@@ -103,8 +110,50 @@ export function TargetTemplateMapping({
     return variables;
   }, []);
 
+  // 정적 대상 그룹의 테이블 스키마 로드
+  const loadStaticGroupSchema = useCallback(async (targetGroup: TargetGroup) => {
+    if (targetGroup.type !== 'static' || !targetGroup.table) return;
+
+    const groupId = targetGroup.id;
+    setIsLoadingPreview(prev => ({ ...prev, [groupId]: true }));
+
+    try {
+      const response = await fetch('/api/mysql/schema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tableName: targetGroup.table
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.columns) {
+          // 스키마 정보를 미리보기 데이터 형태로 변환
+          const sampleData = {};
+          result.columns.forEach((col: any) => {
+            sampleData[col.Field] = `[${col.Type}]`;
+          });
+          
+          setPreviewData(prev => ({
+            ...prev,
+            [groupId]: [sampleData]
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('정적 그룹 스키마 로드 실패:', error);
+    } finally {
+      setIsLoadingPreview(prev => ({ ...prev, [groupId]: false }));
+    }
+  }, []);
+
   // 대상 그룹 미리보기 데이터 로드 (안정적인 콜백)
   const loadPreviewData = useCallback(async (targetGroup: TargetGroup) => {
+    if (targetGroup.type === 'static') {
+      return loadStaticGroupSchema(targetGroup);
+    }
+    
     if (!targetGroup.dynamicQuery) return;
 
     const groupId = targetGroup.id;
@@ -135,17 +184,17 @@ export function TargetTemplateMapping({
     } finally {
       setIsLoadingPreview(prev => ({ ...prev, [groupId]: false }));
     }
-  }, []);
+  }, [loadStaticGroupSchema]);
 
-  // 초기 미리보기 데이터 로드 (한 번만)
+  // 초기 미리보기 데이터 로드 (모든 대상 그룹)
   useEffect(() => {
-    if (dynamicTargetGroups.length > 0) {
-      console.log('📊 초기 미리보기 데이터 로드 시작');
-      dynamicTargetGroups.forEach(group => {
+    if (allTargetGroups.length > 0) {
+      console.log('📊 초기 미리보기 데이터 로드 시작 (전체 그룹)');
+      allTargetGroups.forEach(group => {
         loadPreviewData(group);
       });
     }
-  }, [dynamicTargetGroups, loadPreviewData]);
+  }, [allTargetGroups, loadPreviewData]);
 
   // 매핑 업데이트 (안정적인 콜백)
   const updateMapping = useCallback((targetGroupId: string, templateId: string, fieldMappings: FieldMapping[]) => {
@@ -320,14 +369,14 @@ export function TargetTemplateMapping({
   }, [saveName, saveDescription, mappings]);
 
   // 컴포넌트 조건부 렌더링
-  if (dynamicTargetGroups.length === 0) {
+  if (allTargetGroups.length === 0) {
     return (
       <Card>
         <CardContent className="p-8 text-center">
           <Database className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <h3 className="text-lg font-medium mb-2">동적 쿼리 대상 그룹이 없습니다</h3>
+          <h3 className="text-lg font-medium mb-2">대상 그룹이 없습니다</h3>
           <p className="text-muted-foreground mb-4">
-            대상 그룹에서 동적 쿼리를 추가한 후 매핑을 설정할 수 있습니다.
+            대상 그룹을 추가한 후 매핑을 설정할 수 있습니다.
           </p>
           <Button variant="outline" onClick={() => window.history.back()}>
             대상 그룹 설정으로 돌아가기
@@ -396,74 +445,78 @@ export function TargetTemplateMapping({
 
       {/* 매핑 설정 */}
       <div className="space-y-6">
-        {dynamicTargetGroups.map(targetGroup => {
+        {allTargetGroups.map(targetGroup => {
           const groupPreviewData = previewData[targetGroup.id];
           const isLoading = isLoadingPreview[targetGroup.id];
           
           return (
-            <Card key={targetGroup.id} className="border-l-4 border-l-green-500">
-              <CardHeader>
+            <Card key={targetGroup.id} className="overflow-hidden">
+              <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
-                      <Database className="w-4 h-4" />
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-medium ${
+                      targetGroup.type === 'dynamic' ? 'bg-purple-500' : 'bg-blue-500'
+                    }`}>
+                      {targetGroup.type === 'dynamic' ? <Code className="w-4 h-4" /> : <Database className="w-4 h-4" />}
                     </div>
                     <div>
                       <h3 className="font-medium">{targetGroup.name}</h3>
                       <p className="text-sm text-muted-foreground">
-                        {targetGroup.dynamicQuery?.description}
+                        {targetGroup.type === 'dynamic' ? '동적 쿼리' : '정적 조건'} • 
+                        약 {(targetGroup.estimatedCount || 0).toLocaleString()}명
                       </p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    {isLoading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => loadPreviewData(targetGroup)}
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
+                  {isLoading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span>로딩 중...</span>
+                    </div>
+                  )}
+                  
+                  {!isLoading && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => loadPreviewData(targetGroup)}
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      새로고침
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {/* 쿼리 결과 미리보기 */}
+
+              <CardContent>
+                {/* 대상 그룹 미리보기 */}
                 {groupPreviewData && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                      <Eye className="w-4 h-4" />
-                      쿼리 결과 미리보기
-                    </h4>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <div className="text-xs font-mono overflow-x-auto">
-                        <table className="min-w-full">
-                          <thead>
-                            <tr className="border-b border-gray-200">
-                              {Object.keys(groupPreviewData[0] || {}).map(key => (
-                                <th key={key} className="px-2 py-1 text-left font-medium">
-                                  {key}
-                                </th>
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-medium mb-3">대상자 미리보기</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            {Object.keys(groupPreviewData[0] || {}).map(key => (
+                              <th key={key} className="text-left py-2 px-3 font-medium">
+                                {key}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupPreviewData.slice(0, 2).map((row, index) => (
+                            <tr key={index} className="border-b">
+                              {Object.values(row).map((value, i) => (
+                                <td key={i} className="py-2 px-3 text-muted-foreground">
+                                  {String(value)}
+                                </td>
                               ))}
                             </tr>
-                          </thead>
-                          <tbody>
-                            {groupPreviewData.slice(0, 2).map((row, index) => (
-                              <tr key={index} className="border-b border-gray-100">
-                                {Object.values(row).map((value, i) => (
-                                  <td key={i} className="px-2 py-1">
-                                    {String(value)}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}
@@ -475,6 +528,15 @@ export function TargetTemplateMapping({
                     const templateVariables = extractTemplateVariables(template);
                     const completeness = getMappingCompleteness(targetGroup.id, template.id);
                     const availableFields = groupPreviewData ? Object.keys(groupPreviewData[0] || {}) : [];
+                    
+                    console.log('🔍 매핑 디버깅:', {
+                      targetGroupId: targetGroup.id,
+                      targetGroupType: targetGroup.type,
+                      hasPreviewData: !!groupPreviewData,
+                      availableFieldsCount: availableFields.length,
+                      availableFields,
+                      isLoading: isLoadingPreview[targetGroup.id]
+                    });
                     
                     return (
                       <div key={template.id} className="border rounded-lg p-4">
@@ -532,18 +594,29 @@ export function TargetTemplateMapping({
                                     <SelectValue placeholder="필드 선택" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {availableFields.map(field => (
-                                      <SelectItem key={field} value={field}>
-                                        <div className="flex items-center justify-between w-full">
-                                          <span>{field}</span>
-                                          {groupPreviewData && (
-                                            <span className="text-xs text-muted-foreground ml-2">
-                                              {String(groupPreviewData[0][field])}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </SelectItem>
-                                    ))}
+                                    {availableFields.length > 0 ? (
+                                      availableFields.map(field => (
+                                        <SelectItem key={field} value={field}>
+                                          <div className="flex items-center justify-between w-full">
+                                            <span>{field}</span>
+                                            {groupPreviewData && (
+                                              <span className="text-xs text-muted-foreground ml-2">
+                                                {String(groupPreviewData[0][field])}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </SelectItem>
+                                      ))
+                                    ) : (
+                                      <div className="p-2 text-sm text-muted-foreground">
+                                        {isLoading ? '로딩 중...' : '사용 가능한 필드가 없습니다'}
+                                        {!groupPreviewData && !isLoading && (
+                                          <div className="text-xs mt-1">
+                                            새로고침 버튼을 눌러 데이터를 다시 로드해보세요
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </SelectContent>
                                 </Select>
 
@@ -609,9 +682,9 @@ export function TargetTemplateMapping({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <div className="text-2xl font-bold text-blue-600">
-                {dynamicTargetGroups.length}
+                {allTargetGroups.length}
               </div>
-              <div className="text-sm text-blue-700">동적 대상 그룹</div>
+              <div className="text-sm text-blue-700">대상 그룹</div>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <div className="text-2xl font-bold text-green-600">

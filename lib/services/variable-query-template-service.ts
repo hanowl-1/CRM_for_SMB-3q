@@ -1,201 +1,272 @@
-import type { 
-  VariableQueryTemplate, 
-  VariableQueryTemplateFilter 
-} from '@/lib/types/workflow';
+import { supabase } from '../database/supabase-client';
 
+export interface VariableQueryTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  queryConfig: {
+    sql: string;
+    parameters: string[];
+    expectedColumns: string[];
+    description: string;
+  };
+  usageCount: number;
+  lastUsedAt?: string;
+  isPublic: boolean;
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 변수 쿼리 템플릿 관리 서비스 (Supabase 전용)
+ */
 export class VariableQueryTemplateService {
-  private static readonly STORAGE_KEY = 'variable_query_templates';
-
   /**
-   * 모든 변수 쿼리 템플릿 조회
+   * 모든 쿼리 템플릿 조회
    */
-  static getTemplates(filter?: VariableQueryTemplateFilter): VariableQueryTemplate[] {
-    const templates = this.loadFromStorage();
-    let filtered = templates;
+  static async getAllTemplates(): Promise<VariableQueryTemplate[]> {
+    try {
+      console.log('📊 Supabase에서 변수 쿼리 템플릿 조회 중...');
+      
+      const { data, error } = await supabase
+        .from('variable_query_templates')
+        .select('*')
+        .order('updated_at', { ascending: false });
 
-    // 필터링
-    if (filter) {
-      if (filter.variableName) {
-        filtered = filtered.filter(t => t.variableName === filter.variableName);
+      if (error) {
+        console.error('❌ Supabase 조회 실패:', error);
+        throw new Error(`변수 쿼리 템플릿 조회 실패: ${error.message}`);
       }
-      if (filter.category) {
-        filtered = filtered.filter(t => t.category === filter.category);
-      }
-      if (filter.tags && filter.tags.length > 0) {
-        filtered = filtered.filter(t => 
-          filter.tags!.some(tag => t.tags.includes(tag))
-        );
-      }
-      if (filter.searchTerm) {
-        const term = filter.searchTerm.toLowerCase();
-        filtered = filtered.filter(t => 
-          t.name.toLowerCase().includes(term) ||
-          t.description.toLowerCase().includes(term) ||
-          t.query.toLowerCase().includes(term) ||
-          t.tags.some(tag => tag.toLowerCase().includes(term))
-        );
-      }
-      if (filter.isPublic !== undefined) {
-        filtered = filtered.filter(t => t.isPublic === filter.isPublic);
-      }
-      if (filter.isFavorite !== undefined) {
-        filtered = filtered.filter(t => t.isFavorite === filter.isFavorite);
-      }
+
+      const templates = data || [];
+      console.log(`📊 Supabase에서 ${templates.length}개 변수 쿼리 템플릿 조회 성공`);
+      
+      return templates;
+    } catch (error) {
+      console.error('❌ 변수 쿼리 템플릿 조회 실패:', error);
+      throw error;
     }
-
-    // 정렬
-    if (filter?.sortBy) {
-      filtered.sort((a, b) => {
-        const aVal = a[filter.sortBy!];
-        const bVal = b[filter.sortBy!];
-        const order = filter.sortOrder === 'desc' ? -1 : 1;
-        
-        if (typeof aVal === 'string' && typeof bVal === 'string') {
-          return aVal.localeCompare(bVal) * order;
-        }
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return (aVal - bVal) * order;
-        }
-        return 0;
-      });
-    }
-
-    return filtered;
-  }
-
-  /**
-   * 특정 변수명에 대한 템플릿들 조회
-   */
-  static getTemplatesForVariable(variableName: string): VariableQueryTemplate[] {
-    return this.getTemplates({ variableName });
   }
 
   /**
    * 특정 템플릿 조회
    */
-  static getTemplate(id: string): VariableQueryTemplate | null {
-    const templates = this.loadFromStorage();
-    return templates.find(t => t.id === id) || null;
+  static async getTemplateById(id: string): Promise<VariableQueryTemplate | null> {
+    try {
+      console.log(`📄 Supabase에서 쿼리 템플릿 ${id} 조회 중...`);
+      
+      const { data, error } = await supabase
+        .from('variable_query_templates')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          console.log(`📄 쿼리 템플릿 ${id}를 찾을 수 없음`);
+          return null;
+        }
+        console.error('❌ Supabase 조회 실패:', error);
+        throw new Error(`쿼리 템플릿 조회 실패: ${error.message}`);
+      }
+
+      console.log(`📄 Supabase에서 쿼리 템플릿 ${id} 조회 성공`);
+      return data;
+    } catch (error) {
+      console.error('❌ 쿼리 템플릿 조회 실패:', error);
+      throw error;
+    }
   }
 
   /**
-   * 템플릿 저장
+   * 새 템플릿 저장
    */
-  static saveTemplate(template: Omit<VariableQueryTemplate, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>): VariableQueryTemplate {
-    const templates = this.loadFromStorage();
-    const now = new Date().toISOString();
-    
-    const newTemplate: VariableQueryTemplate = {
-      ...template,
-      id: this.generateId(),
-      createdAt: now,
-      updatedAt: now,
-      usageCount: 0
-    };
+  static async saveTemplate(template: Omit<VariableQueryTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<VariableQueryTemplate> {
+    try {
+      console.log('💾 Supabase에 새 쿼리 템플릿 저장 중...', template.name);
+      
+      const newTemplate: VariableQueryTemplate = {
+        ...template,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    templates.push(newTemplate);
-    this.saveToStorage(templates);
-    
-    return newTemplate;
+      const { data, error } = await supabase
+        .from('variable_query_templates')
+        .insert([newTemplate])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase 저장 실패:', error);
+        throw new Error(`쿼리 템플릿 저장 실패: ${error.message}`);
+      }
+
+      console.log(`💾 Supabase에 쿼리 템플릿 저장 성공: ${data.id}`);
+      return data;
+    } catch (error) {
+      console.error('❌ 쿼리 템플릿 저장 실패:', error);
+      throw error;
+    }
   }
 
   /**
    * 템플릿 업데이트
    */
-  static updateTemplate(id: string, updates: Partial<VariableQueryTemplate>): VariableQueryTemplate | null {
-    const templates = this.loadFromStorage();
-    const index = templates.findIndex(t => t.id === id);
-    
-    if (index === -1) return null;
-    
-    templates[index] = {
-      ...templates[index],
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
-    
-    this.saveToStorage(templates);
-    return templates[index];
+  static async updateTemplate(id: string, updates: Partial<VariableQueryTemplate>): Promise<VariableQueryTemplate> {
+    try {
+      console.log(`🔄 Supabase에서 쿼리 템플릿 ${id} 업데이트 중...`);
+      
+      const updateData = {
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('variable_query_templates')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase 업데이트 실패:', error);
+        throw new Error(`쿼리 템플릿 업데이트 실패: ${error.message}`);
+      }
+
+      console.log(`🔄 Supabase에서 쿼리 템플릿 ${id} 업데이트 성공`);
+      return data;
+    } catch (error) {
+      console.error('❌ 쿼리 템플릿 업데이트 실패:', error);
+      throw error;
+    }
   }
 
   /**
    * 템플릿 삭제
    */
-  static deleteTemplate(id: string): boolean {
-    const templates = this.loadFromStorage();
-    const filtered = templates.filter(t => t.id !== id);
-    
-    if (filtered.length === templates.length) return false;
-    
-    this.saveToStorage(filtered);
-    return true;
+  static async deleteTemplate(id: string): Promise<void> {
+    try {
+      console.log(`🗑️ Supabase에서 쿼리 템플릿 ${id} 삭제 중...`);
+      
+      const { error } = await supabase
+        .from('variable_query_templates')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Supabase 삭제 실패:', error);
+        throw new Error(`쿼리 템플릿 삭제 실패: ${error.message}`);
+      }
+
+      console.log(`🗑️ Supabase에서 쿼리 템플릿 ${id} 삭제 성공`);
+    } catch (error) {
+      console.error('❌ 쿼리 템플릿 삭제 실패:', error);
+      throw error;
+    }
   }
 
   /**
    * 템플릿 사용 기록
    */
-  static recordUsage(id: string): void {
-    const templates = this.loadFromStorage();
-    const template = templates.find(t => t.id === id);
-    
-    if (template) {
-      template.usageCount++;
-      template.lastUsedAt = new Date().toISOString();
-      this.saveToStorage(templates);
-    }
-  }
-
-  /**
-   * 즐겨찾기 토글
-   */
-  static toggleFavorite(id: string): boolean {
-    const template = this.getTemplate(id);
-    if (!template) return false;
-    
-    const newFavoriteStatus = !template.isFavorite;
-    this.updateTemplate(id, { isFavorite: newFavoriteStatus });
-    return newFavoriteStatus;
-  }
-
-  /**
-   * 로컬 스토리지에서 로드
-   */
-  private static loadFromStorage(): VariableQueryTemplate[] {
-    if (typeof window === 'undefined') return [];
-    
+  static async recordUsage(id: string): Promise<void> {
     try {
-      const stored = localStorage.getItem(this.STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }
+      console.log(`📈 쿼리 템플릿 ${id} 사용 기록 중...`);
+      
+      // 먼저 현재 사용 횟수를 조회
+      const { data: currentData, error: fetchError } = await supabase
+        .from('variable_query_templates')
+        .select('usageCount')
+        .eq('id', id)
+        .single();
 
-  /**
-   * 로컬 스토리지에 저장
-   */
-  private static saveToStorage(templates: VariableQueryTemplate[]): void {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(templates));
+      if (fetchError) {
+        console.error('❌ 현재 사용 횟수 조회 실패:', fetchError);
+        throw new Error(`사용 기록 실패: ${fetchError.message}`);
+      }
+
+      const currentUsageCount = currentData?.usageCount || 0;
+
+      // 사용 횟수 증가 및 마지막 사용 시간 업데이트
+      const { error } = await supabase
+        .from('variable_query_templates')
+        .update({
+          usageCount: currentUsageCount + 1,
+          lastUsedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Supabase 사용 기록 실패:', error);
+        throw new Error(`사용 기록 실패: ${error.message}`);
+      }
+
+      console.log(`📈 쿼리 템플릿 ${id} 사용 기록 성공`);
     } catch (error) {
-      console.error('변수 쿼리 템플릿 저장 실패:', error);
+      console.error('❌ 사용 기록 실패:', error);
+      throw error;
     }
   }
 
-  /**
-   * 고유 ID 생성
-   */
-  private static generateId(): string {
-    return `var_query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // 편의 메서드들
+  static async getPopularTemplates(limit: number = 5): Promise<VariableQueryTemplate[]> {
+    const templates = await this.getAllTemplates();
+    return templates
+      .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0))
+      .slice(0, limit);
   }
 
-  /**
-   * 기본 템플릿들 생성 (초기 데이터)
-   */
-  static initializeDefaultTemplates(): void {
-    // 더미 데이터 제거 - 실제 Supabase 데이터 사용
-    console.log('더미 데이터 초기화 제거됨. 실제 Supabase 데이터를 사용합니다.');
+  static async getRecentTemplates(limit: number = 5): Promise<VariableQueryTemplate[]> {
+    const templates = await this.getAllTemplates();
+    return templates
+      .filter(t => t.lastUsedAt)
+      .sort((a, b) => new Date(b.lastUsedAt!).getTime() - new Date(a.lastUsedAt!).getTime())
+      .slice(0, limit);
+  }
+
+  static async getFavoriteTemplates(): Promise<VariableQueryTemplate[]> {
+    const templates = await this.getAllTemplates();
+    return templates.filter(t => t.isFavorite);
+  }
+
+  static async getTemplatesByCategory(category: string): Promise<VariableQueryTemplate[]> {
+    const templates = await this.getAllTemplates();
+    return templates.filter(t => t.category === category);
+  }
+
+  static async searchTemplates(query: string): Promise<VariableQueryTemplate[]> {
+    const templates = await this.getAllTemplates();
+    return templates.filter(template =>
+      template.name.toLowerCase().includes(query.toLowerCase()) ||
+      template.description.toLowerCase().includes(query.toLowerCase()) ||
+      template.queryConfig.description.toLowerCase().includes(query.toLowerCase())
+    );
+  }
+
+  static async toggleFavorite(id: string): Promise<VariableQueryTemplate | null> {
+    const template = await this.getTemplateById(id);
+    if (!template) return null;
+
+    return this.updateTemplate(id, { isFavorite: !template.isFavorite });
+  }
+
+  static async duplicateTemplate(id: string, newName?: string): Promise<VariableQueryTemplate | null> {
+    const original = await this.getTemplateById(id);
+    if (!original) return null;
+
+    const duplicate = {
+      ...original,
+      name: newName || `${original.name} (복사본)`,
+      usageCount: 0,
+      lastUsedAt: undefined
+    };
+
+    // id, createdAt, updatedAt 제외
+    const { id: _, createdAt: __, updatedAt: ___, ...templateData } = duplicate;
+    return this.saveTemplate(templateData);
   }
 } 

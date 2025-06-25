@@ -116,17 +116,7 @@ export default function WorkflowDetailPage() {
       try {
         const workflowId = params.id as string
         
-        // 1. localStorage에서 저장된 워크플로우 찾기
-        const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
-        const foundWorkflow = savedWorkflows.find(w => w.id === workflowId || `saved_${w.id}` === workflowId)
-        
-        if (foundWorkflow) {
-          setWorkflow(foundWorkflow)
-          setIsLoading(false)
-          return
-        }
-
-        // 2. Supabase에서 워크플로우 조회
+        // 1. Supabase에서 워크플로우 조회
         try {
           console.log("📊 Supabase에서 워크플로우 조회 중...", workflowId);
           
@@ -177,58 +167,81 @@ export default function WorkflowDetailPage() {
   }, [params.id])
 
   const handleSave = async (updatedWorkflow: Workflow) => {
+    console.log("🚀 handleSave 함수 호출됨:", {
+      workflowId: updatedWorkflow.id,
+      workflowName: updatedWorkflow.name,
+      scheduleSettings: updatedWorkflow.scheduleSettings,
+      timestamp: new Date().toISOString()
+    });
+    
     setIsSaving(true)
     try {
-      // 1. localStorage에서 기존 워크플로우 업데이트 시도
-      const savedWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]") as Workflow[]
-      const localWorkflowIndex = savedWorkflows.findIndex(w => w.id === updatedWorkflow.id)
+      // Supabase 워크플로우 업데이트
+      console.log("🌐 Supabase API 호출 준비 중...");
+      console.log("📊 Supabase 워크플로우 업데이트 중...", updatedWorkflow.id);
       
-      if (localWorkflowIndex !== -1) {
-        // localStorage 워크플로우 업데이트
-        savedWorkflows[localWorkflowIndex] = { ...updatedWorkflow, updatedAt: new Date().toISOString() }
-        localStorage.setItem("workflows", JSON.stringify(savedWorkflows))
+      // 🔥 스케줄 설정만 별도로 전송 (백엔드 API가 scheduleSettings 필드를 별도 처리하기 때문)
+      const updatePayload = {
+        name: updatedWorkflow.name,
+        description: updatedWorkflow.description,
+        status: updatedWorkflow.status,
+        targetGroups: updatedWorkflow.targetGroups,
+        targetTemplateMappings: updatedWorkflow.targetTemplateMappings,
+        steps: updatedWorkflow.steps,
+        testSettings: updatedWorkflow.testSettings,
+        scheduleSettings: updatedWorkflow.scheduleSettings  // 🔥 이 필드가 핵심!
+      };
+      
+      console.log("📤 전송할 스케줄 설정:", updatePayload.scheduleSettings);
+      console.log("📤 전송할 전체 데이터:", updatePayload);
+      
+      const apiUrl = `/api/supabase/workflows/${encodeURIComponent(updatedWorkflow.id)}`;
+      console.log("🔗 API URL:", apiUrl);
+      
+      console.log("🚀 fetch 호출 시작...");
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updatePayload)
+      });
+      
+      console.log("📨 API 응답 받음:", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log("📋 API 응답 데이터:", result);
         
-        alert("워크플로우가 업데이트되었습니다!")
-        router.push("/")
-        return
-      }
-
-      // 2. Supabase 워크플로우 업데이트 시도
-      try {
-        console.log("📊 Supabase 워크플로우 업데이트 중...", updatedWorkflow.id);
-        
-        const response = await fetch(`/api/supabase/workflows/${encodeURIComponent(updatedWorkflow.id)}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            ...updatedWorkflow,
-            updatedAt: new Date().toISOString()
-          })
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          
-          if (result.success) {
-            console.log("✅ Supabase 워크플로우 업데이트 성공");
-            alert("워크플로우가 업데이트되었습니다!");
-            router.push("/");
-            return;
-          } else {
-            throw new Error(result.message || 'Supabase 업데이트 실패');
-          }
+        if (result.success) {
+          console.log("✅ Supabase 워크플로우 업데이트 성공");
+          alert("워크플로우가 업데이트되었습니다!");
+          router.push("/");
+          return;
         } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          throw new Error(result.message || 'Supabase 업데이트 실패');
         }
-      } catch (supabaseError) {
-        console.error("Supabase 워크플로우 업데이트 실패:", supabaseError);
-        throw new Error(`Supabase 업데이트 실패: ${supabaseError instanceof Error ? supabaseError.message : '알 수 없는 오류'}`);
+      } else {
+        const errorText = await response.text();
+        console.error("❌ API 응답 오류:", {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       
     } catch (error) {
-      console.error("워크플로우 업데이트 실패:", error)
+      console.error("❌ 워크플로우 업데이트 실패:", error)
+      console.error("❌ 전체 오류 정보:", {
+        message: error instanceof Error ? error.message : '알 수 없는 오류',
+        stack: error instanceof Error ? error.stack : '스택 없음',
+        error
+      });
       alert(`업데이트에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
     } finally {
       setIsSaving(false)

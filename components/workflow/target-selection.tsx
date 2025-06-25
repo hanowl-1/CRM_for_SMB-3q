@@ -312,7 +312,7 @@ WHERE contacts IS NOT NULL
                         {target.type === 'dynamic' ? '동적 쿼리' : '정적 조건'}
                       </Badge>
                       <Badge variant="outline">
-                        약 {target.estimatedCount.toLocaleString()}명
+                        약 {(target.estimatedCount || 0).toLocaleString()}명
                       </Badge>
                     </div>
                     
@@ -554,7 +554,7 @@ WHERE contacts IS NOT NULL
                         </span>
                         {queryTestResult.success && queryTestResult.totalCount !== undefined && (
                           <span className="text-xs bg-white px-2 py-0.5 rounded-full border">
-                            {queryTestResult.totalCount.toLocaleString()}개 결과
+                            {(queryTestResult.totalCount || 0).toLocaleString()}개 결과
                           </span>
                         )}
                       </div>
@@ -563,7 +563,7 @@ WHERE contacts IS NOT NULL
                         <div>
                           {queryTestResult.totalCount !== undefined && (
                             <p className="text-sm text-gray-600 mb-2">
-                              총 <strong>{queryTestResult.totalCount.toLocaleString()}</strong>명의 대상자가 검색되었습니다.
+                              총 <strong>{(queryTestResult.totalCount || 0).toLocaleString()}</strong>명의 대상자가 검색되었습니다.
                             </p>
                           )}
                           {queryTestResult.preview && queryTestResult.preview.length > 0 && (
