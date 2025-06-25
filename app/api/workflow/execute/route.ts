@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Workflow } from '@/lib/types/workflow';
-import { KakaoAlimtalkTemplateById } from '@/packages/kakao-alimtalk/src/generated/template';
+import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
 
