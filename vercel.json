@@ -21,7 +21,7 @@
   "crons": [
     {
       "path": "/api/scheduler/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/scheduler/execute", 
