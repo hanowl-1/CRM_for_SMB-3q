@@ -9,10 +9,10 @@
   },
   "functions": {
     "app/api/**/*.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     },
     "app/api/scheduler/**/*.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     },
     "app/api/workflow/**/*.ts": {
       "maxDuration": 60
