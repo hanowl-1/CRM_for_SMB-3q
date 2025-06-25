@@ -18,7 +18,7 @@
 - 🗄️ **하이브리드 DB 연동** - MySQL (기존 데이터) + Supabase (플랫폼 데이터)
 - 📨 **CoolSMS API 연동** - 다채널 메시지 발송 및 대체 발송
 - 📊 **실시간 대시보드** - 워크플로우 모니터링 및 통계
-- ⏰ **영구 스케줄러** - 서버 재시작 내성, 완전 자동화
+- ⏰ **Vercel Cron 스케줄러** - 서버 재시작 내성, 완전 자동화
 
 ### 🚀 구현 현황
 
@@ -28,7 +28,7 @@
 - 데이터베이스 연동 (MySQL + Supabase)
 - CoolSMS API 완전 연동
 - 실시간 대시보드 및 모니터링
-- 영구 스케줄러 (Vercel + cron-job.org)
+- Vercel Cron 스케줄러 (2분 간격)
 
 ## 💰 운영 비용 분석
 
@@ -39,7 +39,7 @@
 | **발송비** | CoolSMS 알림톡 | 900,000원 | 필수 |
 | **인프라** | Vercel (Hobby) | 무료 | 현재 |
 | **인프라** | Supabase (Free) | 무료 | 현재 |
-| **스케줄러** | cron-job.org | 무료 | 현재 |
+| **스케줄러** | Vercel Cron | 무료 | 현재 |
 | **총 비용** | - | **900,000원/월** | - |
 
 ### 💡 비용 절약 효과
@@ -125,7 +125,7 @@ pnpm dev
 - **[메시지 발송](./documents/Feature_Message_Sending.md)** - CoolSMS API 연동
 - **[대시보드](./documents/Feature_Dashboard_Analytics.md)** - 실시간 모니터링
 
-### ��️ 데이터베이스 관련
+### 🔧 데이터베이스 관련
 - **[데이터베이스 스키마](./documents/Database_Schema.md)** - 완전한 스키마 문서
 - **[설정 스크립트](./documents/Database_Setup_Scripts.md)** - SQL 스크립트 가이드
 - **[마이그레이션 가이드](./documents/Database_Migration_Guide.md)** - 단계별 전환 절차
