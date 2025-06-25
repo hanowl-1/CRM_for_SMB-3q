@@ -33,8 +33,8 @@ Vercel 대시보드에서 환경변수를 추가합니다:
 2. 다음 변수들을 추가:
 
 ```
-CRON_SECRET_TOKEN=your_generated_token_here
-NEXT_PUBLIC_SITE_URL=https://your-project.vercel.app
+CRON_SECRET_TOKEN=c7f3c323144444ca876786803871097a
+NEXT_PUBLIC_SITE_URL=https://v0-kakao-beryl.vercel.app/
 ```
 
 ## ☁️ 3. AWS Lambda 함수 생성
