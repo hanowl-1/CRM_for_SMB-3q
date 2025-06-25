@@ -231,7 +231,10 @@ export async function GET(request: NextRequest) {
         // VERCEL_AUTOMATION_BYPASS_SECRET 환경 변수가 있으면 추가
         if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
           headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-          console.log('Vercel 인증 우회 헤더 추가됨');
+          headers['x-vercel-set-bypass-cookie'] = 'true';
+          console.log('✅ Vercel 인증 우회 헤더 추가됨');
+        } else {
+          console.warn('⚠️ VERCEL_AUTOMATION_BYPASS_SECRET 환경 변수가 설정되지 않음');
         }
         
         // 🔥 올바른 형식으로 워크플로우 실행 API 호출
