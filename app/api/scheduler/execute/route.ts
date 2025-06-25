@@ -14,89 +14,72 @@ function getKoreaTime(): Date {
   return koreaTime;
 }
 
-// 크론잡 - 매분 실행되어 pending/active 작업들을 확인하고 실행
+// 크론잡 - 매분 실행되어 pending/running 작업들을 확인하고 실행
 export async function GET(request: NextRequest) {
   try {
-    console.log('\n=== 스케줄러 실행기 시작 ===');
-    console.log('현재 한국 시간:', getKoreaTime().toISOString());
+    console.log('=== 스케줄러 실행기 시작 ===');
     
     const now = getKoreaTime();
-    const currentTimeStr = now.toTimeString().slice(0, 8); // HH:MM:SS
+    const currentTimeString = now.toTimeString().substring(0, 8); // HH:MM:SS 형식
+    console.log(`현재 한국 시간: ${now.toISOString()}`);
+    console.log(`현재 시간 문자열: ${currentTimeString}`);
     
-    console.log('현재 시간 문자열:', currentTimeStr);
-    
-    // 🔥 pending과 active 상태 모두 조회하여 실행할 작업 찾기
+    // 🔥 pending과 running 상태 모두 조회하여 실행할 작업 찾기
     const { data: jobs, error } = await supabase
       .from('scheduled_jobs')
       .select('*')
-      .in('status', ['pending', 'active'])
-      .order('scheduled_time');
+      .in('status', ['pending', 'running'])
+      .order('scheduled_time', { ascending: true });
     
     if (error) {
-      console.error('스케줄 작업 조회 오류:', error);
+      console.error('스케줄 작업 조회 실패:', error);
       return NextResponse.json({ 
         error: '스케줄 작업 조회 실패', 
         details: error.message,
-        query: 'pending + active jobs'
+        query: 'pending + running jobs'
       }, { status: 500 });
     }
     
-    console.log(`총 ${jobs?.length || 0}개의 스케줄 작업 발견 (pending + active)`);
+    console.log(`총 ${jobs?.length || 0}개의 스케줄 작업 발견 (pending + running)`);
     
-    if (!jobs || jobs.length === 0) {
-      console.log('실행할 스케줄 작업이 없습니다.');
-      return NextResponse.json({ 
-        message: '실행할 작업 없음', 
-        executedJobs: 0,
-        debug: {
-          queriedJobsCount: jobs?.length || 0,
-          queryCondition: 'status IN (pending, active)',
-          currentTime: now.toISOString()
-        }
-      });
-    }
-    
-    // 🔥 조회된 작업들 상세 로그
-    console.log('🔍 조회된 모든 작업들:');
-    jobs.forEach((job, index) => {
-      console.log(`  ${index + 1}. ID: ${job.id}, 상태: ${job.status}, 예정시간: ${job.scheduled_time}, 워크플로우: ${job.workflow_data?.name || job.workflow_id}`);
-    });
-    
-    // JavaScript에서 시간 비교하여 실행할 작업 필터링
     const jobsToExecute = [];
     const debugInfo = [];
     
-    for (const job of jobs) {
+    // 각 작업에 대해 실행 시간 체크
+    for (const job of jobs || []) {
       const scheduledTime = new Date(job.scheduled_time);
-      const scheduledTimeStr = scheduledTime.toTimeString().slice(0, 8);
-      const timeDiff = now.getTime() - scheduledTime.getTime(); // 양수면 예정시간 지남
-      const isTimeToExecute = timeDiff >= 0 && timeDiff <= 300000; // 0~5분 이내 (늦어도 5분까지 허용)
+      const koreaScheduledTime = new Date(scheduledTime.getTime() + 9 * 60 * 60 * 1000); // UTC → KST 변환
       
-      const jobDebug = {
-        jobId: job.id,
+      // 한국 시간으로 시:분:초 비교
+      const scheduledTimeString = koreaScheduledTime.toTimeString().substring(0, 8);
+      
+      // 시간 차이 계산 (초 단위)
+      const timeDiffSeconds = Math.floor((now.getTime() - koreaScheduledTime.getTime()) / 1000);
+      
+      // 5분(300초) 허용 오차 적용 - 이전에 실행되지 않은 지연된 작업도 실행
+      const TOLERANCE_MS = 5 * 60 * 1000; // 5분 = 300초
+      const isTimeToExecute = now.getTime() >= (koreaScheduledTime.getTime() - TOLERANCE_MS);
+      
+      debugInfo.push({
+        id: job.id,
+        workflow_name: job.workflow_name || 'Unknown',
+        scheduled_time: job.scheduled_time,
         status: job.status,
-        scheduledTime: job.scheduled_time,
-        scheduledTimeStr,
-        currentTimeStr,
-        timeDiffSeconds: Math.round(timeDiff/1000),
-        timeDiffMs: timeDiff,
-        isTimeToExecute,
-        reason: timeDiff < 0 ? '예정시간 전' : timeDiff > 300000 ? '5분 초과 지연' : '실행 조건 만족'
-      };
+        timeDiffSeconds,
+        isTimeToExecute
+      });
       
-      debugInfo.push(jobDebug);
-      
-      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeStr}, 현재시간=${currentTimeStr}, 차이=${Math.round(timeDiff/1000)}초, 실행가능=${isTimeToExecute}, 상태=${job.status}`);
+      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeString}, 현재시간=${currentTimeString}, 차이=${timeDiffSeconds}초, 실행가능=${isTimeToExecute}, 상태=${job.status}`);
       
       if (isTimeToExecute) {
-        // 🔥 pending 상태인 경우 active로 변경
+        // 🔥 pending 상태인 경우 running으로 변경
         if (job.status === 'pending') {
-          console.log(`🔄 pending → active 상태 변경: ${job.id}`);
+          console.log(`🔄 pending → running 상태 변경: ${job.id}`);
           
           const { error: updateError } = await supabase
             .from('scheduled_jobs')
             .update({ 
-              status: 'active',
+              status: 'running',
               started_at: now.toISOString(),
               updated_at: now.toISOString()
             })
@@ -104,11 +87,12 @@ export async function GET(request: NextRequest) {
           
           if (updateError) {
             console.error(`상태 변경 실패 (${job.id}):`, updateError);
-            continue; // 상태 변경 실패시 이 작업은 건너뜀
+            // 🔥 상태 변경 실패해도 실행은 계속 시도 (이전 코드 수정)
+            console.log(`상태 변경 실패했지만 실행을 계속 시도합니다: ${job.id}`);
           }
           
           // 상태 변경된 작업 정보 업데이트
-          job.status = 'active';
+          job.status = 'running';
           job.started_at = now.toISOString();
         }
         
@@ -128,7 +112,7 @@ export async function GET(request: NextRequest) {
           jobsAfterTimeFilter: jobsToExecute.length,
           currentTime: now.toISOString(),
           currentKoreaTime: now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-          queryCondition: 'status IN (pending, active) AND time within 5 minutes',
+          queryCondition: 'status IN (pending, running) AND time within 5 minutes',
           jobDetails: debugInfo
         }
       });
