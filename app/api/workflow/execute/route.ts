@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn('⚠️ Vercel 인증 우회 정보 누락');
         console.log('Environment VERCEL_AUTOMATION_BYPASS_SECRET:', process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? '설정됨' : '설정되지 않음');
+        console.log('Bypass secret from header:', bypassSecret ? '전달됨' : '전달되지 않음');
       }
     }
     
@@ -193,6 +194,7 @@ export async function POST(request: NextRequest) {
       }, {
         headers: {
           'x-vercel-bypass-protection': 'true',
+          'x-vercel-set-bypass-cookie': 'true',
           'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
       });

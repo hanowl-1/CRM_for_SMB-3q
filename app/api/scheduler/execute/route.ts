@@ -253,6 +253,13 @@ export async function GET(request: NextRequest) {
           enableRealSending: requestBody.enableRealSending
         });
         
+        console.log('📤 요청 헤더:', {
+          'Content-Type': headers['Content-Type'],
+          'x-scheduler-internal': headers['x-scheduler-internal'],
+          'x-vercel-protection-bypass': headers['x-vercel-protection-bypass'] ? 'SET' : 'NOT_SET',
+          'x-vercel-set-bypass-cookie': headers['x-vercel-set-bypass-cookie']
+        });
+        
         const response = await fetch(executeUrl, {
           method: 'POST',
           headers,
