@@ -9,7 +9,7 @@
   },
   "functions": {
     "app/api/**/*.ts": {
-      "maxDuration": 30
+      "maxDuration": 300
     },
     "app/api/scheduler/**/*.ts": {
       "maxDuration": 60
@@ -21,7 +21,7 @@
   "crons": [
     {
       "path": "/api/scheduler/cron",
-      "schedule": "0 0 * * *"
+      "schedule": "*/10 * * * * *"
     },
     {
       "path": "/api/scheduler/execute", 

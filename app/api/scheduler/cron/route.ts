@@ -47,153 +47,52 @@ function calculateNextRecurringTime(recurringPattern: any): Date {
   return nextRun;
 }
 
-// 크론잡 - 매일 실행되어 오늘 할 작업들을 scheduled_jobs 테이블에 등록
+// 🔥 Vercel Cron - 스케줄러 실행 (10초마다)
 export async function GET(request: NextRequest) {
   try {
-    const client = getSupabase();
-    const now = getKoreaTime();
-    const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    console.log(`🕐 Vercel Cron 실행: ${getKoreaTime().toLocaleString('ko-KR')}`);
     
-    console.log(`🕐 크론잡 실행: ${now.toLocaleString('ko-KR')}`);
+    // 🔥 내부 스케줄러 실행 API 직접 호출 (Protection Bypass 필요 없음)
+    const baseUrl = process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:3000' 
+      : `https://${process.env.VERCEL_URL || request.headers.get('host')}`;
     
-    // 활성 워크플로우들 조회
-    const { data: workflows, error: workflowError } = await client
-      .from('workflows')
-      .select('*')
-      .eq('status', 'active');
+    const executeUrl = `${baseUrl}/api/scheduler/execute`;
     
-    if (workflowError) {
-      console.error('❌ 워크플로우 조회 실패:', workflowError);
+    // 🔥 내부 호출이므로 Protection Bypass 헤더 불필요
+    const response = await fetch(executeUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-vercel-internal': 'true', // 내부 호출 표시
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ 스케줄러 실행 실패:', response.status, errorText);
       return NextResponse.json({
         success: false,
-        message: '워크플로우 조회 실패: ' + workflowError.message
-      }, { status: 500 });
+        message: `스케줄러 실행 실패: HTTP ${response.status}`,
+        error: errorText
+      }, { status: response.status });
     }
     
-    let scheduledCount = 0;
-    const scheduledJobs = [];
-    
-    for (const workflow of workflows || []) {
-      const scheduleConfig = workflow.schedule_config || workflow.schedule_settings;
-      
-      if (!scheduleConfig || scheduleConfig.type === 'immediate') {
-        continue; // 즉시 실행 워크플로우는 건너뛰기
-      }
-      
-      let scheduledTime: Date | null = null;
-      
-      switch (scheduleConfig.type) {
-        case 'scheduled':
-          // 일회성 예약
-          if (scheduleConfig.scheduledTime) {
-            const targetTime = new Date(scheduleConfig.scheduledTime);
-            if (targetTime.toISOString().split('T')[0] === today) {
-              scheduledTime = targetTime;
-            }
-          }
-          break;
-          
-        case 'recurring':
-          // 반복 실행 - 다음 실행 시간을 계산하고 등록
-          if (scheduleConfig.recurringPattern) {
-            const nextTime = calculateNextRecurringTime(scheduleConfig.recurringPattern);
-            scheduledTime = nextTime;
-          }
-          break;
-          
-        case 'delay':
-          // 지연 실행은 여기서 처리하지 않음 (워크플로우 활성화 시 즉시 등록)
-          break;
-      }
-      
-      if (scheduledTime) {
-        // 이미 등록된 작업이 있는지 확인 (같은 워크플로우의 pending 작업)
-        const { data: existingJobs } = await client
-          .from('scheduled_jobs')
-          .select('id, scheduled_time')
-          .eq('workflow_id', workflow.id)
-          .eq('status', 'pending');
-        
-        // 기존 작업이 있으면 정확히 같은 시간인 경우만 건너뛰기
-        let shouldCreateNew = true;
-        if (existingJobs && existingJobs.length > 0) {
-          for (const existingJob of existingJobs) {
-            const existingTime = new Date(existingJob.scheduled_time);
-            
-            // 🔥 정확히 같은 시간(초 단위까지)인 경우만 같은 작업으로 간주
-            if (scheduledTime.getTime() === existingTime.getTime()) {
-              shouldCreateNew = false;
-              console.log(`⏭️ 기존 작업 유지 (정확히 같은 시간): ${workflow.name} → ${existingTime.toLocaleString('ko-KR')}`);
-              break;
-            }
-          }
-          
-          // 새로운 시간으로 등록하는 경우 기존 작업들 삭제
-          if (shouldCreateNew) {
-            await client
-              .from('scheduled_jobs')
-              .delete()
-              .eq('workflow_id', workflow.id)
-              .eq('status', 'pending');
-            console.log(`🗑️ 기존 작업 삭제 (시간 변경됨): ${workflow.name}`);
-          }
-        }
-        
-        if (shouldCreateNew) {
-          // 새 작업 등록
-          const { data: newJob, error: insertError } = await client
-            .from('scheduled_jobs')
-            .insert({
-              workflow_id: workflow.id,
-              workflow_data: {
-                id: workflow.id,
-                name: workflow.name,
-                description: workflow.description,
-                message_config: workflow.message_config,
-                target_config: workflow.target_config,
-                schedule_config: scheduleConfig
-              },
-              scheduled_time: scheduledTime.toISOString(),
-              status: 'pending',
-              retry_count: 0,
-              max_retries: 3,
-              created_at: now.toISOString()
-            })
-            .select()
-            .single();
-          
-          if (insertError) {
-            console.error(`❌ 작업 등록 실패 (${workflow.name}):`, insertError);
-          } else {
-            scheduledCount++;
-            scheduledJobs.push({
-              workflowName: workflow.name,
-              scheduledTime: scheduledTime.toLocaleString('ko-KR'),
-              jobId: newJob.id
-            });
-            console.log(`✅ 작업 등록: ${workflow.name} → ${scheduledTime.toLocaleString('ko-KR')}`);
-          }
-        }
-      }
-    }
-    
-    console.log(`🎯 크론잡 완료: ${scheduledCount}개 작업 등록`);
+    const result = await response.json();
+    console.log('✅ 스케줄러 실행 완료:', result);
     
     return NextResponse.json({
       success: true,
-      data: {
-        scheduledCount,
-        scheduledJobs,
-        processedWorkflows: workflows?.length || 0
-      },
-      message: `${scheduledCount}개의 작업이 오늘 일정에 등록되었습니다.`
+      message: 'Vercel Cron 실행 완료',
+      schedulerResult: result,
+      timestamp: getKoreaTime().toISOString()
     });
     
   } catch (error) {
-    console.error('❌ 크론잡 실행 실패:', error);
+    console.error('❌ Vercel Cron 실행 실패:', error);
     return NextResponse.json({
       success: false,
-      message: '크론잡 실행 실패: ' + (error instanceof Error ? error.message : String(error))
+      message: 'Vercel Cron 실행 실패: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 }
