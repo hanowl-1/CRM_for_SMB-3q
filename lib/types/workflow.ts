@@ -111,11 +111,28 @@ export interface Workflow {
   description: string;
   status: 'draft' | 'active' | 'paused' | 'archived';
   trigger: WorkflowTrigger;
+  
+  // 🔥 기존 구조 (하위 호환성 유지)
   targetGroups?: TargetGroup[]; // 발송 대상 그룹들
   steps: WorkflowStep[];
+  
+  // 🔥 새로운 3단계 워크플로우 구조 (시스템 아키텍처 문서 기준)
+  target_config?: {
+    targetGroups: TargetGroup[];
+  };
+  message_config?: {
+    steps: WorkflowStep[];
+  };
+  mapping_config?: {
+    targetTemplateMappings: TargetTemplateMapping[];
+  };
+  
+  // 🔥 통합 스케줄 설정
+  schedule_config?: ScheduleSettings; // 워크플로우 전체 스케줄 설정
+  
   testSettings?: WorkflowTestSettings; // 테스트 설정
-  scheduleSettings?: ScheduleSettings; // 워크플로우 전체 스케줄 설정
-  targetTemplateMappings?: TargetTemplateMapping[]; // 대상-템플릿 매핑 정보
+  scheduleSettings?: ScheduleSettings; // 워크플로우 전체 스케줄 설정 (하위 호환성)
+  targetTemplateMappings?: TargetTemplateMapping[]; // 대상-템플릿 매핑 정보 (하위 호환성)
   createdAt: string;
   updatedAt: string;
   stats: {

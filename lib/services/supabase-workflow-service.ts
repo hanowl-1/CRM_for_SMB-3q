@@ -269,14 +269,47 @@ class SupabaseWorkflowService {
       // 🔥 대상 설정 - targetGroups를 target_config로 변환
       if (updates.targetGroups && Array.isArray(updates.targetGroups)) {
         console.log('🎯 대상 그룹 설정 감지:', updates.targetGroups);
+        
+        // 기존 target_config 조회하여 다른 필드들 보존
+        const { data: existingWorkflow } = await client
+          .from('workflows')
+          .select('target_config')
+          .eq('id', id)
+          .single();
+          
         updateData.target_config = {
           targetGroups: updates.targetGroups,
-          targetTemplateMappings: updates.targetTemplateMappings || []
+          // 기존 targetTemplateMappings는 보존 (mapping_config로 이동 예정)
+          targetTemplateMappings: existingWorkflow?.target_config?.targetTemplateMappings || []
         };
       }
       
-      // 대상-템플릿 매핑만 업데이트하는 경우
-      if (updates.targetTemplateMappings && !updates.targetGroups) {
+      // 🔥 3단계: 매핑 설정 처리 (mapping_config)
+      if (updates.targetTemplateMappings) {
+        console.log('🎯 매핑 설정 감지:', updates.targetTemplateMappings);
+        updateData.mapping_config = {
+          targetTemplateMappings: updates.targetTemplateMappings
+        };
+        
+        // 하위 호환성: target_config에서도 제거하지 않고 동기화
+        if (!updateData.target_config) {
+          const { data: existingWorkflow } = await client
+            .from('workflows')
+            .select('target_config')
+            .eq('id', id)
+            .single();
+            
+          updateData.target_config = {
+            targetGroups: existingWorkflow?.target_config?.targetGroups || [],
+            targetTemplateMappings: updates.targetTemplateMappings
+          };
+        } else {
+          updateData.target_config.targetTemplateMappings = updates.targetTemplateMappings;
+        }
+      }
+      
+      // 대상-템플릿 매핑만 업데이트하는 경우 (레거시)
+      if (updates.targetTemplateMappings && !updates.targetGroups && !updateData.target_config) {
         // 기존 target_config 조회
         const { data: existingWorkflow } = await client
           .from('workflows')

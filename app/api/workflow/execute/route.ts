@@ -59,10 +59,11 @@ export async function POST(request: NextRequest) {
     const startTime = new Date();
 
     try {
-      // 🔥 워크플로우 객체에서 실행에 필요한 정보 추출
+      // 🔥 3단계 워크플로우 구조에 맞춘 데이터 추출
       const workflowWithSupabaseProps = workflow as Workflow & {
         target_config?: any;
         message_config?: any;
+        mapping_config?: any;
       };
       
       console.log('📋 워크플로우 실행 시작:', {
@@ -71,21 +72,50 @@ export async function POST(request: NextRequest) {
         targetGroupsCount: workflow.targetGroups?.length || 0,
         stepsCount: workflow.steps?.length || 0,
         hasTargetConfig: !!workflowWithSupabaseProps.target_config,
-        hasMessageConfig: !!workflowWithSupabaseProps.message_config
+        hasMessageConfig: !!workflowWithSupabaseProps.message_config,
+        hasMappingConfig: !!workflowWithSupabaseProps.mapping_config
       });
       
-      // 🔥 타겟 그룹 정보 결정: workflow.targetGroups 우선, 없으면 target_config에서 추출
-      let targetGroups = workflow.targetGroups || [];
-      if (targetGroups.length === 0 && workflowWithSupabaseProps.target_config?.targetGroups) {
+      // 🔥 1단계: 대상 그룹 정보 추출 (target_config 우선)
+      let targetGroups = [];
+      if (workflowWithSupabaseProps.target_config?.targetGroups) {
         targetGroups = workflowWithSupabaseProps.target_config.targetGroups;
         console.log('📋 target_config에서 타겟 그룹 추출:', targetGroups.length, '개');
+      } else if (workflow.targetGroups) {
+        targetGroups = workflow.targetGroups;
+        console.log('📋 기존 targetGroups에서 타겟 그룹 추출:', targetGroups.length, '개');
       }
       
-      // 🔥 메시지 스텝 정보 결정: workflow.steps 우선, 없으면 message_config에서 추출
-      let messageSteps = workflow.steps || [];
-      if (messageSteps.length === 0 && workflowWithSupabaseProps.message_config?.steps) {
+      // 🔥 2단계: 메시지 스텝 정보 추출 (message_config 우선)
+      let messageSteps = [];
+      if (workflowWithSupabaseProps.message_config?.steps) {
         messageSteps = workflowWithSupabaseProps.message_config.steps;
         console.log('📋 message_config에서 메시지 스텝 추출:', messageSteps.length, '개');
+      } else if (workflow.steps) {
+        messageSteps = workflow.steps;
+        console.log('📋 기존 steps에서 메시지 스텝 추출:', messageSteps.length, '개');
+      }
+      
+      // 🔥 3단계: 매핑 설정 정보 추출 (mapping_config 우선)
+      let targetTemplateMappings = [];
+      if (workflowWithSupabaseProps.mapping_config?.targetTemplateMappings) {
+        targetTemplateMappings = workflowWithSupabaseProps.mapping_config.targetTemplateMappings;
+        console.log('📋 mapping_config에서 매핑 설정 추출:', targetTemplateMappings.length, '개');
+      } else if (workflowWithSupabaseProps.target_config?.targetTemplateMappings) {
+        targetTemplateMappings = workflowWithSupabaseProps.target_config.targetTemplateMappings;
+        console.log('📋 target_config에서 매핑 설정 추출 (하위 호환):', targetTemplateMappings.length, '개');
+      } else if (workflow.targetTemplateMappings) {
+        targetTemplateMappings = workflow.targetTemplateMappings;
+        console.log('📋 기존 targetTemplateMappings에서 매핑 설정 추출:', targetTemplateMappings.length, '개');
+      }
+      
+      // 🔥 데이터 검증
+      if (targetGroups.length === 0) {
+        throw new Error('대상 그룹이 설정되지 않았습니다. target_config.targetGroups를 확인해주세요.');
+      }
+      
+      if (messageSteps.length === 0) {
+        throw new Error('메시지 스텝이 설정되지 않았습니다. message_config.steps를 확인해주세요.');
       }
 
       // 각 스텝(템플릿) 실행
@@ -101,7 +131,7 @@ export async function POST(request: NextRequest) {
 
         // 대상 그룹별로 메시지 발송
         for (const targetGroup of targetGroups) {
-          const stepResult = await executeStep(step, targetGroup, workflow, enableRealSending);
+          const stepResult = await executeStep(step, targetGroup, workflow, enableRealSending, targetTemplateMappings);
           results.push({
             step: i + 1,
             stepName: step.name,
@@ -237,7 +267,7 @@ export async function POST(request: NextRequest) {
 }
 
 // 개별 스텝 실행
-async function executeStep(step: any, targetGroup: any, workflow: Workflow, enableRealSending: boolean) {
+async function executeStep(step: any, targetGroup: any, workflow: Workflow, enableRealSending: boolean, targetTemplateMappings: any) {
   try {
     const templateId = step.action.templateId;
     const templateCode = step.action.templateCode;
@@ -258,20 +288,107 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
 
     for (const target of targets) {
       try {
-        // 변수 치환
+        // 🔥 3단계 매핑 설정을 활용한 변수 치환
         const variables = { ...step.action.variables };
-        for (const [key, value] of Object.entries(variables)) {
-          if (typeof value === 'string' && value.includes('{{')) {
-            // 동적 변수 치환 (예: {{customer_name}} -> target.name)
+        
+        // 해당 템플릿에 대한 매핑 설정 찾기
+        const templateMapping = targetTemplateMappings.find(
+          (mapping: any) => mapping.templateId === templateId && mapping.targetGroupId === targetGroup.id
+        );
+        
+        if (templateMapping && templateMapping.fieldMappings) {
+          console.log('📋 매핑 설정 발견:', templateMapping.fieldMappings.length, '개 매핑');
+          
+          // 매핑 설정에 따른 변수 치환
+          for (const fieldMapping of templateMapping.fieldMappings) {
+            const { templateVariable, targetField, formatter, defaultValue } = fieldMapping;
             const rawData = target.rawData || target;
-            variables[key] = value.replace(/\{\{(\w+)\}\}/g, (match, fieldName) => {
-              return rawData[fieldName] || target[fieldName] || match;
-            });
+            
+            // 대상 데이터에서 값 추출
+            let value = rawData[targetField] || defaultValue || `[${templateVariable}]`;
+            
+            // 포맷터 적용
+            if (formatter && value !== `[${templateVariable}]`) {
+              switch (formatter) {
+                case 'number':
+                  value = Number(value).toLocaleString();
+                  break;
+                case 'currency':
+                  value = `${Number(value).toLocaleString()}원`;
+                  break;
+                case 'date':
+                  value = new Date(value).toLocaleDateString('ko-KR');
+                  break;
+                case 'text':
+                default:
+                  value = String(value);
+                  break;
+              }
+            }
+            
+            // 변수 치환
+            variables[templateVariable] = value;
+            console.log(`📋 매핑 적용: ${templateVariable} = ${value} (from ${targetField})`);
+          }
+        } else {
+          console.log('⚠️ 매핑 설정 없음, 기본 변수 치환 사용');
+          
+          // 기본 변수 치환 (기존 로직)
+          for (const [key, value] of Object.entries(variables)) {
+            if (typeof value === 'string' && value.includes('{{')) {
+              const rawData = target.rawData || target;
+              variables[key] = value.replace(/\{\{(\w+)\}\}/g, (match, fieldName) => {
+                return rawData[fieldName] || target[fieldName] || match;
+              });
+            }
+          }
+        }
+        
+        // 🔥 개인화 설정 활용 (step.action.personalization)
+        if (step.action.personalization?.enabled && step.action.personalization.variableMappings) {
+          console.log('📋 개인화 설정 발견:', step.action.personalization.variableMappings.length, '개 매핑');
+          
+          for (const variableMapping of step.action.personalization.variableMappings) {
+            const { templateVariable, sourceType, sourceField, selectedColumn, defaultValue, formatter } = variableMapping;
+            
+            let value = defaultValue || `[${templateVariable.replace(/[#{}]/g, '')}]`;
+            
+            if (sourceType === 'field' && sourceField) {
+              const rawData = target.rawData || target;
+              value = rawData[sourceField] || defaultValue || value;
+            } else if (sourceType === 'query' && variableMapping.actualValue) {
+              // 이미 계산된 쿼리 결과값 사용
+              value = variableMapping.actualValue;
+            }
+            
+            // 포맷터 적용
+            if (formatter && value !== `[${templateVariable.replace(/[#{}]/g, '')}]`) {
+              switch (formatter) {
+                case 'number':
+                  value = Number(value).toLocaleString();
+                  break;
+                case 'currency':
+                  value = `${Number(value).toLocaleString()}원`;
+                  break;
+                case 'date':
+                  value = new Date(value).toLocaleDateString('ko-KR');
+                  break;
+                case 'text':
+                default:
+                  value = String(value);
+                  break;
+              }
+            }
+            
+            // 템플릿 변수명 정리 (#{변수명} -> 변수명)
+            const cleanVariableName = templateVariable.replace(/[#{}]/g, '');
+            variables[cleanVariableName] = value;
+            console.log(`📋 개인화 적용: ${cleanVariableName} = ${value}`);
           }
         }
 
         console.log(`📤 대상자: ${target.name} (${target.phoneNumber})`);
-        console.log(`📋 변수 치환 결과:`, variables);
+        console.log(`📋 최종 변수 치환 결과:`, variables);
 
         const result = await sendAlimtalk({
           templateId,

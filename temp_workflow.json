@@ -20,47 +20,6 @@
         },
         "estimatedCount": 1
       }
-    ],
-    "targetTemplateMappings": [
-      {
-        "id": "mapping_target_1750829454055_KA01TP250610072652095M0BPif67w7I_1750829459290",
-        "createdAt": "2025-06-25T05:30:59.290Z",
-        "updatedAt": "2025-06-25T05:31:09.543Z",
-        "templateId": "KA01TP250610072652095M0BPif67w7I",
-        "fieldMappings": [
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "total_reviews"
-          },
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "monthly_review_count"
-          },
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "top_5p_reviewers_count"
-          },
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "total_post_views"
-          },
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "naver_place_rank"
-          },
-          {
-            "formatter": "text",
-            "targetField": "id",
-            "templateVariable": "blog_post_rank"
-          }
-        ],
-        "targetGroupId": "target_1750829454055"
-      }
     ]
   },
   "message_config": {
@@ -149,11 +108,54 @@
       }
     ]
   },
+  "mapping_config": {
+    "targetTemplateMappings": [
+      {
+        "id": "mapping_target_1750829454055_KA01TP250610072652095M0BPif67w7I_1750829459290",
+        "createdAt": "2025-06-25T05:30:59.290Z",
+        "updatedAt": "2025-06-25T05:31:09.543Z",
+        "templateId": "KA01TP250610072652095M0BPif67w7I",
+        "fieldMappings": [
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "total_reviews"
+          },
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "monthly_review_count"
+          },
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "top_5p_reviewers_count"
+          },
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "total_post_views"
+          },
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "naver_place_rank"
+          },
+          {
+            "formatter": "text",
+            "targetField": "id",
+            "templateVariable": "blog_post_rank"
+          }
+        ],
+        "targetGroupId": "target_1750829454055"
+      }
+    ]
+  },
   "schedule_config": {
     "type": "recurring",
     "timezone": "Asia/Seoul",
     "recurringPattern": {
-      "time": "15:45",
+      "time": "20:35",
       "interval": 1,
       "frequency": "daily"
     }

@@ -26,9 +26,8 @@ export function getKoreaTime(): Date {
  * @returns {string} UTC ISO 문자열
  */
 export function koreaTimeToUTC(koreaTime: Date): string {
-  // 더 간단한 방법: 한국 시간을 UTC로 직접 변환
-  // toISOString()은 항상 UTC 기준이므로, 한국 시간 값을 그대로 사용하되
-  // 시간대 오프셋을 고려하여 변환
+  // 한국 시간(KST)을 UTC로 변환
+  // KST는 UTC+9이므로, UTC는 KST에서 9시간을 뺀 시간
   
   const year = koreaTime.getFullYear();
   const month = koreaTime.getMonth();
@@ -37,8 +36,10 @@ export function koreaTimeToUTC(koreaTime: Date): string {
   const minutes = koreaTime.getMinutes();
   const seconds = koreaTime.getSeconds();
   
-  // 한국 시간을 UTC로 변환: KST는 UTC+9이므로 9시간을 빼야 함
-  const utcDate = new Date(Date.UTC(year, month, date, hours - 9, minutes, seconds));
+  // 한국 시간에서 9시간을 빼서 UTC 시간 생성
+  const utcDate = new Date(Date.UTC(year, month, date, hours, minutes, seconds));
+  // 한국 시간이므로 9시간을 빼야 함
+  utcDate.setTime(utcDate.getTime() - (9 * 60 * 60 * 1000));
   
   return utcDate.toISOString();
 }
