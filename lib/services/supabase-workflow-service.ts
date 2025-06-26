@@ -437,7 +437,7 @@ class SupabaseWorkflowService {
       const isActivating = updates.status === 'active' || data.status === 'active';
       
       if (hasScheduleUpdate && isActivating) {
-        console.log('🔄 스케줄 설정 변경 감지, 크론잡 실행 시작...');
+        console.log('🔄 스케줄 설정 변경 감지, 스케줄 등록 API 실행 시작...');
         console.log('📋 스케줄 업데이트 정보:', {
           scheduleSettings: updates.scheduleSettings,
           scheduleConfig: (updates as any).scheduleConfig,
@@ -446,58 +446,58 @@ class SupabaseWorkflowService {
         });
         
         try {
-          // 크론잡 API 호출하여 scheduled_jobs 테이블에 등록
+          // 스케줄 등록 API 호출하여 scheduled_jobs 테이블에 등록
           const baseUrl = process.env.NODE_ENV === 'production' 
             ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
             : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
-          console.log('📡 크론잡 API 호출:', `${baseUrl}/api/scheduler/cron`);
-          const cronResponse = await fetch(`${baseUrl}/api/scheduler/cron`, {
-            method: 'POST',
+          console.log('📡 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
+          const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
+            method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             }
           });
 
-          if (cronResponse.ok) {
-            const cronResult = await cronResponse.json();
-            console.log('✅ 크론잡 실행 성공:', cronResult.message);
+          if (registerResponse.ok) {
+            const registerResult = await registerResponse.json();
+            console.log('✅ 스케줄 등록 성공:', registerResult.message);
           } else {
-            const errorText = await cronResponse.text();
-            console.warn('⚠️ 크론잡 실행 실패:', errorText);
+            const errorText = await registerResponse.text();
+            console.warn('⚠️ 스케줄 등록 실패:', errorText);
           }
         } catch (schedulerError) {
-          console.warn('⚠️ 크론잡 실행 중 오류:', schedulerError);
-          // 크론잡 실행 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
+          console.warn('⚠️ 스케줄 등록 중 오류:', schedulerError);
+          // 스케줄 등록 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
         }
       }
 
-      // 워크플로우 상태가 active로 변경되는 경우에도 크론잡 실행 (스케줄이 있는 경우)
+      // 워크플로우 상태가 active로 변경되는 경우에도 스케줄 등록 실행 (스케줄이 있는 경우)
       if (updates.status === 'active' && data.schedule_config && data.schedule_config.type !== 'immediate') {
-        console.log('🔄 워크플로우 활성화 감지, 크론잡 실행...');
+        console.log('🔄 워크플로우 활성화 감지, 스케줄 등록 실행...');
         
         try {
           const baseUrl = process.env.NODE_ENV === 'production' 
             ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
             : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
-          console.log('📡 워크플로우 활성화 크론잡 API 호출:', `${baseUrl}/api/scheduler/cron`);
-          const cronResponse = await fetch(`${baseUrl}/api/scheduler/cron`, {
-            method: 'POST',
+          console.log('📡 워크플로우 활성화 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
+          const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
+            method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             }
           });
 
-          if (cronResponse.ok) {
-            const cronResult = await cronResponse.json();
-            console.log('✅ 워크플로우 활성화 크론잡 실행 성공:', cronResult.message);
+          if (registerResponse.ok) {
+            const registerResult = await registerResponse.json();
+            console.log('✅ 워크플로우 활성화 스케줄 등록 성공:', registerResult.message);
           } else {
-            const errorText = await cronResponse.text();
-            console.warn('⚠️ 워크플로우 활성화 크론잡 실행 실패:', errorText);
+            const errorText = await registerResponse.text();
+            console.warn('⚠️ 워크플로우 활성화 스케줄 등록 실패:', errorText);
           }
-        } catch (cronError) {
-          console.warn('⚠️ 워크플로우 활성화 크론잡 실행 중 오류:', cronError);
+        } catch (registerError) {
+          console.warn('⚠️ 워크플로우 활성화 스케줄 등록 중 오류:', registerError);
         }
       }
 

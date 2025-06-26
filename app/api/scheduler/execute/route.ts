@@ -1,125 +1,137 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '@/lib/database/supabase-client';
+import { getKoreaTime, utcToKoreaTime, koreaTimeToUTC, formatKoreaTime } from '@/lib/utils';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-// 한국시간 헬퍼 함수
-function getKoreaTime(): Date {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
-  return koreaTime;
+// 환경별 베이스 URL 결정 함수
+function getBaseUrl(request: NextRequest): string {
+  // 개발 환경
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:3000';
+  }
+  
+  // 프로덕션 환경
+  if (process.env.VERCEL_PROJECT_URL) {
+    return `https://${process.env.VERCEL_PROJECT_URL}`;
+  }
+  
+  // Vercel 환경 변수
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  
+  // 요청 헤더에서 호스트 추출
+  const host = request.headers.get('host');
+  if (host) {
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    return `${protocol}://${host}`;
+  }
+  
+  // 기본값
+  return 'http://localhost:3000';
 }
 
-// 크론잡 - 매분 실행되어 pending/running 작업들을 확인하고 실행
+// 스케줄 작업 실행 API
 export async function GET(request: NextRequest) {
+  const debugInfo: any[] = [];
+  let executedCount = 0;
+  const results: any[] = [];
+  
   try {
-    console.log('=== 스케줄러 실행기 시작 ===');
+    // 인증 검증 (내부 호출인지 확인)
+    const internalCall = request.headers.get('x-scheduler-internal');
+    const cronSecret = request.headers.get('x-cron-secret');
+    const isAuthorized = internalCall === 'true' || 
+                        cronSecret === process.env.CRON_SECRET_TOKEN ||
+                        process.env.NODE_ENV === 'development'; // 개발 환경에서는 인증 생략
     
-    const now = getKoreaTime();
-    const currentTimeString = now.toTimeString().substring(0, 8); // HH:MM:SS 형식
-    console.log(`현재 한국 시간: ${now.toISOString()}`);
-    console.log(`현재 시간 문자열: ${currentTimeString}`);
+    if (!isAuthorized) {
+      console.warn('⚠️ 스케줄러 실행 API 무권한 접근 시도');
+      return NextResponse.json({
+        success: false,
+        message: '권한이 없습니다.'
+      }, { status: 401 });
+    }
     
-    // 🔥 pending과 running 상태 모두 조회하여 실행할 작업 찾기
+    const supabase = getSupabase();
+    const now = getKoreaTime(); // 한국 시간 기준
+    const currentTimeString = formatKoreaTime(now);
+    
+    console.log(`\n🕐 === 스케줄 실행기 시작 ===`);
+    console.log(`현재 한국 시간: ${currentTimeString}`);
+    console.log(`환경: ${process.env.NODE_ENV}`);
+    console.log(`베이스 URL: ${getBaseUrl(request)}`);
+    
+    // 실행 대기 중인 작업들 조회 (UTC로 저장된 시간을 가져옴)
     const { data: jobs, error } = await supabase
       .from('scheduled_jobs')
       .select('*')
-      .in('status', ['pending', 'running'])
+      .eq('status', 'pending')
       .order('scheduled_time', { ascending: true });
     
     if (error) {
-      console.error('스케줄 작업 조회 실패:', error);
-      return NextResponse.json({ 
-        error: '스케줄 작업 조회 실패', 
-        details: error.message,
-        query: 'pending + running jobs'
+      console.error('❌ 스케줄 작업 조회 실패:', error);
+      return NextResponse.json({
+        success: false,
+        message: '스케줄 작업 조회 실패: ' + error.message
       }, { status: 500 });
     }
     
-    console.log(`총 ${jobs?.length || 0}개의 스케줄 작업 발견 (pending + running)`);
+    console.log(`📋 대기 중인 작업 수: ${jobs?.length || 0}개`);
     
-    const jobsToExecute = [];
-    const debugInfo = [];
+    const jobsToExecute: any[] = [];
     
     // 각 작업에 대해 실행 시간 체크
     for (const job of jobs || []) {
-      const scheduledTime = new Date(job.scheduled_time);
-      const koreaScheduledTime = new Date(scheduledTime.getTime() + 9 * 60 * 60 * 1000); // UTC → KST 변환
-      
-      // 한국 시간으로 시:분:초 비교
-      const scheduledTimeString = koreaScheduledTime.toTimeString().substring(0, 8);
+      // UTC로 저장된 시간을 한국 시간으로 변환
+      const scheduledTimeKST = utcToKoreaTime(job.scheduled_time);
       
       // 시간 차이 계산 (초 단위)
-      const timeDiffSeconds = Math.floor((now.getTime() - koreaScheduledTime.getTime()) / 1000);
+      const timeDiffSeconds = Math.floor((now.getTime() - scheduledTimeKST.getTime()) / 1000);
       
       // 5분(300초) 허용 오차 적용 - 이전에 실행되지 않은 지연된 작업도 실행
       const TOLERANCE_MS = 5 * 60 * 1000; // 5분 = 300초
-      const isTimeToExecute = now.getTime() >= (koreaScheduledTime.getTime() - TOLERANCE_MS);
+      const isTimeToExecute = now.getTime() >= (scheduledTimeKST.getTime() - TOLERANCE_MS);
       
       debugInfo.push({
         id: job.id,
-        workflow_name: job.workflow_name || 'Unknown',
-        scheduled_time: job.scheduled_time,
+        workflow_name: job.workflow_data?.name || 'Unknown',
+        scheduled_time_utc: job.scheduled_time,
+        scheduled_time_kst: formatKoreaTime(scheduledTimeKST),
         status: job.status,
         timeDiffSeconds,
         isTimeToExecute
       });
       
-      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeString}, 현재시간=${currentTimeString}, 차이=${timeDiffSeconds}초, 실행가능=${isTimeToExecute}, 상태=${job.status}`);
+      console.log(`작업 ${job.id}: 예정시간=${formatKoreaTime(scheduledTimeKST)}, 현재시간=${currentTimeString}, 차이=${timeDiffSeconds}초, 실행가능=${isTimeToExecute}, 상태=${job.status}`);
       
       if (isTimeToExecute) {
-        // 🔥 pending 상태인 경우 running으로 변경
-        if (job.status === 'pending') {
-          console.log(`🔄 pending → running 상태 변경: ${job.id}`);
-          
-          const { error: updateError } = await supabase
-            .from('scheduled_jobs')
-            .update({ 
-              status: 'running',
-              started_at: now.toISOString(),
-              updated_at: now.toISOString()
-            })
-            .eq('id', job.id);
-          
-          if (updateError) {
-            console.error(`상태 변경 실패 (${job.id}):`, updateError);
-            // 🔥 상태 변경 실패해도 실행은 계속 시도 (이전 코드 수정)
-            console.log(`상태 변경 실패했지만 실행을 계속 시도합니다: ${job.id}`);
-          }
-          
-          // 상태 변경된 작업 정보 업데이트
-          job.status = 'running';
-          job.started_at = now.toISOString();
-        }
-        
+        console.log(`✅ 실행 대상: ${job.workflow_data?.name} (${job.id})`);
         jobsToExecute.push(job);
+      } else {
+        console.log(`⏸️ 대기: ${job.workflow_data?.name} (${timeDiffSeconds}초 남음)`);
       }
     }
     
-    console.log(`실행할 작업 수: ${jobsToExecute.length}`);
+    console.log(`🎯 실행할 작업 수: ${jobsToExecute.length}개`);
     
     if (jobsToExecute.length === 0) {
-      console.log('현재 시간에 실행할 작업이 없습니다.');
-      return NextResponse.json({ 
-        message: '현재 시간에 실행할 작업 없음', 
-        executedJobs: 0,
-        debug: {
-          totalQueriedJobs: jobs?.length || 0,
-          jobsAfterTimeFilter: jobsToExecute.length,
-          currentTime: now.toISOString(),
-          currentKoreaTime: now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-          queryCondition: 'status IN (pending, running) AND time within 5 minutes',
-          jobDetails: debugInfo
+      console.log('⏸️ 실행할 작업이 없습니다.');
+      return NextResponse.json({
+        success: true,
+        data: {
+          executedCount: 0,
+          results: [],
+          debugInfo,
+          message: '실행할 작업이 없습니다.',
+          totalPendingJobs: jobs?.length || 0,
+          environment: process.env.NODE_ENV,
+          baseUrl: getBaseUrl(request)
         }
       });
     }
     
-    let executedCount = 0;
-    const results = [];
+    // 작업 실행
+    console.log(`\n🚀 === 작업 실행 시작 ===`);
     
     for (const job of jobsToExecute) {
       try {
@@ -134,8 +146,8 @@ export async function GET(request: NextRequest) {
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            executed_at: now.toISOString(),
-            updated_at: now.toISOString()
+            executed_at: koreaTimeToUTC(now), // 한국 시간을 UTC로 변환
+            updated_at: koreaTimeToUTC(now)  // 한국 시간을 UTC로 변환
           })
           .eq('id', job.id);
         
@@ -156,7 +168,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: now.toISOString()
+              updated_at: koreaTimeToUTC(now)
             })
             .eq('id', job.id);
           
@@ -200,57 +212,28 @@ export async function GET(request: NextRequest) {
         });
         
         // 워크플로우 실행 API 호출
-        const baseUrl = process.env.NODE_ENV === 'development' 
-          ? 'http://localhost:3000' 
-          : `https://${process.env.VERCEL_URL || request.headers.get('host')}`;
-        
+        const baseUrl = getBaseUrl(request);
         const executeUrl = `${baseUrl}/api/workflow/execute`;
         
-        // Vercel Protection Bypass for Automation 헤더 추가
+        // 인증 헤더 추가
         const headers: HeadersInit = {
           'Content-Type': 'application/json',
           'x-scheduler-internal': 'true',
+          'x-cron-secret': process.env.CRON_SECRET_TOKEN || '',
         };
         
-        // VERCEL_AUTOMATION_BYPASS_SECRET 환경 변수가 있으면 추가
-        if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
-          headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-          headers['x-vercel-set-bypass-cookie'] = 'true';
-          console.log('✅ Vercel 인증 우회 헤더 추가됨');
-        } else {
-          console.warn('⚠️ VERCEL_AUTOMATION_BYPASS_SECRET 환경 변수가 설정되지 않음');
-        }
-        
-        // 🔥 올바른 형식으로 워크플로우 실행 API 호출
-        const requestBody = {
-          workflow: workflow,
-          scheduledExecution: true,
-          jobId: job.id,
-          enableRealSending: workflow.testSettings?.enableRealSending || workflow.variables?.testSettings?.enableRealSending || false
-        };
-        
-        console.log('📤 워크플로우 실행 API 요청 데이터:', {
-          workflowId: requestBody.workflow.id,
-          workflowName: requestBody.workflow.name,
-          scheduledExecution: requestBody.scheduledExecution,
-          jobId: requestBody.jobId,
-          enableRealSending: requestBody.enableRealSending
-        });
-        
-        console.log('📤 요청 헤더:', {
-          'Content-Type': headers['Content-Type'],
-          'x-scheduler-internal': headers['x-scheduler-internal'],
-          'x-vercel-protection-bypass': headers['x-vercel-protection-bypass'] ? 'SET' : 'NOT_SET',
-          'x-vercel-set-bypass-cookie': headers['x-vercel-set-bypass-cookie']
-        });
+        console.log(`📡 워크플로우 실행 API 호출: ${executeUrl}`);
         
         const response = await fetch(executeUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify({
+            workflowId: workflow.id,
+            workflow: workflow,
+            scheduledExecution: true,
+            scheduledJobId: job.id
+          })
         });
-        
-        console.log('워크플로우 실행 API 응답 상태:', response.status);
         
         if (!response.ok) {
           const errorText = await response.text();
@@ -263,13 +246,13 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: now.toISOString()
+              updated_at: koreaTimeToUTC(now)
             })
             .eq('id', job.id);
           
           // HTTP 401 오류인 경우 특별히 처리
           if (response.status === 401) {
-            console.error('🚨 Vercel 인증 오류 발생. VERCEL_AUTOMATION_BYPASS_SECRET 환경 변수를 확인하세요.');
+            console.error('🚨 Vercel 인증 오류 발생. CRON_SECRET_TOKEN 환경 변수를 확인하세요.');
           }
           
           results.push({
@@ -288,8 +271,8 @@ export async function GET(request: NextRequest) {
           .from('scheduled_jobs')
           .update({ 
             status: 'completed',
-            completed_at: now.toISOString(),
-            updated_at: now.toISOString()
+            completed_at: koreaTimeToUTC(now),
+            updated_at: koreaTimeToUTC(now)
           })
           .eq('id', job.id);
         
@@ -305,14 +288,14 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         console.error(`❌ 작업 ${job.id} 실행 중 오류:`, error);
         
-        // 🔥 예외 발생시 상태를 failed로 변경
+        // 🔥 오류 발생 시 상태를 failed로 변경
         await supabase
           .from('scheduled_jobs')
           .update({ 
             status: 'failed',
             error_message: error instanceof Error ? error.message : '알 수 없는 오류',
             retry_count: (job.retry_count || 0) + 1,
-            updated_at: now.toISOString()
+            updated_at: koreaTimeToUTC(now)
           })
           .eq('id', job.id);
         
@@ -324,21 +307,29 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`\n=== 스케줄러 실행 완료 ===`);
-    console.log(`총 실행된 작업 수: ${executedCount}`);
+    console.log(`\n🎯 스케줄 실행 완료: ${executedCount}개 실행, ${results.filter(r => !r.success).length}개 실패`);
     
     return NextResponse.json({
-      message: `${executedCount}개 작업 실행 완료`,
-      executedJobs: executedCount,
-      results
+      success: true,
+      data: {
+        executedCount,
+        results,
+        debugInfo,
+        totalJobs: jobsToExecute.length,
+        environment: process.env.NODE_ENV,
+        baseUrl: getBaseUrl(request)
+      },
+      message: `${executedCount}개의 작업이 실행되었습니다.`
     });
     
   } catch (error) {
-    console.error('스케줄러 실행 오류:', error);
-    return NextResponse.json(
-      { error: '스케줄러 실행 실패', details: error instanceof Error ? error.message : '알 수 없는 오류' },
-      { status: 500 }
-    );
+    console.error('❌ 스케줄 실행기 오류:', error);
+    return NextResponse.json({
+      success: false,
+      message: '스케줄 실행기 오류: ' + (error instanceof Error ? error.message : String(error)),
+      environment: process.env.NODE_ENV,
+      baseUrl: getBaseUrl(request)
+    }, { status: 500 });
   }
 }
 

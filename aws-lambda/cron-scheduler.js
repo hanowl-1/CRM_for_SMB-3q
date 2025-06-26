@@ -11,6 +11,11 @@ exports.handler = async (event, context) => {
   console.log('🚀 AWS Lambda cron scheduler started');
   console.log('Event:', JSON.stringify(event, null, 2));
   
+  // 한국 시간대 설정
+  process.env.TZ = 'Asia/Seoul';
+  const currentTime = new Date();
+  console.log('🕒 Current KST Time:', currentTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+  
   const projectUrl = process.env.VERCEL_PROJECT_URL;
   const secretToken = process.env.CRON_SECRET_TOKEN;
   
@@ -60,7 +65,7 @@ exports.handler = async (event, context) => {
             },
             body: JSON.stringify({
               success: true,
-              timestamp: new Date().toISOString(),
+              timestamp: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
               vercelResponse: responseBody,
               lambdaRequestId: context.awsRequestId
             })

@@ -155,7 +155,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      timestamp: new Date().toISOString(),
+      timestamp: koreaTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+      koreaTimeISO: koreaTime.toISOString(),
       totalJobs: jobs?.length || 0,
       executableJobs: executableJobs.length,
       results

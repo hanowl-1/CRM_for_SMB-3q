@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
-
-// 한국시간 헬퍼 함수
-function getKoreaTime(): Date {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
-  return koreaTime;
-}
+import { getKoreaTime, koreaTimeToUTC, formatKoreaTime } from '@/lib/utils';
 
 // 테스트용 스케줄 생성 API
 export async function POST(request: NextRequest) {
@@ -24,6 +17,9 @@ export async function POST(request: NextRequest) {
     
     const client = getSupabase();
     const now = getKoreaTime();
+    
+    // 입력받은 시간을 한국 시간으로 파싱
+    const scheduledKoreaTime = new Date(scheduledTime);
     
     // 테스트 작업을 scheduled_jobs 테이블에 직접 추가
     const { data: newJob, error } = await client
@@ -44,11 +40,11 @@ export async function POST(request: NextRequest) {
             ]
           }
         },
-        scheduled_time: new Date(scheduledTime).toISOString(),
+        scheduled_time: koreaTimeToUTC(scheduledKoreaTime), // 한국 시간을 UTC로 변환
         status: 'pending',
         retry_count: 0,
         max_retries: 1,
-        created_at: now.toISOString()
+        created_at: koreaTimeToUTC(now) // 한국 시간을 UTC로 변환
       })
       .select()
       .single();
@@ -68,16 +64,16 @@ export async function POST(request: NextRequest) {
       data: {
         jobId: newJob.id,
         workflowName,
-        scheduledTime: new Date(scheduledTime).toLocaleString('ko-KR'),
+        scheduledTime: formatKoreaTime(scheduledKoreaTime),
         message: '테스트 스케줄이 생성되었습니다.'
       }
     });
     
   } catch (error) {
-    console.error('❌ 테스트 스케줄 API 오류:', error);
+    console.error('❌ 테스트 스케줄 생성 오류:', error);
     return NextResponse.json({
       success: false,
-      message: '테스트 스케줄 생성 실패: ' + (error instanceof Error ? error.message : String(error))
+      message: '테스트 스케줄 생성 오류: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 } 

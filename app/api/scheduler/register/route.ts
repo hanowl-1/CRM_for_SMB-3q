@@ -1,33 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
-
-// 한국시간 헬퍼 함수
-function getKoreaTime(): Date {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
-  return koreaTime;
-}
+import { getKoreaTime, koreaTimeToUTC, createKoreaScheduleTime, formatKoreaTime } from '@/lib/utils';
 
 // 다음 실행 시간 계산 함수
 function calculateNextRecurringTime(recurringPattern: any): Date {
   const now = getKoreaTime();
   const { frequency, time } = recurringPattern;
   
+  console.log(`🕐 현재 한국 시간: ${formatKoreaTime(now)}`);
+  
   if (!time) {
     return new Date(now.getTime() + 60 * 60 * 1000); // 1시간 후
   }
   
   const [hours, minutes] = time.split(':').map(Number);
-  const nextRun = new Date(now);
-  nextRun.setHours(hours, minutes, 0, 0);
+  console.log(`⏰ 설정된 시간: ${hours}:${minutes}`);
   
-  // 현재 시간과 설정된 시간의 차이 계산
+  // 한국 시간 기준으로 다음 실행 시간 생성
+  const nextRun = createKoreaScheduleTime(time);
+  
+  console.log(`📅 계산된 다음 실행 시간: ${formatKoreaTime(nextRun)}`);
+  
+  // 현재 시간과 설정된 시간의 차이 계산 (밀리초)
   const timeDiff = nextRun.getTime() - now.getTime();
+  console.log(`⏱️ 시간 차이: ${Math.round(timeDiff / 1000 / 60)}분`);
   
-  // 🔥 설정된 시간이 이미 지났으면 다음 실행일로 설정
-  if (timeDiff <= 0) {
-    // 오늘 시간이 지났으면 다음 실행일로
+  // 설정된 시간이 이미 지났으면 (5분 이상 차이) 다음 실행일로 설정
+  if (timeDiff < -5 * 60 * 1000) { // 5분 여유를 둠
+    console.log(`⏭️ 오늘 시간이 지났음, 다음 실행일로 설정`);
+    
     switch (frequency) {
       case 'daily':
         nextRun.setDate(nextRun.getDate() + 1);
@@ -41,9 +42,11 @@ function calculateNextRecurringTime(recurringPattern: any): Date {
       default:
         nextRun.setDate(nextRun.getDate() + 1);
     }
+    console.log(`📅 다음 실행일로 조정: ${formatKoreaTime(nextRun)}`);
+  } else {
+    console.log(`✅ 오늘 해당 시간에 실행 예정`);
   }
   
-  // 🔥 설정된 시간이 아직 오지 않았다면 오늘 그 시간에 실행
   return nextRun;
 }
 
@@ -54,7 +57,7 @@ export async function GET(request: NextRequest) {
     const now = getKoreaTime();
     const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
     
-    console.log(`🕐 스케줄 등록 실행: ${now.toLocaleString('ko-KR')}`);
+    console.log(`🕐 스케줄 등록 실행: ${formatKoreaTime(now)}`);
     
     // 활성 워크플로우들 조회
     const { data: workflows, error: workflowError } = await client
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest) {
             // 🔥 정확히 같은 시간(초 단위까지)인 경우만 같은 작업으로 간주
             if (scheduledTime.getTime() === existingTime.getTime()) {
               shouldCreateNew = false;
-              console.log(`⏭️ 기존 작업 유지 (정확히 같은 시간): ${workflow.name} → ${existingTime.toLocaleString('ko-KR')}`);
+              console.log(`⏭️ 기존 작업 유지 (정확히 같은 시간): ${workflow.name} → ${formatKoreaTime(existingTime)}`);
               break;
             }
           }
@@ -140,7 +143,7 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 새 작업 등록
+          // 새 작업 등록 - 한국 시간을 UTC로 변환하여 저장
           const { data: newJob, error: insertError } = await client
             .from('scheduled_jobs')
             .insert({
@@ -153,11 +156,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: scheduledTime.toISOString(),
+              scheduled_time: koreaTimeToUTC(scheduledTime), // 🔥 한국 시간을 UTC로 변환
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: now.toISOString()
+              created_at: koreaTimeToUTC(now) // 🔥 한국 시간을 UTC로 변환
             })
             .select()
             .single();
@@ -168,10 +171,10 @@ export async function GET(request: NextRequest) {
             scheduledCount++;
             scheduledJobs.push({
               workflowName: workflow.name,
-              scheduledTime: scheduledTime.toLocaleString('ko-KR'),
+              scheduledTime: formatKoreaTime(scheduledTime),
               jobId: newJob.id
             });
-            console.log(`✅ 작업 등록: ${workflow.name} → ${scheduledTime.toLocaleString('ko-KR')}`);
+            console.log(`✅ 작업 등록: ${workflow.name} → ${formatKoreaTime(scheduledTime)}`);
           }
         }
       }
