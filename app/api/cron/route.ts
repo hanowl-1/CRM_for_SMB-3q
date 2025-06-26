@@ -49,14 +49,19 @@ export async function GET(request: NextRequest) {
     const executableJobs = [];
     
     for (const job of jobs || []) {
-      const scheduledTime = new Date(job.scheduled_time);
-      const scheduledTimeString = scheduledTime.toTimeString().slice(0, 8);
+      // DB에 한국 시간으로 저장된 데이터를 올바르게 해석
+      // Vercel 서버가 UTC라서 9시간을 더해야 올바른 한국 시간으로 표시됨
+      const scheduledTimeUTC = new Date(job.scheduled_time);
+      const scheduledTime = new Date(scheduledTimeUTC.getTime() + (9 * 60 * 60 * 1000));
       
-      // 시간 차이 계산 (초)
+      // 한국 시간 기준으로 시간 차이 계산 (초)
       const timeDiff = (koreaTime.getTime() - scheduledTime.getTime()) / 1000;
       const isExecutable = timeDiff >= 0 && timeDiff <= 300; // 5분 이내
 
-      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeString}, 현재시간=${currentTimeString}, 차이=${Math.round(timeDiff)}초, 실행가능=${isExecutable}, 상태=${job.status}`);
+      const scheduledTimeKST = scheduledTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+      const currentTimeKST = koreaTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeKST}, 현재시간=${currentTimeKST}, 차이=${Math.round(timeDiff)}초, 실행가능=${isExecutable}, 상태=${job.status}`);
 
       if (isExecutable && job.status === 'pending') {
         executableJobs.push(job);

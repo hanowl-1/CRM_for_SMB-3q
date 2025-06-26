@@ -139,7 +139,11 @@ export async function GET(request: NextRequest) {
     
     // 🔍 상세 작업 분석
     const jobAnalysis = scheduledJobs?.map(job => {
-      const scheduledTime = new Date(job.scheduled_time);
+      // DB에 한국 시간으로 저장된 데이터를 올바르게 해석
+      // Vercel 서버가 UTC라서 9시간을 더해야 올바른 한국 시간으로 표시됨
+      const scheduledTimeUTC = new Date(job.scheduled_time);
+      const scheduledTime = new Date(scheduledTimeUTC.getTime() + (9 * 60 * 60 * 1000));
+      
       const timeDiff = scheduledTime.getTime() - now.getTime();
       const timeDiffMinutes = Math.round(timeDiff / (1000 * 60));
       
@@ -148,7 +152,7 @@ export async function GET(request: NextRequest) {
         workflowName: job.workflow_data?.name,
         status: job.status,
         scheduledTime: scheduledTime.toLocaleString('ko-KR'),
-        scheduledTimeISO: scheduledTime.toISOString(),
+        scheduledTimeISO: job.scheduled_time, // 원본 DB 값 유지
         timeDiffMinutes,
         isOverdue: timeDiff < 0 && job.status === 'pending',
         retryCount: job.retry_count,
@@ -158,10 +162,10 @@ export async function GET(request: NextRequest) {
         startedAt: job.started_at ? new Date(job.started_at).toLocaleString('ko-KR') : null,
         completedAt: job.completed_at ? new Date(job.completed_at).toLocaleString('ko-KR') : null,
         errorMessage: job.error_message,
-        // 🎯 2시 40분 테스트 워크플로우 표시
+        // 🎯 22시 10분 테스트 워크플로우 표시 (한국 시간 기준)
         isTestWorkflow240: job.workflow_data?.name === '테스트' && 
-                          scheduledTime.getHours() === 14 && 
-                          scheduledTime.getMinutes() === 40
+                          scheduledTime.getHours() === 22 && 
+                          scheduledTime.getMinutes() === 10
       };
     }) || [];
     
