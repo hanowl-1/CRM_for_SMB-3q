@@ -100,6 +100,9 @@ export async function POST(request: NextRequest) {
         'x-scheduler-internal': 'true',
         // CRON 인증 토큰 (필요한 경우)
         'x-cron-secret': process.env.CRON_SECRET_TOKEN || '',
+        // Vercel Protection Bypass 헤더 추가
+        'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+        'x-vercel-set-bypass-cookie': 'true'
       }
     });
     

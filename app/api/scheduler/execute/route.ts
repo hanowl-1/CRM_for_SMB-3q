@@ -220,6 +220,9 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'application/json',
           'x-scheduler-internal': 'true',
           'x-cron-secret': process.env.CRON_SECRET_TOKEN || '',
+          // Vercel Protection Bypass 헤더 추가
+          'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+          'x-vercel-set-bypass-cookie': 'true'
         };
         
         console.log(`📡 워크플로우 실행 API 호출: ${executeUrl}`);

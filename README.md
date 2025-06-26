@@ -194,4 +194,50 @@ pnpm dev
 
 ---
 
-> **📝 참고**: 이 프로젝트는 실제 운영 환경에서 검증된 안정적인 시스템입니다. 상세한 사용법은 [documents/](./documents/) 폴더의 문서들을 참조하시기 바랍니다.# Emergency deployment trigger Wed Jun 25 21:12:46 KST 2025
+> **📝 참고**: 이 프로젝트는 실제 운영 환경에서 검증된 안정적인 시스템입니다. 상세한 사용법은 [documents/](./documents/) 폴더의 문서들을 참조하시기 바랍니다.
+
+## 환경 변수 설정
+
+### Vercel Protection Bypass (스케줄러 인증 우회)
+스케줄러가 정상 작동하려면 Vercel Deployment Protection을 우회할 수 있는 설정이 필요합니다:
+
+1. **Vercel 대시보드** → **프로젝트 설정** → **Deployment Protection**
+2. **Protection Bypass for Automation** 활성화
+3. **Secret 생성** 후 다음 환경변수에 추가:
+
+```bash
+VERCEL_AUTOMATION_BYPASS_SECRET=your_generated_secret_here
+```
+
+### 기타 필수 환경 변수
+```bash
+# Supabase 설정
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# MySQL 설정 (읽기 전용)
+MYSQL_HOST=your_mysql_host
+MYSQL_USER=your_mysql_user
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=your_mysql_database
+
+# 스케줄러 인증
+CRON_SECRET_TOKEN=your_cron_secret_token
+```
+
+## 스케줄러 시스템
+
+이 시스템은 Vercel Cron Jobs와 Supabase를 활용한 워크플로우 스케줄링을 지원합니다.
+
+### 주요 기능
+- 자동화된 메시지 발송 스케줄링
+- 실시간 스케줄 모니터링
+- 실패 시 자동 재시도
+- 한국 시간 기준 스케줄 관리
+
+### 스케줄러 API
+- `/api/scheduler/execute` - 스케줄된 작업 실행
+- `/api/scheduler/register` - 새 스케줄 등록
+- `/api/scheduler/monitor` - 스케줄 상태 모니터링
+- `/api/scheduler/cron` - Vercel Cron Jobs 엔드포인트
