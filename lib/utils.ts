@@ -37,9 +37,8 @@ export function koreaTimeToUTC(koreaTime: Date): string {
   const seconds = koreaTime.getSeconds();
   
   // 한국 시간에서 9시간을 빼서 UTC 시간 생성
-  const utcDate = new Date(Date.UTC(year, month, date, hours, minutes, seconds));
-  // 한국 시간이므로 9시간을 빼야 함
-  utcDate.setTime(utcDate.getTime() - (9 * 60 * 60 * 1000));
+  // 주의: Date.UTC는 이미 UTC 기준이므로, 한국 시간에서 9시간을 빼야 함
+  const utcDate = new Date(Date.UTC(year, month, date, hours - 9, minutes, seconds));
   
   return utcDate.toISOString();
 }
