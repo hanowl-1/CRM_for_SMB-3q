@@ -143,7 +143,21 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 새 작업 등록 - 한국 시간을 그대로 저장 (DB가 한국 시간대로 설정됨)
+          // 새 작업 등록 - 한국 시간 문자열을 직접 생성하여 저장
+          const koreaTimeString = scheduledTime.getFullYear() + '-' +
+            String(scheduledTime.getMonth() + 1).padStart(2, '0') + '-' +
+            String(scheduledTime.getDate()).padStart(2, '0') + 'T' +
+            String(scheduledTime.getHours()).padStart(2, '0') + ':' +
+            String(scheduledTime.getMinutes()).padStart(2, '0') + ':' +
+            String(scheduledTime.getSeconds()).padStart(2, '0') + '.000+09:00';
+          
+          const nowKoreaString = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + 'T' +
+            String(now.getHours()).padStart(2, '0') + ':' +
+            String(now.getMinutes()).padStart(2, '0') + ':' +
+            String(now.getSeconds()).padStart(2, '0') + '.000+09:00';
+          
           const { data: newJob, error: insertError } = await client
             .from('scheduled_jobs')
             .insert({
@@ -156,11 +170,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: scheduledTime.toISOString(), // 🔥 한국 시간을 그대로 저장
+              scheduled_time: koreaTimeString, // 🔥 한국 시간 문자열 직접 저장
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: now.toISOString() // 🔥 한국 시간을 그대로 저장
+              created_at: nowKoreaString // 🔥 한국 시간 문자열 직접 저장
             })
             .select()
             .single();
