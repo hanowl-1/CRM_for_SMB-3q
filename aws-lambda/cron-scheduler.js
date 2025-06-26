@@ -1,4 +1,35 @@
-const https = require('https');
+const moment = require('moment-timezone');
+
+// 한국 시간대 상수
+const KOREA_TIMEZONE = 'Asia/Seoul';
+
+/**
+ * 현재 한국 시간을 반환
+ */
+function getKoreaTime() {
+  return moment.tz(KOREA_TIMEZONE).toDate();
+}
+
+/**
+ * 한국 시간을 포맷된 문자열로 반환
+ */
+function formatKoreaTime(date, formatString = 'YYYY-MM-DD HH:mm:ss') {
+  return moment.tz(date, KOREA_TIMEZONE).format(formatString);
+}
+
+/**
+ * 디버깅용 시간 정보 출력
+ */
+function debugTimeInfo(label, date) {
+  const koreaTime = moment.tz(date, KOREA_TIMEZONE);
+  const utcTime = moment.utc(date);
+  
+  console.log(`🕐 ${label}:`);
+  console.log(`   한국 시간: ${koreaTime.format('YYYY-MM-DD HH:mm:ss')}`);
+  console.log(`   UTC 시간: ${utcTime.format('YYYY-MM-DD HH:mm:ss')}`);
+  console.log(`   KST ISO: ${koreaTime.format()}`);
+  console.log(`   UTC ISO: ${utcTime.format()}`);
+}
 
 /**
  * AWS Lambda function to trigger Vercel cron jobs
@@ -8,13 +39,10 @@ const https = require('https');
  * - CRON_SECRET_TOKEN: Secret token for authentication
  */
 exports.handler = async (event, context) => {
-  console.log('🚀 AWS Lambda cron scheduler started');
-  console.log('Event:', JSON.stringify(event, null, 2));
+  const now = getKoreaTime();
   
-  // 한국 시간대 설정
-  process.env.TZ = 'Asia/Seoul';
-  const currentTime = new Date();
-  console.log('🕒 Current KST Time:', currentTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+  console.log(`🚀 AWS Lambda 스케줄러 실행: ${formatKoreaTime(now)}`);
+  debugTimeInfo('Lambda 실행 시간', now);
   
   const projectUrl = process.env.VERCEL_PROJECT_URL;
   const secretToken = process.env.CRON_SECRET_TOKEN;

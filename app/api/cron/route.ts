@@ -1,177 +1,180 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase 클라이언트 초기화
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabase } from '@/lib/database/supabase-client';
+import { 
+  getKoreaTime, 
+  utcToKoreaTime, 
+  formatKoreaTime, 
+  koreaTimeToUTCString,
+  debugTimeInfo 
+} from '@/lib/utils/timezone';
 
 export async function GET(request: NextRequest) {
   try {
-    // Bearer Token 인증 확인
-    const authHeader = request.headers.get('authorization');
-    const expectedToken = process.env.CRON_SECRET_TOKEN;
-
-    if (!authHeader || !expectedToken) {
-      return NextResponse.json({ error: 'Missing authentication' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    if (token !== expectedToken) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
-    console.log('🔄 External cron job started:', new Date().toISOString());
-
-    // 현재 시간 (한국 시간)
-    const now = new Date();
-    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000));
-    const currentTimeString = koreaTime.toTimeString().slice(0, 8); // HH:MM:SS
-
-    console.log('현재 한국 시간:', koreaTime.toISOString());
-    console.log('현재 시간 문자열:', currentTimeString);
-
-    // 실행 가능한 스케줄 작업 조회
-    const { data: jobs, error } = await supabase
+    const client = getSupabase();
+    const now = getKoreaTime();
+    
+    console.log(`🕐 Cron 실행: ${formatKoreaTime(now)}`);
+    debugTimeInfo('Cron 실행 시간', now);
+    
+    // 실행할 작업들 조회 (UTC로 저장된 시간을 현재 UTC 시간과 비교)
+    const nowUTC = new Date(); // Vercel 서버의 현재 UTC 시간
+    
+    const { data: jobs, error: jobsError } = await client
       .from('scheduled_jobs')
       .select('*')
-      .in('status', ['pending', 'running'])
-      .order('scheduled_time', { ascending: true });
-
-    if (error) {
-      console.error('스케줄 작업 조회 오류:', error);
-      return NextResponse.json({ error: 'Database error' }, { status: 500 });
-    }
-
-    console.log(`총 ${jobs?.length || 0}개의 스케줄 작업 발견`);
-
-    const executableJobs = [];
+      .eq('status', 'pending')
+      .lte('scheduled_time', nowUTC.toISOString()); // UTC 기준으로 비교
     
-    for (const job of jobs || []) {
-      // DB에 한국 시간으로 저장된 데이터를 올바르게 해석
-      // Vercel 서버가 UTC라서 9시간을 더해야 올바른 한국 시간으로 표시됨
-      const scheduledTimeUTC = new Date(job.scheduled_time);
-      const scheduledTime = new Date(scheduledTimeUTC.getTime() + (9 * 60 * 60 * 1000));
-      
-      // 한국 시간 기준으로 시간 차이 계산 (초)
-      const timeDiff = (koreaTime.getTime() - scheduledTime.getTime()) / 1000;
-      const isExecutable = timeDiff >= 0 && timeDiff <= 300; // 5분 이내
-
-      const scheduledTimeKST = scheduledTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-      const currentTimeKST = koreaTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-
-      console.log(`작업 ${job.id}: 예정시간=${scheduledTimeKST}, 현재시간=${currentTimeKST}, 차이=${Math.round(timeDiff)}초, 실행가능=${isExecutable}, 상태=${job.status}`);
-
-      if (isExecutable && job.status === 'pending') {
-        executableJobs.push(job);
-      }
+    if (jobsError) {
+      console.error('❌ 작업 조회 실패:', jobsError);
+      return NextResponse.json({
+        success: false,
+        message: '작업 조회 실패: ' + jobsError.message
+      }, { status: 500 });
     }
-
-    console.log(`실행할 작업 수: ${executableJobs.length}`);
-
-    const results = [];
-
-    for (const job of executableJobs) {
+    
+    console.log(`📋 실행 대상 작업: ${jobs?.length || 0}개`);
+    
+    if (!jobs || jobs.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: '실행할 작업이 없습니다.',
+        data: { executedJobs: 0 }
+      });
+    }
+    
+    let executedCount = 0;
+    const executionResults = [];
+    
+    for (const job of jobs) {
       try {
-        console.log(`🚀 작업 실행 시작: ${job.id} (${job.workflow_name})`);
-
-        // 작업 상태를 running으로 변경
-        await supabase
+        // DB에 저장된 UTC 시간을 한국 시간으로 변환하여 표시
+        const scheduledKoreaTime = utcToKoreaTime(new Date(job.scheduled_time));
+        console.log(`🚀 작업 실행: ${job.workflow_data.name} (예정: ${formatKoreaTime(scheduledKoreaTime)})`);
+        
+        // 작업 상태를 'running'으로 업데이트
+        await client
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            started_at: new Date().toISOString()
+            started_at: koreaTimeToUTCString(now) // UTC로 저장
           })
           .eq('id', job.id);
-
+        
         // 워크플로우 실행 API 호출
-        const workflowResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/workflow/execute`, {
+        const executeUrl = process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:3000/api/workflow/execute'
+          : `https://${process.env.VERCEL_PROJECT_URL || process.env.VERCEL_URL}/api/workflow/execute`;
+        
+        const executeResponse = await fetch(executeUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            // Vercel Authentication 우회 헤더 추가
+            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || 'development'
           },
           body: JSON.stringify({
             workflowId: job.workflow_id,
-            scheduledJobId: job.id
+            workflowData: job.workflow_data
           })
         });
-
-        if (workflowResponse.ok) {
-          const workflowResult = await workflowResponse.json();
-          console.log(`✅ 작업 ${job.id} 실행 성공:`, workflowResult);
-          
-          // 작업 상태를 completed로 변경
-          await supabase
+        
+        const executeResult = await executeResponse.json();
+        
+        if (executeResult.success) {
+          // 성공: 작업 완료 처리
+          await client
             .from('scheduled_jobs')
             .update({ 
               status: 'completed',
-              completed_at: new Date().toISOString()
+              completed_at: koreaTimeToUTCString(now), // UTC로 저장
+              result: executeResult
             })
             .eq('id', job.id);
-
-          results.push({
-            jobId: job.id,
-            status: 'completed',
-            result: workflowResult
-          });
-        } else {
-          const errorText = await workflowResponse.text();
-          console.error(`❌ 작업 ${job.id} 실행 실패:`, errorText);
           
-          // 작업 상태를 failed로 변경
-          await supabase
-            .from('scheduled_jobs')
-            .update({ 
-              status: 'failed',
-              error_message: errorText,
-              completed_at: new Date().toISOString()
-            })
-            .eq('id', job.id);
-
-          results.push({
+          executedCount++;
+          executionResults.push({
             jobId: job.id,
-            status: 'failed',
-            error: errorText
+            workflowName: job.workflow_data.name,
+            scheduledTime: formatKoreaTime(scheduledKoreaTime),
+            status: 'completed',
+            result: executeResult
+          });
+          
+          console.log(`✅ 작업 완료: ${job.workflow_data.name}`);
+        } else {
+          // 실패: 재시도 또는 실패 처리
+          const newRetryCount = (job.retry_count || 0) + 1;
+          const maxRetries = job.max_retries || 3;
+          
+          if (newRetryCount < maxRetries) {
+            // 재시도 대기
+            await client
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'pending',
+                retry_count: newRetryCount,
+                last_error: executeResult.message || '실행 실패'
+              })
+              .eq('id', job.id);
+            
+            console.log(`🔄 재시도 대기: ${job.workflow_data.name} (${newRetryCount}/${maxRetries})`);
+          } else {
+            // 최대 재시도 초과: 실패 처리
+            await client
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'failed',
+                failed_at: koreaTimeToUTCString(now), // UTC로 저장
+                retry_count: newRetryCount,
+                last_error: executeResult.message || '최대 재시도 초과'
+              })
+              .eq('id', job.id);
+            
+            console.log(`❌ 작업 실패: ${job.workflow_data.name} (최대 재시도 초과)`);
+          }
+          
+          executionResults.push({
+            jobId: job.id,
+            workflowName: job.workflow_data.name,
+            scheduledTime: formatKoreaTime(scheduledKoreaTime),
+            status: newRetryCount < maxRetries ? 'retry' : 'failed',
+            error: executeResult.message || '실행 실패'
           });
         }
-      } catch (error) {
-        console.error(`❌ 작업 ${job.id} 처리 중 오류:`, error);
         
-        // 작업 상태를 failed로 변경
-        await supabase
+      } catch (error) {
+        console.error(`❌ 작업 처리 실패 (${job.workflow_data.name}):`, error);
+        
+        // 예외 발생: 실패 처리
+        await client
           .from('scheduled_jobs')
           .update({ 
             status: 'failed',
-            error_message: error instanceof Error ? error.message : 'Unknown error',
-            completed_at: new Date().toISOString()
+            failed_at: koreaTimeToUTCString(now), // UTC로 저장
+            last_error: error instanceof Error ? error.message : String(error)
           })
           .eq('id', job.id);
-
-        results.push({
-          jobId: job.id,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
       }
     }
-
-    console.log('🔄 External cron job completed:', new Date().toISOString());
-
+    
+    console.log(`🎯 Cron 실행 완료: ${executedCount}/${jobs.length}개 작업 완료`);
+    
     return NextResponse.json({
       success: true,
-      timestamp: koreaTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-      koreaTimeISO: koreaTime.toISOString(),
-      totalJobs: jobs?.length || 0,
-      executableJobs: executableJobs.length,
-      results
+      data: {
+        totalJobs: jobs.length,
+        executedJobs: executedCount,
+        executionResults
+      },
+      message: `${executedCount}개의 작업이 실행되었습니다.`
     });
-
+    
   } catch (error) {
-    console.error('❌ Cron job error:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+    console.error('❌ Cron 실행 실패:', error);
+    return NextResponse.json({
+      success: false,
+      message: 'Cron 실행 실패: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 }

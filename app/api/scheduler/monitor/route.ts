@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
-
-// 한국시간 헬퍼 함수
-function getKoreaTime(): Date {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
-  return koreaTime;
-}
+import { 
+  getKoreaTime, 
+  utcToKoreaTime, 
+  formatKoreaTime, 
+  debugTimeInfo 
+} from '@/lib/utils/timezone';
 
 // 크론잡 기반 스케줄러 모니터링 API
 export async function GET(request: NextRequest) {
@@ -15,198 +13,134 @@ export async function GET(request: NextRequest) {
     const client = getSupabase();
     const now = getKoreaTime();
     
-    console.log(`📊 스케줄러 모니터링 시작: ${now.toLocaleString('ko-KR')}`);
+    console.log(`🔍 스케줄러 모니터링: ${formatKoreaTime(now)}`);
+    debugTimeInfo('모니터링 시간', now);
     
-    // URL 파라미터에서 필터 옵션 추출
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status');
-    const workflowId = searchParams.get('workflowId');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    
-    // 스케줄 작업 조회
-    let query = client
+    // 모든 스케줄 작업 조회
+    const { data: jobs, error: jobsError } = await client
       .from('scheduled_jobs')
       .select('*')
-      .order('scheduled_time', { ascending: false })
-      .limit(limit);
-    
-    if (status) {
-      query = query.eq('status', status);
-    }
-    
-    if (workflowId) {
-      query = query.eq('workflow_id', workflowId);
-    }
-    
-    const { data: scheduledJobs, error: jobsError } = await query;
+      .order('scheduled_time', { ascending: true });
     
     if (jobsError) {
-      console.error('❌ 스케줄 작업 조회 실패:', jobsError);
+      console.error('❌ 작업 조회 실패:', jobsError);
       return NextResponse.json({
         success: false,
-        message: '스케줄 작업 조회 실패: ' + jobsError.message
+        message: '작업 조회 실패: ' + jobsError.message
       }, { status: 500 });
     }
     
-    console.log(`📋 조회된 스케줄 작업 수: ${scheduledJobs?.length || 0}개`);
-    
-    // 🔍 2시 40분 "테스트" 워크플로우 특별 모니터링
-    const testWorkflow240 = scheduledJobs?.find(job => 
-      job.workflow_data?.name === '테스트' && 
-      new Date(job.scheduled_time).getHours() === 14 && 
-      new Date(job.scheduled_time).getMinutes() === 40
-    );
-    
-    if (testWorkflow240) {
-      const scheduledTime = new Date(testWorkflow240.scheduled_time);
-      const timeDiff = scheduledTime.getTime() - now.getTime();
-      const timeDiffMinutes = Math.round(timeDiff / (1000 * 60));
-      
-      console.log(`🎯 === 2시 40분 "테스트" 워크플로우 모니터링 ===`);
-      console.log(`  📋 작업 ID: ${testWorkflow240.id}`);
-      console.log(`  📅 예정시간: ${scheduledTime.toLocaleString('ko-KR')} (${scheduledTime.toISOString()})`);
-      console.log(`  🕐 현재시간: ${now.toLocaleString('ko-KR')} (${now.toISOString()})`);
-      console.log(`  ⏱️ 시간차이: ${timeDiffMinutes}분 (${timeDiff}ms)`);
-      console.log(`  📊 작업상태: ${testWorkflow240.status}`);
-      console.log(`  🔄 재시도: ${testWorkflow240.retry_count}/${testWorkflow240.max_retries || 3}`);
-      console.log(`  📝 생성시간: ${new Date(testWorkflow240.created_at).toLocaleString('ko-KR')}`);
-      console.log(`  🔄 업데이트: ${new Date(testWorkflow240.updated_at).toLocaleString('ko-KR')}`);
-      
-      if (testWorkflow240.started_at) {
-        console.log(`  🚀 시작시간: ${new Date(testWorkflow240.started_at).toLocaleString('ko-KR')}`);
-      }
-      
-      if (testWorkflow240.completed_at) {
-        console.log(`  ✅ 완료시간: ${new Date(testWorkflow240.completed_at).toLocaleString('ko-KR')}`);
-      }
-      
-      if (testWorkflow240.error_message) {
-        console.log(`  ❌ 오류메시지: ${testWorkflow240.error_message}`);
-      }
-      
-      // 실행 조건 분석
-      const shouldExecute = scheduledTime.getTime() <= now.getTime();
-      console.log(`  🔍 실행조건: ${shouldExecute ? '✅ 충족됨' : '⏳ 미충족'}`);
-      
-      if (testWorkflow240.status === 'pending' && timeDiff < 0) {
-        console.log(`  🚨 경고: 예정시간이 ${Math.abs(timeDiffMinutes)}분 지났는데 아직 pending 상태입니다!`);
-        console.log(`  🔍 가능한 원인:`);
-        console.log(`    1. 스케줄러 실행기가 작동하지 않음`);
-        console.log(`    2. 시간 비교 로직 오류`);
-        console.log(`    3. 워크플로우 실행 API 오류`);
-      }
-      
-      console.log(`🎯 === 모니터링 완료 ===`);
-    }
-    
-    // 워크플로우 실행 기록 조회
-    const { data: workflowRuns, error: runsError } = await client
-      .from('workflow_runs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(10);
-    
-    if (runsError) {
-      console.warn('⚠️ 워크플로우 실행 기록 조회 실패:', runsError);
-    }
-    
-    console.log(`📋 워크플로우 실행 기록: ${workflowRuns?.length || 0}개`);
-    
-    // 최근 메시지 로그 조회
-    const { data: messageLogs, error: logsError } = await client
-      .from('message_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    
-    if (logsError) {
-      console.warn('⚠️ 메시지 로그 조회 실패:', logsError);
-    }
-    
-    console.log(`📋 최근 메시지 로그: ${messageLogs?.length || 0}개`);
-    
-    // 통계 계산
+    // 상태별 통계 계산
     const stats = {
-      totalJobs: scheduledJobs?.length || 0,
-      pendingJobs: scheduledJobs?.filter(job => job.status === 'pending').length || 0,
-      runningJobs: scheduledJobs?.filter(job => job.status === 'running').length || 0,
-      completedJobs: scheduledJobs?.filter(job => job.status === 'completed').length || 0,
-      failedJobs: scheduledJobs?.filter(job => job.status === 'failed').length || 0,
-      cancelledJobs: scheduledJobs?.filter(job => job.status === 'cancelled').length || 0,
-      totalRuns: workflowRuns?.length || 0,
-      totalMessages: messageLogs?.length || 0
+      total: jobs?.length || 0,
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0
     };
     
-    // 🔍 상세 작업 분석
-    const jobAnalysis = scheduledJobs?.map(job => {
-      // DB에 한국 시간으로 저장된 데이터를 올바르게 해석
-      // Vercel 서버가 UTC라서 9시간을 더해야 올바른 한국 시간으로 표시됨
-      const scheduledTimeUTC = new Date(job.scheduled_time);
-      const scheduledTime = new Date(scheduledTimeUTC.getTime() + (9 * 60 * 60 * 1000));
+    // UTC로 저장된 시간을 한국 시간으로 변환하여 표시
+    const jobsWithKoreaTime = (jobs || []).map(job => {
+      const scheduledKoreaTime = utcToKoreaTime(new Date(job.scheduled_time));
+      const createdKoreaTime = job.created_at ? utcToKoreaTime(new Date(job.created_at)) : null;
+      const startedKoreaTime = job.started_at ? utcToKoreaTime(new Date(job.started_at)) : null;
+      const completedKoreaTime = job.completed_at ? utcToKoreaTime(new Date(job.completed_at)) : null;
+      const failedKoreaTime = job.failed_at ? utcToKoreaTime(new Date(job.failed_at)) : null;
       
-      const timeDiff = scheduledTime.getTime() - now.getTime();
-      const timeDiffMinutes = Math.round(timeDiff / (1000 * 60));
+      // 상태별 카운트
+      stats[job.status as keyof typeof stats]++;
+      
+      // 현재 시간과의 차이 계산
+      const timeDiff = scheduledKoreaTime.getTime() - now.getTime();
+      const minutesDiff = Math.round(timeDiff / (1000 * 60));
+      
+      let timeStatus = '';
+      if (job.status === 'pending') {
+        if (minutesDiff > 0) {
+          timeStatus = `${minutesDiff}분 후 실행 예정`;
+        } else if (minutesDiff > -5) {
+          timeStatus = '실행 시간 도달';
+        } else {
+          timeStatus = `${Math.abs(minutesDiff)}분 지연`;
+        }
+      }
       
       return {
-        id: job.id,
-        workflowName: job.workflow_data?.name,
-        status: job.status,
-        scheduledTime: scheduledTime.toLocaleString('ko-KR'),
-        scheduledTimeISO: job.scheduled_time, // 원본 DB 값 유지
-        timeDiffMinutes,
-        isOverdue: timeDiff < 0 && job.status === 'pending',
-        retryCount: job.retry_count,
-        maxRetries: job.max_retries || 3,
-        createdAt: new Date(job.created_at).toLocaleString('ko-KR'),
-        updatedAt: new Date(job.updated_at).toLocaleString('ko-KR'),
-        startedAt: job.started_at ? new Date(job.started_at).toLocaleString('ko-KR') : null,
-        completedAt: job.completed_at ? new Date(job.completed_at).toLocaleString('ko-KR') : null,
-        errorMessage: job.error_message,
-        // 🎯 22시 10분 테스트 워크플로우 표시 (한국 시간 기준)
-        isTestWorkflow240: job.workflow_data?.name === '테스트' && 
-                          scheduledTime.getHours() === 22 && 
-                          scheduledTime.getMinutes() === 10
+        ...job,
+        // 한국 시간으로 변환된 시간들
+        scheduled_time_kst: formatKoreaTime(scheduledKoreaTime),
+        created_at_kst: createdKoreaTime ? formatKoreaTime(createdKoreaTime) : null,
+        started_at_kst: startedKoreaTime ? formatKoreaTime(startedKoreaTime) : null,
+        completed_at_kst: completedKoreaTime ? formatKoreaTime(completedKoreaTime) : null,
+        failed_at_kst: failedKoreaTime ? formatKoreaTime(failedKoreaTime) : null,
+        // 추가 정보
+        time_status: timeStatus,
+        minutes_diff: minutesDiff,
+        workflow_name: job.workflow_data?.name || 'Unknown'
       };
-    }) || [];
+    });
     
-    // 지연된 작업들 특별 표시
-    const overdueJobs = jobAnalysis.filter(job => job.isOverdue);
-    if (overdueJobs.length > 0) {
-      console.log(`🚨 지연된 작업 ${overdueJobs.length}개 발견:`);
-      overdueJobs.forEach(job => {
-        console.log(`  - ${job.workflowName}: ${job.timeDiffMinutes}분 지연 (${job.scheduledTime})`);
-      });
-    }
+    // 임박한 작업들 (30분 이내)
+    const upcomingJobs = jobsWithKoreaTime.filter(job => 
+      job.status === 'pending' && 
+      job.minutes_diff > 0 && 
+      job.minutes_diff <= 30
+    );
     
-    console.log(`📊 스케줄러 모니터링 완료: pending=${stats.pendingJobs}, running=${stats.runningJobs}, completed=${stats.completedJobs}, failed=${stats.failedJobs}`);
+    // 지연된 작업들 (5분 이상 지연)
+    const delayedJobs = jobsWithKoreaTime.filter(job => 
+      job.status === 'pending' && 
+      job.minutes_diff < -5
+    );
+    
+    // 최근 완료된 작업들 (1시간 이내)
+    const recentCompletedJobs = jobsWithKoreaTime.filter(job => {
+      if (job.status !== 'completed' || !job.completed_at_kst) return false;
+      const completedTime = new Date(job.completed_at);
+      const hoursDiff = (now.getTime() - completedTime.getTime()) / (1000 * 60 * 60);
+      return hoursDiff <= 1;
+    });
+    
+    console.log(`📊 모니터링 결과: 총 ${stats.total}개 작업 (대기: ${stats.pending}, 실행중: ${stats.running}, 완료: ${stats.completed}, 실패: ${stats.failed})`);
     
     return NextResponse.json({
       success: true,
       data: {
-        currentTime: now.toLocaleString('ko-KR'),
-        currentTimeISO: now.toISOString(),
-        stats,
-        scheduledJobs: jobAnalysis,
-        workflowRuns: workflowRuns || [],
-        messageLogs: messageLogs || [],
-        overdueJobs,
-        testWorkflow240: testWorkflow240 ? {
-          id: testWorkflow240.id,
-          status: testWorkflow240.status,
-          scheduledTime: new Date(testWorkflow240.scheduled_time).toLocaleString('ko-KR'),
-          timeDiffMinutes: Math.round((new Date(testWorkflow240.scheduled_time).getTime() - now.getTime()) / (1000 * 60)),
-          retryCount: testWorkflow240.retry_count,
-          errorMessage: testWorkflow240.error_message
-        } : null
-      }
+        // 현재 시간 정보
+        current_time: {
+          korea_time: formatKoreaTime(now),
+          utc_time: new Date().toISOString()
+        },
+        
+        // 통계 정보
+        statistics: stats,
+        
+        // 모든 작업 목록 (한국 시간으로 변환됨)
+        jobs: jobsWithKoreaTime,
+        
+        // 특별 카테고리
+        upcoming_jobs: upcomingJobs,
+        delayed_jobs: delayedJobs,
+        recent_completed_jobs: recentCompletedJobs,
+        
+        // 요약 정보
+        summary: {
+          total_jobs: stats.total,
+          active_jobs: stats.pending + stats.running,
+          upcoming_count: upcomingJobs.length,
+          delayed_count: delayedJobs.length,
+          recent_completed_count: recentCompletedJobs.length
+        }
+      },
+      message: `스케줄러 상태: ${stats.pending}개 대기, ${stats.running}개 실행중`
     });
-
+    
   } catch (error) {
-    console.error('❌ 스케줄러 모니터링 오류:', error);
+    console.error('❌ 모니터링 실패:', error);
     return NextResponse.json({
       success: false,
-      message: '스케줄러 모니터링 오류: ' + (error instanceof Error ? error.message : String(error)),
-      currentTime: getKoreaTime().toLocaleString('ko-KR')
+      message: '모니터링 실패: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 } 
