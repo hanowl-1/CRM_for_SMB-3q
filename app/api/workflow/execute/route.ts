@@ -814,24 +814,30 @@ async function sendAlimtalk({
   const salt = Date.now().toString();
   const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
 
-  // 변수 치환된 메시지 내용 생성
+  // CoolSMS API에 맞는 변수 형식으로 변환: #{변수명} 형식
+  const coolsmsVariables: Record<string, string> = {};
+  Object.entries(variables).forEach(([key, value]) => {
+    coolsmsVariables[`#{${key}}`] = value;
+  });
+
+  // 변수 치환된 메시지 내용 생성 (로깅용)
   const processedContent = templateContent.replace(/#{(\w+)}/g, (match, key) => variables[key] || match);
 
   const messageData = {
     to: phoneNumber,
     from: SMS_SENDER_NUMBER,
     type: 'ATA',
-    text: processedContent,
     kakaoOptions: {
       pfId: pfId,
       templateId: templateId,
-      variables: variables
+      variables: coolsmsVariables // CoolSMS API에 맞는 형식으로 전달
     }
   };
 
   console.log(`📱 실제 알림톡 발송: ${phoneNumber} - 템플릿: ${templateId}`);
-  console.log(`📋 메시지 내용: ${processedContent}`);
+  console.log(`📋 메시지 내용 (미리보기): ${processedContent}`);
   console.log(`🔑 발신프로필: ${pfId}`);
+  console.log(`🔧 CoolSMS 변수:`, coolsmsVariables);
 
   const response = await fetch('https://api.coolsms.co.kr/messages/v4/send', {
     method: 'POST',

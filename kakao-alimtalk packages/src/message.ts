@@ -40,6 +40,14 @@ export async function sendAlimtalkByTemplateNumber<
       },
     };
 
+  // CoolSMS API에 맞는 변수 형식으로 변환: #{변수명} 형식
+  const coolsmsVariables: Record<string, string> = {};
+  if (templateParams.length > 0 && variables) {
+    Object.entries(variables as Record<string, string>).forEach(([key, value]) => {
+      coolsmsVariables[`#{${key}}`] = value;
+    });
+  }
+
   const payload = {
     autoTypeDetect: false,
     type: "ATA",
@@ -50,7 +58,7 @@ export async function sendAlimtalkByTemplateNumber<
       templateId: templateId,
       disableSms: false, // 문자 대체발송
       adFlag: false,
-      ...(templateParams.length > 0 && { variables }),
+      ...(templateParams.length > 0 && { variables: coolsmsVariables }),
     },
   } as Message;
 

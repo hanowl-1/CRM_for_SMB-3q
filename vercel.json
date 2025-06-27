@@ -9,8 +9,8 @@
   },
   "crons": [
     {
-      "path": "/api/scheduler/cron",
-      "schedule": "* * * * *"
+      "path": "/api/cron",
+      "schedule": "0 0 * * *"
     }
   ],
   "functions": {
