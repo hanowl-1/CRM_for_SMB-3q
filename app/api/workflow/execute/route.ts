@@ -174,6 +174,7 @@ export async function POST(request: NextRequest) {
      * - 연산: 내부 처리는 한국 시간 기준
      */
     const startTime = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 시작 시간 기록
+    let endTime = getKoreaTime(); // 🔥 endTime을 상위 스코프에서 선언
 
     try {
       // 🔥 3단계 워크플로우 구조에 맞춘 데이터 추출
@@ -276,7 +277,7 @@ export async function POST(request: NextRequest) {
       }
 
       // 🔥 시간대 처리: 한국 시간 기준으로 종료 시간 기록
-      const endTime = getKoreaTime();
+      endTime = getKoreaTime();
       const executionTimeMs = endTime.getTime() - startTime.getTime();
 
       // 실행 결과를 데이터베이스에 저장
@@ -370,6 +371,63 @@ export async function POST(request: NextRequest) {
       }
 
       throw error;
+    }
+
+    // 🔥 워크플로우 실행 완료 후 처리
+    try {
+      // 1. 현재 스케줄 잡 완료 처리 (스케줄 실행인 경우)
+      if (scheduledExecution && jobId) {
+        console.log(`🔄 스케줄 잡 완료 처리: ${jobId}`);
+        
+        await supabase
+          .from('scheduled_jobs')
+          .update({ 
+            status: 'completed',
+            updated_at: koreaTimeToUTCString(endTime)
+          })
+          .eq('id', jobId);
+        
+        console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`);
+      }
+      
+      // 2. 반복 스케줄인 경우 다음 스케줄 잡 생성
+      const scheduleConfig = workflow.scheduleSettings || (workflow as any).schedule_config;
+      
+      if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
+        console.log('🔄 반복 스케줄 감지, 다음 스케줄 잡 생성 중...');
+        
+        try {
+          // 스케줄 등록 API 호출
+          const baseUrl = process.env.NODE_ENV === 'production' 
+            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+
+          console.log('📡 다음 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
+          
+          const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+              'x-vercel-set-bypass-cookie': 'true'
+            }
+          });
+
+          if (registerResponse.ok) {
+            const registerResult = await registerResponse.json();
+            console.log('✅ 다음 스케줄 등록 성공:', registerResult.message);
+          } else {
+            const errorText = await registerResponse.text();
+            console.warn('⚠️ 다음 스케줄 등록 실패:', errorText);
+          }
+        } catch (registerError) {
+          console.warn('⚠️ 다음 스케줄 등록 중 오류:', registerError);
+        }
+      }
+      
+    } catch (postProcessError) {
+      console.warn('⚠️ 워크플로우 실행 후 처리 중 오류:', postProcessError);
+      // 후처리 실패는 전체 실행 성공에 영향을 주지 않음
     }
 
   } catch (error) {
