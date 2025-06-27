@@ -282,15 +282,8 @@ export async function GET(request: NextRequest) {
         const result = await response.json();
         console.log('워크플로우 실행 결과:', result);
         
-        // 🔥 실행 성공시 상태를 completed로 변경
-        await supabase
-          .from('scheduled_jobs')
-          .update({ 
-            status: 'completed',
-            completed_at: koreaTimeToUTCString(now),
-            updated_at: koreaTimeToUTCString(now)
-          })
-          .eq('id', job.id);
+        // 🔥 워크플로우 실행 API에서 스케줄 잡 상태를 completed로 업데이트하므로 여기서는 처리하지 않음
+        console.log(`✅ 작업 ${job.id} 실행 완료 - 상태 업데이트는 워크플로우 실행 API에서 처리됨`);
         
         executedCount++;
         results.push({
@@ -298,8 +291,6 @@ export async function GET(request: NextRequest) {
           success: true,
           result
         });
-        
-        console.log(`✅ 작업 ${job.id} 실행 완료`);
         
       } catch (error) {
         console.error(`❌ 작업 ${job.id} 실행 중 오류:`, error);

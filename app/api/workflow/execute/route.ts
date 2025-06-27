@@ -33,6 +33,7 @@ interface ExecuteRequest {
   workflowId?: string;
   scheduledExecution?: boolean;
   jobId?: string;
+  scheduledJobId?: string;
   enableRealSending?: boolean;
 }
 
@@ -65,7 +66,13 @@ export async function POST(request: NextRequest) {
     }
     
     const body: ExecuteRequest = await request.json();
-    let { workflow, workflowId, scheduledExecution = false, jobId, enableRealSending = false } = body;
+    let { workflow, workflowId, scheduledExecution = false, jobId, scheduledJobId, enableRealSending = false } = body;
+
+    // 🔥 스케줄러에서 전달한 scheduledJobId를 jobId로 매핑
+    if (scheduledJobId && !jobId) {
+      jobId = scheduledJobId;
+      console.log(`📋 scheduledJobId를 jobId로 매핑: ${jobId}`);
+    }
 
     // 🔥 workflow 객체가 없으면 workflowId로 조회
     if (!workflow && workflowId) {
@@ -377,17 +384,28 @@ export async function POST(request: NextRequest) {
     try {
       // 1. 현재 스케줄 잡 완료 처리 (스케줄 실행인 경우)
       if (scheduledExecution && jobId) {
-        console.log(`🔄 스케줄 잡 완료 처리: ${jobId}`);
+        console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
+        console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
         
-        await supabase
+        const { data: updateResult, error: updateError } = await supabase
           .from('scheduled_jobs')
           .update({ 
             status: 'completed',
+            completed_at: koreaTimeToUTCString(endTime),
             updated_at: koreaTimeToUTCString(endTime)
           })
-          .eq('id', jobId);
+          .eq('id', jobId)
+          .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
         
-        console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`);
+        if (updateError) {
+          console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+        } else if (updateResult && updateResult.length > 0) {
+          console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+        } else {
+          console.warn(`⚠️ 스케줄 잡을 찾을 수 없음: ${jobId}`);
+        }
+      } else {
+        console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
       }
       
       // 2. 반복 스케줄인 경우 다음 스케줄 잡 생성
@@ -535,7 +553,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               value = rawData[sourceField] || defaultValue || '--'; // 🔥 데이터가 없으면 '--' 사용
             } else if (sourceType === 'query' && variableMapping.actualValue) {
               // 이미 계산된 쿼리 결과값 사용
-              value = variableMapping.actualValue || defaultValue || '--'; // 🔥 쿼리 결과가 없으면 '--' 사용
+              value = variableMapping.actualValue || defaultValue || '--'; // 쿼리 결과가 없으면 '--' 사용
             }
             
             // 🔥 저장된 개별 변수 매핑 정보도 확인하여 실제 쿼리 실행
