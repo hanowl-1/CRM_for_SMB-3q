@@ -29,7 +29,8 @@ const dbConfig = {
 };
 
 interface ExecuteRequest {
-  workflow: Workflow;
+  workflow?: Workflow;
+  workflowId?: string;
   scheduledExecution?: boolean;
   jobId?: string;
   enableRealSending?: boolean;
@@ -64,9 +65,99 @@ export async function POST(request: NextRequest) {
     }
     
     const body: ExecuteRequest = await request.json();
-    const { workflow, scheduledExecution = false, jobId, enableRealSending = false } = body;
+    let { workflow, workflowId, scheduledExecution = false, jobId, enableRealSending = false } = body;
+
+    // 🔥 workflow 객체가 없으면 workflowId로 조회
+    if (!workflow && workflowId) {
+      console.log(`📋 workflowId로 워크플로우 정보 조회 중: ${workflowId}`);
+      
+      try {
+        const { data: workflowData, error: workflowError } = await supabase
+          .from('workflows')
+          .select('*')
+          .eq('id', workflowId)
+          .single();
+        
+        console.log('📋 워크플로우 조회 결과:', { 
+          hasData: !!workflowData, 
+          hasError: !!workflowError,
+          errorMessage: workflowError?.message 
+        });
+        
+        if (workflowError || !workflowData) {
+          console.error('워크플로우 조회 실패:', workflowError);
+          return NextResponse.json({
+            success: false,
+            message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`
+          }, { status: 404 });
+        }
+        
+        console.log('📋 조회된 워크플로우 데이터:', {
+          id: workflowData.id,
+          name: workflowData.name,
+          hasTargetConfig: !!workflowData.target_config,
+          hasMessageConfig: !!workflowData.message_config
+        });
+        
+        // 🔥 Supabase 워크플로우 데이터를 표준 Workflow 객체로 변환
+        workflow = {
+          id: workflowData.id,
+          name: workflowData.name,
+          description: workflowData.description || '',
+          status: workflowData.status,
+          trigger: workflowData.trigger_config || { type: 'manual', name: '수동 실행' },
+          targetGroups: workflowData.target_config?.targetGroups || [],
+          targetTemplateMappings: workflowData.target_config?.targetTemplateMappings || [],
+          steps: workflowData.message_config?.steps || [],
+          testSettings: workflowData.variables?.testSettings || { enableRealSending: false },
+          scheduleSettings: workflowData.schedule_config || { type: 'immediate' },
+          stats: workflowData.statistics || { totalRuns: 0, successRate: 0 },
+          createdAt: workflowData.created_at,
+          updatedAt: workflowData.updated_at,
+          // 🔥 스케줄 실행을 위한 추가 정보
+          target_config: workflowData.target_config,
+          message_config: workflowData.message_config,
+          variables: workflowData.variables
+        } as Workflow & {
+          target_config?: any;
+          message_config?: any;
+          variables?: any;
+        };
+        
+        console.log('✅ 워크플로우 정보 조회 완료:', {
+          id: workflow.id,
+          name: workflow.name,
+          targetGroupsLength: workflow.targetGroups?.length,
+          stepsLength: workflow.steps?.length
+        });
+      } catch (dbError) {
+        console.error('워크플로우 조회 중 오류:', dbError);
+        return NextResponse.json({
+          success: false,
+          message: `워크플로우 조회 중 오류: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}`
+        }, { status: 500 });
+      }
+    }
+    
+    // 🔥 workflow 객체 검증
+    if (!workflow) {
+      console.error('워크플로우 객체가 없습니다:', { workflow, workflowId });
+      return NextResponse.json({
+        success: false,
+        message: 'workflow 객체 또는 workflowId가 필요합니다.'
+      }, { status: 400 });
+    }
 
     console.log(`🚀 워크플로우 실행 시작: ${workflow.name} (${scheduledExecution ? '예약 실행' : '수동 실행'})`);
+
+    // 🔥 추가 검증: workflow.name이 정의되어 있는지 확인
+    if (!workflow.name) {
+      console.error('워크플로우 이름이 정의되지 않음:', workflow);
+      return NextResponse.json({
+        success: false,
+        message: '워크플로우 이름이 정의되지 않았습니다.'
+      }, { status: 400 });
+    }
 
     const results = [];
     let totalSuccessCount = 0;
