@@ -195,6 +195,40 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (action === 'toggle_status') {
+      // 워크플로우 상태 변경
+      const { id, status } = body;
+
+      if (!id || !status) {
+        return NextResponse.json({
+          success: false,
+          error: 'ID and status are required'
+        }, { status: 400 });
+      }
+
+      console.log('🔄 워크플로우 상태 변경 요청:', { id, status });
+
+      const { data, error } = await supabase
+        .from('workflows')
+        .update({
+          status: status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ 워크플로우 상태 변경 완료:', { id, status });
+
+      return NextResponse.json({
+        success: true,
+        data: data,
+        message: `워크플로우가 ${status === 'active' ? '활성화' : '일시정지'}되었습니다.`
+      });
+    }
+
     return NextResponse.json({
       success: false,
       error: 'Invalid action'
