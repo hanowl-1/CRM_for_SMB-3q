@@ -13,13 +13,20 @@ import {
   Settings,
   Save,
   FolderOpen,
-  Code
+  Code,
+  FunctionSquare,
+  Play,
+  Users,
+  XCircle,
+  Phone
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Separator as UISeparator } from '@/components/ui/separator';
 import type { 
   TargetGroup, 
   TargetTemplateMapping, 
@@ -28,25 +35,33 @@ import type {
 } from '@/lib/types/workflow';
 import type { KakaoTemplate } from '@/lib/types/template';
 import { MappingTemplateManager } from './mapping-template-manager';
+import { Label } from '@/components/ui/label';
+import type { PersonalizationSettings } from '@/lib/types/workflow';
 
 interface TargetTemplateMappingProps {
   targetGroups: TargetGroup[];
   selectedTemplates: KakaoTemplate[];
   currentMappings?: TargetTemplateMapping[];
   onMappingChange: (mappings: TargetTemplateMapping[]) => void;
+  templatePersonalizations?: Record<string, PersonalizationSettings>;
 }
 
 export function TargetTemplateMapping({
   targetGroups,
   selectedTemplates,
   currentMappings = [],
-  onMappingChange
+  onMappingChange,
+  templatePersonalizations = {}
 }: TargetTemplateMappingProps) {
   const [mappings, setMappings] = useState<TargetTemplateMapping[]>([]);
   const [previewData, setPreviewData] = useState<Record<string, any[]>>({});
   const [isLoadingPreview, setIsLoadingPreview] = useState<Record<string, boolean>>({});
   const [mappingPreviews, setMappingPreviews] = useState<Record<string, MappingPreview[]>>({});
   
+  // 🔥 NEW: 변수 쿼리 테스트 관련 상태
+  const [queryTestResults, setQueryTestResults] = useState<Record<string, { success: boolean; data?: any[]; columns?: string[]; error?: string }>>({});
+  const [isLoadingTest, setIsLoadingTest] = useState<Record<string, boolean>>({});
+
   // 안정적인 참조를 위한 ref들
   const onMappingChangeRef = useRef(onMappingChange);
   const mappingsRef = useRef<TargetTemplateMapping[]>([]);
@@ -244,10 +259,9 @@ export function TargetTemplateMapping({
     targetGroupId: string, 
     templateId: string, 
     templateVariable: string, 
-    targetField: string,
-    defaultValue?: string
+    updates: Partial<FieldMapping>
   ) => {
-    console.log('🔄 필드 매핑 업데이트:', { targetGroupId, templateId, templateVariable, targetField });
+    console.log('🔄 필드 매핑 업데이트:', { targetGroupId, templateId, templateVariable, updates });
 
     const currentMapping = mappings.find(m => 
       m.targetGroupId === targetGroupId && m.templateId === templateId
@@ -259,10 +273,11 @@ export function TargetTemplateMapping({
     );
 
     const newFieldMapping: FieldMapping = {
-      templateVariable,
-      targetField,
-      formatter: 'text', // 항상 텍스트로 처리
-      defaultValue
+      ...(currentMapping?.fieldMappings.find(fm => fm.templateVariable === templateVariable) || {
+        templateVariable,
+        targetField: '', // 기본값 설정
+      }),
+      ...updates,
     };
 
     const updatedFieldMappings = existingFieldIndex >= 0
@@ -368,6 +383,41 @@ export function TargetTemplateMapping({
     }
   }, [saveName, saveDescription, mappings]);
 
+  // 🔥 NEW: 변수 쿼리 테스트 함수
+  const testVariableQuery = useCallback(async (
+    targetGroupId: string, 
+    templateId: string, 
+    variable: string, 
+    sql: string,
+    params?: Record<string, any>
+  ) => {
+    const key = `${targetGroupId}-${templateId}-${variable}`;
+    setIsLoadingTest(prev => ({ ...prev, [key]: true }));
+    try {
+      const response = await fetch('/api/mysql/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: sql, params: params || {} })
+      });
+      const result = await response.json();
+      setQueryTestResults(prev => ({ ...prev, [key]: result }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      setQueryTestResults(prev => ({ ...prev, [key]: { success: false, error: errorMessage } }));
+    } finally {
+      setIsLoadingTest(prev => ({ ...prev, [key]: false }));
+    }
+  }, []);
+
+  // 그룹 미리보기 로드
+  const loadGroupPreview = async () => {
+    // 동적 그룹들의 미리보기 데이터 새로고침
+    const dynamicGroups = allTargetGroups.filter(g => g.type === 'dynamic');
+    for (const group of dynamicGroups) {
+      await loadPreviewData(group);
+    }
+  };
+
   // 컴포넌트 조건부 렌더링
   if (allTargetGroups.length === 0) {
     return (
@@ -410,9 +460,12 @@ export function TargetTemplateMapping({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-xl">대상-템플릿 매핑</CardTitle>
-              <p className="text-muted-foreground mt-1">
-                대상 그룹의 데이터 필드를 알림톡 템플릿 변수에 매핑하세요
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                매핑 설정 확인
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                변수 매핑과 대상 매핑 설정을 확인하고 검토하세요
               </p>
             </div>
             
@@ -425,18 +478,14 @@ export function TargetTemplateMapping({
                 <Save className="w-4 h-4" />
                 현재 설정 저장
               </Button>
-
+              
               <Button
+                onClick={loadGroupPreview}
                 variant="outline"
-                onClick={() => {
-                  dynamicTargetGroups.forEach(group => {
-                    loadPreviewData(group);
-                  });
-                }}
                 className="flex items-center gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
-                미리보기 새로고침
+                새로고침
               </Button>
             </div>
           </div>
@@ -444,223 +493,165 @@ export function TargetTemplateMapping({
       </Card>
 
       {/* 매핑 설정 */}
-      <div className="space-y-6">
-        {allTargetGroups.map(targetGroup => {
-          const groupPreviewData = previewData[targetGroup.id];
-          const isLoading = isLoadingPreview[targetGroup.id];
+      <div className="space-y-8">
+        {/* 대상 매핑 정보 */}
+        <div>
+          <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+            <Users className="w-5 h-5 text-blue-600" />
+            대상 매핑 설정
+          </h3>
           
-          return (
-            <Card key={targetGroup.id} className="overflow-hidden">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-medium ${
-                      targetGroup.type === 'dynamic' ? 'bg-purple-500' : 'bg-blue-500'
-                    }`}>
-                      {targetGroup.type === 'dynamic' ? <Code className="w-4 h-4" /> : <Database className="w-4 h-4" />}
-                    </div>
-                    <div>
-                      <h3 className="font-medium">{targetGroup.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {targetGroup.type === 'dynamic' ? '동적 쿼리' : '정적 조건'} • 
-                        약 {(targetGroup.estimatedCount || 0).toLocaleString()}명
-                      </p>
-                    </div>
+          {allTargetGroups.map(targetGroup => (
+            <Card key={targetGroup.id} className="mb-4">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                    T
                   </div>
-                  
-                  {isLoading && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span>로딩 중...</span>
-                    </div>
-                  )}
-                  
-                  {!isLoading && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => loadPreviewData(targetGroup)}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      새로고침
-                    </Button>
-                  )}
+                  <div>
+                    <h4 className="font-medium">{targetGroup.name}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {targetGroup.type === 'dynamic' ? '동적 그룹' : '정적 그룹'} • 예상 대상: {targetGroup.estimatedCount}명
+                    </p>
+                  </div>
                 </div>
-              </CardHeader>
 
-              <CardContent>
-                {/* 대상 그룹 미리보기 */}
-                {groupPreviewData && (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="text-sm font-medium mb-3">대상자 미리보기</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b">
-                            {Object.keys(groupPreviewData[0] || {}).map(key => (
-                              <th key={key} className="text-left py-2 px-3 font-medium">
-                                {key}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {groupPreviewData.slice(0, 2).map((row, index) => (
-                            <tr key={index} className="border-b">
-                              {Object.values(row).map((value, i) => (
-                                <td key={i} className="py-2 px-3 text-muted-foreground">
-                                  {String(value)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 연락처 열 */}
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Phone className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-green-800">연락처 열</span>
+                    </div>
+                    <div className="text-sm">
+                      {targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.contactColumn ? (
+                        <span className="font-mono bg-white px-2 py-1 rounded border">
+                          {targetGroup.dynamicQuery.contactColumn}
+                        </span>
+                      ) : (
+                        <span className="text-amber-600">설정되지 않음</span>
+                      )}
                     </div>
                   </div>
-                )}
 
-                {/* 템플릿별 매핑 */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium">알림톡 템플릿 매핑</h4>
-                  {selectedTemplates.map(template => {
-                    const templateVariables = extractTemplateVariables(template);
-                    const completeness = getMappingCompleteness(targetGroup.id, template.id);
-                    const availableFields = groupPreviewData ? Object.keys(groupPreviewData[0] || {}) : [];
-                    
-                    console.log('🔍 매핑 디버깅:', {
-                      targetGroupId: targetGroup.id,
-                      targetGroupType: targetGroup.type,
-                      hasPreviewData: !!groupPreviewData,
-                      availableFieldsCount: availableFields.length,
-                      availableFields,
-                      isLoading: isLoadingPreview[targetGroup.id]
-                    });
-                    
+                  {/* 매핑 열 */}
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Link2 className="w-4 h-4 text-blue-600" />
+                      <span className="font-medium text-blue-800">매핑 열</span>
+                    </div>
+                    <div className="text-sm">
+                      {targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.mappingColumns?.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {targetGroup.dynamicQuery.mappingColumns.map(col => (
+                            <span key={col} className="font-mono bg-white px-2 py-1 rounded border text-xs">
+                              {col}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-amber-600">설정되지 않음</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* 변수 매핑 정보 */}
+        <div>
+          <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+            <Settings className="w-5 h-5 text-purple-600" />
+            변수 매핑 설정
+          </h3>
+          
+          {selectedTemplates.map(template => (
+            <Card key={template.id} className="mb-4">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-sm font-medium">
+                    M
+                  </div>
+                  <div>
+                    <h4 className="font-medium">{template.templateName}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {extractTemplateVariables(template).length}개 변수
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {extractTemplateVariables(template).map(variable => {
+                    const templateId = template.id;
+                    const personalization = templatePersonalizations[templateId];
+                    const variableMapping = personalization?.variableMappings?.find(
+                      vm => vm.templateVariable === variable
+                    );
+
                     return (
-                      <div key={template.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-6 h-6 rounded bg-blue-100 text-blue-600 flex items-center justify-center text-xs">
-                              <MessageSquare className="w-3 h-3" />
-                            </div>
-                            <div>
-                              <h5 className="font-medium">{template.templateName}</h5>
-                              <p className="text-xs text-muted-foreground">
-                                {templateVariables.length}개 변수
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={completeness.percentage === 100 ? 'default' : 'secondary'}>
-                              {completeness.completed}/{completeness.total} 매핑됨
+                      <div key={variable} className="border rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="font-mono text-sm bg-purple-100 px-2 py-1 rounded">
+                            #{variable}
+                          </span>
+                          {variableMapping ? (
+                            <Badge variant="secondary" className="text-xs">
+                              {variableMapping.sourceType === 'query' ? '쿼리 설정됨' : '필드 매핑됨'}
                             </Badge>
-                            {completeness.percentage === 100 ? (
-                              <CheckCircle className="w-4 h-4 text-green-600" />
-                            ) : (
-                              <AlertCircle className="w-4 h-4 text-amber-600" />
-                            )}
-                          </div>
+                          ) : (
+                            <Badge variant="destructive" className="text-xs">
+                              설정 필요
+                            </Badge>
+                          )}
                         </div>
 
-                        {/* 변수별 매핑 설정 */}
-                        <div className="space-y-3">
-                          {templateVariables.map(variable => {
-                            const currentMapping = mappings
-                              .find(m => m.targetGroupId === targetGroup.id && m.templateId === template.id)
-                              ?.fieldMappings.find(fm => fm.templateVariable === variable);
-
-                            return (
-                              <div key={variable} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center p-3 bg-gray-50 rounded">
-                                <div className="font-medium text-sm">
-                                  #{variable}
-                                </div>
-                                
-                                <Select
-                                  value={currentMapping?.targetField || ''}
-                                  onValueChange={(value) => {
-                                    console.log('🔄 필드 선택 변경:', { variable, value });
-                                    updateFieldMapping(
-                                      targetGroup.id, 
-                                      template.id, 
-                                      variable, 
-                                      value,
-                                      currentMapping?.defaultValue
-                                    );
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="필드 선택" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {availableFields.length > 0 ? (
-                                      availableFields.map(field => (
-                                        <SelectItem key={field} value={field}>
-                                          <div className="flex items-center justify-between w-full">
-                                            <span>{field}</span>
-                                            {groupPreviewData && (
-                                              <span className="text-xs text-muted-foreground ml-2">
-                                                {String(groupPreviewData[0][field])}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </SelectItem>
-                                      ))
-                                    ) : (
-                                      <div className="p-2 text-sm text-muted-foreground">
-                                        {isLoading ? '로딩 중...' : '사용 가능한 필드가 없습니다'}
-                                        {!groupPreviewData && !isLoading && (
-                                          <div className="text-xs mt-1">
-                                            새로고침 버튼을 눌러 데이터를 다시 로드해보세요
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </SelectContent>
-                                </Select>
-
-                                <Input
-                                  placeholder="기본값 (선택사항)"
-                                  value={currentMapping?.defaultValue || ''}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    console.log('🔄 기본값 변경:', { variable, value });
-                                    updateFieldMapping(
-                                      targetGroup.id, 
-                                      template.id, 
-                                      variable, 
-                                      currentMapping?.targetField || '',
-                                      value
-                                    );
-                                  }}
-                                  className="text-sm"
-                                />
+                        {variableMapping ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* 출력 열 */}
+                            <div className="p-2 bg-orange-50 border border-orange-200 rounded">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Database className="w-3 h-3 text-orange-600" />
+                                <span className="text-xs font-medium text-orange-800">출력 열</span>
                               </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* 매핑 미리보기 */}
-                        {completeness.completed > 0 && (
-                          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                            <h6 className="text-sm font-medium mb-2">매핑 미리보기</h6>
-                            <div className="space-y-1 text-sm">
-                              {generateMappingPreview(targetGroup.id, template.id).map(preview => (
-                                <div key={preview.templateVariable} className="flex items-center gap-2">
-                                  <span className="font-mono text-xs bg-white px-2 py-1 rounded">
-                                    #{preview.templateVariable}
+                              <div className="text-xs">
+                                {variableMapping.selectedColumn ? (
+                                  <span className="font-mono bg-white px-1 py-0.5 rounded border">
+                                    {variableMapping.selectedColumn}
                                   </span>
-                                  <ArrowRight className="w-3 h-3 text-gray-400" />
-                                  <span className="text-blue-700 font-medium">
-                                    {preview.formattedValue}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    ({preview.targetField})
-                                  </span>
-                                </div>
-                              ))}
+                                ) : (
+                                  <span className="text-amber-600">미설정</span>
+                                )}
+                              </div>
                             </div>
+
+                            {/* 매핑 열 */}
+                            <div className="p-2 bg-cyan-50 border border-cyan-200 rounded">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Link2 className="w-3 h-3 text-cyan-600" />
+                                <span className="text-xs font-medium text-cyan-800">매핑 열</span>
+                              </div>
+                              <div className="text-xs">
+                                {variableMapping.mappingKeyField ? (
+                                  <span className="font-mono bg-white px-1 py-0.5 rounded border">
+                                    {variableMapping.mappingKeyField}
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600">미설정</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+                            <div className="flex items-center gap-2 text-yellow-800">
+                              <AlertCircle className="w-4 h-4" />
+                              <span className="text-sm font-medium">변수 설정 필요</span>
+                            </div>
+                            <p className="text-xs text-yellow-700 mt-1">
+                              알림톡 선택 탭에서 이 변수의 쿼리를 설정해주세요.
+                            </p>
                           </div>
                         )}
                       </div>
@@ -669,8 +660,60 @@ export function TargetTemplateMapping({
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
+          ))}
+        </div>
+
+        {/* 매핑 상태 요약 */}
+        <Card className="bg-gray-50">
+          <CardContent className="pt-4">
+            <h4 className="font-medium mb-3 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              매핑 설정 요약
+            </h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <h5 className="font-medium text-gray-700 mb-2">대상 그룹</h5>
+                <ul className="space-y-1">
+                  {allTargetGroups.map(group => (
+                    <li key={group.id} className="flex items-center gap-2">
+                      {group.type === 'dynamic' && group.dynamicQuery?.contactColumn && group.dynamicQuery?.mappingColumns?.length ? (
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-red-600" />
+                      )}
+                      <span className="text-xs">{group.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              
+              <div>
+                <h5 className="font-medium text-gray-700 mb-2">템플릿 변수</h5>
+                {selectedTemplates.map(template => {
+                  const variables = extractTemplateVariables(template);
+                  const personalization = templatePersonalizations[template.id];
+                  const mappedCount = variables.filter(variable => 
+                    personalization?.variableMappings?.some(vm => vm.templateVariable === variable)
+                  ).length;
+                  
+                  return (
+                    <div key={template.id} className="flex items-center gap-2 mb-1">
+                      {mappedCount === variables.length ? (
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-red-600" />
+                      )}
+                      <span className="text-xs">
+                        {mappedCount}/{variables.length} 변수 설정됨
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* 매핑 요약 */}

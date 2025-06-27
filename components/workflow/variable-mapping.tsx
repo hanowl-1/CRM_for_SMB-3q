@@ -760,28 +760,59 @@ export function VariableMapping({
                       <div className="space-y-3">
                         {/* 컬럼 선택 */}
                         {queryTestResults[index].columns && queryTestResults[index].columns!.length > 1 && (
-                          <div>
-                            <label className="text-sm font-medium mb-2 block">변수값으로 사용할 컬럼 선택</label>
-                            <Select
-                              value={queryTestResults[index].selectedColumn || queryTestResults[index].columns![0]}
-                              onValueChange={(value) => updateSelectedColumn(index, value)}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {queryTestResults[index].columns!.map(column => (
-                                  <SelectItem key={column} value={column}>
-                                    <div className="flex items-center justify-between w-full">
-                                      <span>{column}</span>
-                                      <span className="text-xs text-muted-foreground ml-2">
-                                        {queryTestResults[index].data?.[0]?.[column]}
-                                      </span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                          <div className="space-y-3">
+                            {/* 출력 컬럼 선택 */}
+                            <div>
+                              <label className="text-sm font-medium mb-2 block">🟠 출력할 컬럼 선택 (변수값으로 사용)</label>
+                              <Select
+                                value={queryTestResults[index].selectedColumn || queryTestResults[index].columns![0]}
+                                onValueChange={(value) => updateSelectedColumn(index, value)}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {queryTestResults[index].columns!.map(column => (
+                                    <SelectItem key={column} value={column}>
+                                      <div className="flex items-center justify-between w-full">
+                                        <span>{column}</span>
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          {queryTestResults[index].data?.[0]?.[column]}
+                                        </span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* 매핑 키 컬럼 선택 */}
+                            <div>
+                              <label className="text-sm font-medium mb-2 block">🔵 매핑할 키 컬럼 선택 (대상자 데이터와 연결)</label>
+                              <Select
+                                value={variableMappings[index]?.mappingKeyField || queryTestResults[index].columns![0]}
+                                onValueChange={(value) => updateMapping(index, { mappingKeyField: value })}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="매핑할 키 컬럼 선택" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {queryTestResults[index].columns!.map(column => (
+                                    <SelectItem key={column} value={column}>
+                                      <div className="flex items-center justify-between w-full">
+                                        <span>{column}</span>
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          {queryTestResults[index].data?.[0]?.[column]}
+                                        </span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                💡 대상자 쿼리의 매핑 컬럼과 연결될 키 필드입니다 (예: id, adId 등)
+                              </p>
+                            </div>
                           </div>
                         )}
                         

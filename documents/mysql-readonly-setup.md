@@ -21,8 +21,8 @@ npm install mysql2
 # MySQL Readonly 연결 설정
 MYSQL_READONLY_HOST=supermembers-prod.cluster-cy8cnze5wxti.ap-northeast-2.rds.amazonaws.com
 MYSQL_READONLY_PORT=3306
-MYSQL_READONLY_USER=readonly_user
-MYSQL_READONLY_PASSWORD=your_actual_password_here
+MYSQL_READONLY_USER=readyonly
+MYSQL_READONLY_PASSWORD=phozphoz1!
 MYSQL_READONLY_DATABASE=supermembers
 ```
 

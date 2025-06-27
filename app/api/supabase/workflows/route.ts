@@ -1,75 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
-import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
-import type { Workflow } from '@/lib/types/workflow';
+import { getSupabase } from '@/lib/database/supabase-client';
 
 // GET: 워크플로우 목록 조회
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
-    
-    // 실행 통계 조회
-    if (action === 'execution_stats') {
-      const result = await supabaseWorkflowService.getExecutionStats();
-      
-      if (!result.success) {
-        return NextResponse.json({
-          success: false,
-          message: result.error || '실행 통계 조회에 실패했습니다.'
-        }, { status: 500 });
-      }
+    const id = searchParams.get('id');
+
+    const supabase = getSupabase();
+
+    if (action === 'list') {
+      // 모든 워크플로우 조회
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
 
       return NextResponse.json({
         success: true,
-        data: result.data,
-        message: '실행 통계를 성공적으로 조회했습니다.'
+        data: data || []
       });
     }
-    
-    // 스케줄된 작업 조회
-    if (action === 'scheduled_jobs') {
-      const result = await supabaseWorkflowService.getScheduledJobs();
-      
-      if (!result.success) {
-        return NextResponse.json({
-          success: false,
-          message: result.error || '스케줄된 작업 조회에 실패했습니다.'
-        }, { status: 500 });
-      }
+
+    if (action === 'get' && id) {
+      // 특정 워크플로우 조회
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
 
       return NextResponse.json({
         success: true,
-        data: result.data,
-        message: '스케줄된 작업을 성공적으로 조회했습니다.'
+        data: data
       });
     }
-    
-    // 기존 워크플로우 목록 조회
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 50;
-    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;
 
-    const result = await supabaseWorkflowService.getWorkflows(limit, offset);
-    
-    if (!result.success) {
-      return NextResponse.json({
-        success: false,
-        message: result.error || '워크플로우 목록 조회에 실패했습니다.'
-      }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: result.data || [],
-      total: result.data?.length || 0,
-      message: '워크플로우 목록을 성공적으로 조회했습니다.'
-    });
-
-  } catch (error) {
-    console.error('워크플로우 목록 조회 실패:', error);
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '워크플로우 목록 조회에 실패했습니다.',
-      error: error
+      error: 'Invalid action or missing parameters'
+    }, { status: 400 });
+
+  } catch (error) {
+    console.error('워크플로우 조회 오류:', error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : '알 수 없는 오류'
     }, { status: 500 });
   }
 }
@@ -78,154 +59,99 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, ...data } = body;
+    const { action } = body;
 
-    switch (action) {
-      case 'create': {
-        const workflow = data as Workflow;
-        const result = await supabaseWorkflowService.createWorkflow(workflow);
-        
-        if (!result.success) {
-          return NextResponse.json({
-            success: false,
-            message: result.error || '워크플로우 생성에 실패했습니다.'
-          }, { status: 500 });
-        }
-        
-        return NextResponse.json({
-          success: true,
-          data: result.data,
-          message: '워크플로우가 성공적으로 생성되었습니다.'
-        });
-      }
+    const supabase = getSupabase();
 
-      case 'update': {
-        const { id, ...updates } = data;
-        const result = await supabaseWorkflowService.updateWorkflow(id, updates);
-        
-        if (!result.success) {
-          return NextResponse.json({
-            success: false,
-            message: result.error || '워크플로우 업데이트에 실패했습니다.'
-          }, { status: 500 });
-        }
-        
-        return NextResponse.json({
-          success: true,
-          data: result.data,
-          message: '워크플로우가 성공적으로 업데이트되었습니다.'
-        });
-      }
+    if (action === 'create') {
+      // 새 워크플로우 생성
+      const {
+        name,
+        description,
+        selectedTemplates,
+        targetGroups,
+        templatePersonalizations,
+        targetTemplateMappings,
+        scheduleSettings,
+        testSettings,
+        createdBy = 'user'
+      } = body;
 
-      case 'delete': {
-        const { id } = data;
-        const result = await supabaseWorkflowService.deleteWorkflow(id);
-        
-        if (!result.success) {
-          return NextResponse.json({
-            success: false,
-            message: result.error || '워크플로우 삭제에 실패했습니다.'
-          }, { status: 500 });
-        }
-        
-        return NextResponse.json({
-          success: true,
-          message: '워크플로우가 성공적으로 삭제되었습니다.'
-        });
-      }
+      const { data, error } = await supabase
+        .from('workflows')
+        .insert({
+          name,
+          description,
+          trigger_type: 'manual',
+          trigger_config: scheduleSettings || {},
+          target_config: targetGroups || {},
+          message_config: selectedTemplates || {},
+          variables: templatePersonalizations || {},
+          schedule_config: scheduleSettings || {},
+          mapping_config: targetTemplateMappings || {},
+          created_by: createdBy,
+          status: 'draft'
+        })
+        .select()
+        .single();
 
-      case 'toggle_status': {
-        const { id, status } = data;
-        const result = await supabaseWorkflowService.updateWorkflow(id, { status });
-        
-        if (!result.success) {
-          return NextResponse.json({
-            success: false,
-            message: result.error || '워크플로우 상태 변경에 실패했습니다.'
-          }, { status: 500 });
-        }
-        
-        return NextResponse.json({
-          success: true,
-          data: result.data,
-          message: `워크플로우 상태가 ${status}로 변경되었습니다.`
-        });
-      }
+      if (error) throw error;
 
-      case 'get_stats': {
-        const result = await supabaseWorkflowService.getWorkflowStats();
-        
-        if (!result.success) {
-          return NextResponse.json({
-            success: false,
-            message: result.error || '워크플로우 통계 조회에 실패했습니다.'
-          }, { status: 500 });
-        }
-        
-        return NextResponse.json({
-          success: true,
-          data: result.data,
-          message: '워크플로우 통계를 성공적으로 조회했습니다.'
-        });
-      }
-
-      // 나머지 케이스들은 현재 구현되지 않음
-      case 'create_run':
-      case 'update_run':
-      case 'create_message_log':
-      case 'update_message_log':
-      default:
-        return NextResponse.json({
-          success: false,
-          message: `아직 구현되지 않은 액션입니다: ${action}`
-        }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        data: data
+      });
     }
 
-  } catch (error) {
-    console.error('워크플로우 API 처리 실패:', error);
+    if (action === 'update') {
+      // 워크플로우 업데이트
+      const {
+        id,
+        name,
+        description,
+        selectedTemplates,
+        targetGroups,
+        templatePersonalizations,
+        targetTemplateMappings,
+        scheduleSettings,
+        testSettings
+      } = body;
+
+      const { data, error } = await supabase
+        .from('workflows')
+        .update({
+          name,
+          description,
+          trigger_config: scheduleSettings || {},
+          target_config: targetGroups || {},
+          message_config: selectedTemplates || {},
+          variables: templatePersonalizations || {},
+          schedule_config: scheduleSettings || {},
+          mapping_config: targetTemplateMappings || {},
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        data: data
+      });
+    }
+
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '요청 처리에 실패했습니다.',
-      error: error
-    }, { status: 500 });
-  }
-}
-
-// PUT: 특정 워크플로우 업데이트
-export async function PUT(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    
-    if (!id) {
-      return NextResponse.json({
-        success: false,
-        message: '워크플로우 ID가 필요합니다.'
-      }, { status: 400 });
-    }
-
-    const updates = await request.json();
-    const result = await supabaseWorkflowService.updateWorkflow(id, updates);
-    
-    if (!result.success) {
-      return NextResponse.json({
-        success: false,
-        message: result.error || '워크플로우 업데이트에 실패했습니다.'
-      }, { status: 500 });
-    }
-    
-    return NextResponse.json({
-      success: true,
-      data: result.data,
-      message: '워크플로우가 성공적으로 업데이트되었습니다.'
-    });
+      error: 'Invalid action'
+    }, { status: 400 });
 
   } catch (error) {
-    console.error('워크플로우 업데이트 실패:', error);
+    console.error('워크플로우 저장 오류:', error);
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '워크플로우 업데이트에 실패했습니다.',
-      error: error
+      error: error instanceof Error ? error.message : '알 수 없는 오류'
     }, { status: 500 });
   }
 }
@@ -235,34 +161,33 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    
+
     if (!id) {
       return NextResponse.json({
         success: false,
-        message: '워크플로우 ID가 필요합니다.'
+        error: 'ID is required'
       }, { status: 400 });
     }
 
-    const result = await supabaseWorkflowService.deleteWorkflow(id);
-    
-    if (!result.success) {
-      return NextResponse.json({
-        success: false,
-        message: result.error || '워크플로우 삭제에 실패했습니다.'
-      }, { status: 500 });
-    }
-    
+    const supabase = getSupabase();
+
+    const { error } = await supabase
+      .from('workflows')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      message: '워크플로우가 성공적으로 삭제되었습니다.'
+      message: 'Workflow deleted successfully'
     });
 
   } catch (error) {
-    console.error('워크플로우 삭제 실패:', error);
+    console.error('워크플로우 삭제 오류:', error);
     return NextResponse.json({
       success: false,
-      message: error instanceof Error ? error.message : '워크플로우 삭제에 실패했습니다.',
-      error: error
+      error: error instanceof Error ? error.message : '알 수 없는 오류'
     }, { status: 500 });
   }
 } 

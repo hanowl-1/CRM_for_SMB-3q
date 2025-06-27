@@ -44,6 +44,10 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
   const [dynamicFields, setDynamicFields] = useState('contact, name, id');
   const [queryTestResult, setQueryTestResult] = useState<any>(null);
   const [isTestingQuery, setIsTestingQuery] = useState(false);
+  
+  // 새로운 상태: 컬럼 선택
+  const [contactColumn, setContactColumn] = useState('');
+  const [mappingColumns, setMappingColumns] = useState<string[]>([]);
 
   const [availableTables, setAvailableTables] = useState<string[]>([]);
 
@@ -164,7 +168,9 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
         description: dynamicDescription,
         expectedFields: dynamicFields.split(',').map(f => f.trim()),
         lastExecuted: undefined,
-        lastCount: queryTestResult?.totalCount || 0
+        lastCount: queryTestResult?.totalCount || 0,
+        contactColumn: contactColumn || undefined,
+        mappingColumns: mappingColumns.length > 0 ? mappingColumns : undefined
       },
       estimatedCount: queryTestResult?.totalCount || 0
     };
@@ -187,6 +193,8 @@ export function TargetSelection({ onTargetsChange, currentTargets }: TargetSelec
     setDynamicFields('contact, name, id');
     setQueryTestResult(null);
     setIsTestingQuery(false);
+    setContactColumn('');
+    setMappingColumns([]);
   };
 
   const removeTarget = (targetId: string) => {
@@ -536,59 +544,149 @@ WHERE contacts IS NOT NULL
 
               {/* 쿼리 테스트 결과 */}
               {queryTestResult && (
-                <div className={`p-3 rounded-md border ${
-                  queryTestResult.success 
-                    ? 'bg-green-50 border-green-200' 
-                    : 'bg-red-50 border-red-200'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    {queryTestResult.success ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium">
-                          {queryTestResult.success ? '테스트 성공' : '테스트 실패'}
-                        </span>
-                        {queryTestResult.success && queryTestResult.totalCount !== undefined && (
-                          <span className="text-xs bg-white px-2 py-0.5 rounded-full border">
-                            {(queryTestResult.totalCount || 0).toLocaleString()}개 결과
-                          </span>
-                        )}
+                <div className="space-y-4">
+                  {queryTestResult.success ? (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        <h4 className="font-medium text-green-800">쿼리 테스트 성공</h4>
                       </div>
                       
-                      {queryTestResult.success ? (
-                        <div>
-                          {queryTestResult.totalCount !== undefined && (
-                            <p className="text-sm text-gray-600 mb-2">
-                              총 <strong>{(queryTestResult.totalCount || 0).toLocaleString()}</strong>명의 대상자가 검색되었습니다.
-                            </p>
-                          )}
-                          {queryTestResult.preview && queryTestResult.preview.length > 0 && (
-                            <details className="mt-2">
-                              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
-                                미리보기 데이터 보기 ({queryTestResult.preview.length}개)
-                              </summary>
-                              <div className="mt-2 bg-white p-2 rounded border">
-                                <pre className="text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
-                                  {JSON.stringify(queryTestResult.preview, null, 2)}
-                                </pre>
-                              </div>
-                            </details>
-                          )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="text-sm text-green-700">
+                          <p>조회된 데이터: <strong>{queryTestResult.totalCount}개</strong></p>
+                          <p>미리보기: {queryTestResult.preview?.length || 0}개 행</p>
                         </div>
-                      ) : (
-                        <div>
-                          <p className="text-sm text-red-700 mb-1">{queryTestResult.error}</p>
-                          <p className="text-xs text-red-600">
-                            쿼리 문법을 확인하고 다시 시도해주세요.
-                          </p>
+                        
+                        {queryTestResult.preview && queryTestResult.preview.length > 0 && (
+                          <div className="text-sm">
+                            <p className="font-medium text-green-800 mb-2">사용 가능한 컬럼:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.keys(queryTestResult.preview[0]).map(column => (
+                                <Badge key={column} variant="outline" className="text-xs">
+                                  {column}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 컬럼 선택 섹션 */}
+                      {queryTestResult.preview && queryTestResult.preview.length > 0 && (
+                        <div className="space-y-4 pt-4 border-t border-green-200">
+                          <h5 className="font-medium text-green-800">컬럼 설정</h5>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* 연락처 컬럼 선택 */}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                연락처 컬럼 *
+                              </label>
+                              <Select value={contactColumn} onValueChange={setContactColumn}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="연락처로 사용할 컬럼 선택" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {Object.keys(queryTestResult.preview[0]).map(column => (
+                                    <SelectItem key={column} value={column}>
+                                      <div className="flex items-center justify-between w-full">
+                                        <span>{column}</span>
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          {String(queryTestResult.preview[0][column])}
+                                        </span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500 mt-1">
+                                메시지 발송 시 사용할 연락처 정보가 들어있는 컬럼
+                              </p>
+                            </div>
+
+                            {/* 매핑용 컬럼 선택 */}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                매핑용 컬럼 (선택사항)
+                              </label>
+                              <div className="space-y-2">
+                                {Object.keys(queryTestResult.preview[0]).map(column => (
+                                  <div key={column} className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      id={`mapping-${column}`}
+                                      checked={mappingColumns.includes(column)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setMappingColumns([...mappingColumns, column]);
+                                        } else {
+                                          setMappingColumns(mappingColumns.filter(c => c !== column));
+                                        }
+                                      }}
+                                      className="rounded border-gray-300"
+                                    />
+                                    <label 
+                                      htmlFor={`mapping-${column}`}
+                                      className="text-sm cursor-pointer flex items-center gap-2"
+                                    >
+                                      <span>{column}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {String(queryTestResult.preview[0][column])}
+                                      </span>
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                개인화 변수에 사용할 수 있는 컬럼들을 선택하세요
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 데이터 미리보기 */}
+                      {queryTestResult.preview && queryTestResult.preview.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-green-200">
+                          <h5 className="font-medium text-green-800 mb-2">데이터 미리보기</h5>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-xs">
+                              <thead>
+                                <tr className="bg-green-100">
+                                  {Object.keys(queryTestResult.preview[0]).map(key => (
+                                    <th key={key} className="px-2 py-1 text-left font-medium text-green-800">
+                                      {key}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {queryTestResult.preview.slice(0, 3).map((row, index) => (
+                                  <tr key={index} className="border-b border-green-100">
+                                    {Object.values(row).map((value, colIndex) => (
+                                      <td key={colIndex} className="px-2 py-1 text-green-700">
+                                        {String(value)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       )}
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <h4 className="font-medium text-red-800">쿼리 테스트 실패</h4>
+                      </div>
+                      
+                      <p className="text-sm text-red-700">{queryTestResult.error}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -597,10 +695,12 @@ WHERE contacts IS NOT NULL
                   취소
                 </Button>
                 <Button 
-                  onClick={addDynamicTarget} 
-                  disabled={!dynamicName.trim() || !dynamicSql.trim()}
+                  onClick={addDynamicTarget}
+                  disabled={!dynamicName.trim() || !dynamicSql.trim() || !queryTestResult?.success || !contactColumn}
+                  className="w-full"
                 >
-                  추가
+                  <Plus className="w-4 h-4 mr-2" />
+                  동적 대상 그룹 추가
                 </Button>
               </div>
             </TabsContent>

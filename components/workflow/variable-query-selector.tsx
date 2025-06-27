@@ -254,12 +254,7 @@ export default function VariableQuerySelector({
   // 쿼리 저장 (기존 개별 변수 시스템에 저장)
   const handleSaveQuery = async () => {
     if (!saveForm.name.trim()) {
-      alert('템플릿 이름을 입력해주세요.');
-      return;
-    }
-    
-    if (!saveForm.description.trim()) {
-      alert('템플릿 설명을 입력해주세요.');
+      alert('쿼리 이름을 입력해주세요.');
       return;
     }
 
@@ -275,43 +270,96 @@ export default function VariableQuerySelector({
     }
 
     try {
-      const response = await fetch('/api/supabase/individual-variables?action=create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          variableName,
-          displayName: saveForm.name,
-          sourceType: 'query',
-          sourceField: currentQuery,
-          selectedColumn: currentSelectedColumn || '',
-          formatter: 'text',
-          category: saveForm.category,
-          tags: saveForm.tags,
-          isPublic: saveForm.isPublic,
-          createdBy: 'user'
-        }),
-      });
-
-      const result = await response.json();
+      // 중복 체크: 같은 변수명으로 이미 저장된 쿼리가 있는지 확인
+      const existingTemplate = templates.find(t => 
+        t.variableName === variableName && t.name === saveForm.name.trim()
+      );
       
-      if (result.success) {
-        alert(`쿼리 템플릿이 저장되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
-        onSave?.(result.data);
-        setShowSaveForm(false);
+      if (existingTemplate) {
+        const proceed = confirm(
+          `"${saveForm.name}" 이름으로 이미 저장된 쿼리가 있습니다.\n` +
+          '덮어쓰시겠습니까?'
+        );
+        if (!proceed) {
+          return;
+        }
         
-        if (showLibrary) {
-          loadTemplates();
-          // 쿼리 라이브러리도 새로고침 (새로 저장된 쿼리가 워크플로우에서 사용되면 자동으로 나타남)
-          loadQueryLibrary();
+        // 기존 쿼리 업데이트
+        const response = await fetch('/api/supabase/individual-variables?action=update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: existingTemplate.id,
+            variableName,
+            displayName: saveForm.name,
+            sourceType: 'query',
+            sourceField: currentQuery,
+            selectedColumn: currentSelectedColumn || '',
+            formatter: 'text',
+            category: saveForm.category,
+            tags: saveForm.tags,
+            isPublic: saveForm.isPublic,
+            description: saveForm.description || '', // 비고는 선택사항
+            createdBy: 'user'
+          }),
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+          alert(`쿼리가 업데이트되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
+          onSave?.(result.data);
+          setShowSaveForm(false);
+          
+          if (showLibrary) {
+            loadTemplates();
+            loadQueryLibrary();
+          }
+        } else {
+          throw new Error(result.error || '업데이트 실패');
         }
       } else {
-        throw new Error(result.error || '저장 실패');
+        // 새 쿼리 생성
+        const response = await fetch('/api/supabase/individual-variables?action=create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            variableName,
+            displayName: saveForm.name,
+            sourceType: 'query',
+            sourceField: currentQuery,
+            selectedColumn: currentSelectedColumn || '',
+            formatter: 'text',
+            category: saveForm.category,
+            tags: saveForm.tags,
+            isPublic: saveForm.isPublic,
+            description: saveForm.description || '', // 비고는 선택사항
+            createdBy: 'user'
+          }),
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+          alert(`쿼리가 저장되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
+          onSave?.(result.data);
+          setShowSaveForm(false);
+          
+          if (showLibrary) {
+            loadTemplates();
+            loadQueryLibrary();
+          }
+        } else {
+          throw new Error(result.error || '저장 실패');
+        }
       }
     } catch (error) {
       console.error('쿼리 저장 오류:', error);
-      alert('저장 중 오류가 발생했습니다.');
+      alert('저장 중 오류가 발생했습니다: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -435,7 +483,7 @@ export default function VariableQuerySelector({
                   </TabsTrigger>
                   <TabsTrigger value="templates" className="flex items-center gap-2">
                     <Star className="w-4 h-4" />
-                    개별 변수 템플릿
+                    저장된 쿼리
                     <Badge variant="secondary">{filteredTemplates.length}</Badge>
                   </TabsTrigger>
                 </TabsList>
@@ -522,9 +570,9 @@ export default function VariableQuerySelector({
                   {filteredTemplates.length === 0 ? (
                     <div className="text-center py-8">
                       <Star className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">저장된 템플릿이 없습니다</p>
+                      <p className="text-muted-foreground">저장된 쿼리가 없습니다</p>
                       <p className="text-sm text-muted-foreground mt-2">
-                        현재 쿼리를 템플릿으로 저장해보세요
+                        현재 쿼리를 저장해보세요
                       </p>
                     </div>
                   ) : (
@@ -597,19 +645,36 @@ export default function VariableQuerySelector({
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" onClick={handleOpenSaveForm}>
               <Save className="w-4 h-4 mr-2" />
-              템플릿 저장
+              쿼리 저장
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>쿼리 템플릿 저장</DialogTitle>
+              <DialogTitle>쿼리 저장</DialogTitle>
             </DialogHeader>
             
             <div className="space-y-4">
+              {/* SQL 코드 정보 표시 */}
               <div>
-                <Label htmlFor="template-name">템플릿 이름</Label>
+                <Label>저장할 SQL 쿼리</Label>
+                <div className="bg-gray-50 border rounded-lg p-3 mt-1">
+                  <pre className="text-sm font-mono whitespace-pre-wrap text-gray-800">
+                    {currentQuery || '쿼리가 입력되지 않았습니다'}
+                  </pre>
+                </div>
+                {currentSelectedColumn && (
+                  <div className="mt-2">
+                    <Badge variant="secondary" className="text-xs">
+                      선택된 컬럼: {currentSelectedColumn}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+              
+              <div>
+                <Label htmlFor="query-name">쿼리 이름 *</Label>
                 <Input
-                  id="template-name"
+                  id="query-name"
                   value={saveForm.name}
                   onChange={(e) => setSaveForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="예: 총 리뷰 수 조회"
@@ -617,18 +682,18 @@ export default function VariableQuerySelector({
               </div>
               
               <div>
-                <Label htmlFor="template-description">설명</Label>
+                <Label htmlFor="query-notes">비고 (선택사항)</Label>
                 <Textarea
-                  id="template-description"
+                  id="query-notes"
                   value={saveForm.description}
                   onChange={(e) => setSaveForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="이 쿼리의 용도를 설명해주세요"
-                  rows={3}
+                  placeholder="필요시 추가 설명을 입력하세요"
+                  rows={2}
                 />
               </div>
               
               <div>
-                <Label htmlFor="template-category">카테고리</Label>
+                <Label htmlFor="query-category">카테고리</Label>
                 <Select 
                   value={saveForm.category} 
                   onValueChange={(value) => setSaveForm(prev => ({ ...prev, category: value }))}
@@ -646,11 +711,11 @@ export default function VariableQuerySelector({
               
               <div className="flex items-center space-x-2">
                 <Switch
-                  id="template-public"
+                  id="query-public"
                   checked={saveForm.isPublic}
                   onCheckedChange={(checked) => setSaveForm(prev => ({ ...prev, isPublic: checked }))}
                 />
-                <Label htmlFor="template-public">다른 사용자와 공유</Label>
+                <Label htmlFor="query-public">다른 사용자와 공유</Label>
               </div>
               
               <div className="flex justify-end gap-2">

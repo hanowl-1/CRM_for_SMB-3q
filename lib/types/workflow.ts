@@ -31,13 +31,7 @@ export interface TargetGroup {
   selectedRecords?: any[];
   
   // 동적 대상 선정 (새로운 방식)
-  dynamicQuery?: {
-    sql: string; // 실행할 SQL 쿼리
-    description: string; // 쿼리 설명
-    expectedFields: string[]; // 예상 결과 필드 (contact, name 등)
-    lastExecuted?: string; // 마지막 실행 시간
-    lastCount?: number; // 마지막 실행 시 대상자 수
-  };
+  dynamicQuery?: DynamicQuery;
   
   estimatedCount: number;
 }
@@ -62,6 +56,7 @@ export interface VariableMapping {
   templateVariable: string; // 템플릿에서 사용되는 변수명 (예: #total_reviews)
   sourceField: string; // 데이터베이스 필드명 또는 계산식
   sourceType: 'field' | 'query' | 'function'; // 데이터 소스 타입
+  mappingKeyField?: string; // 🔥 NEW: 변수 쿼리와 매핑할 키 필드 (예: id -> adId)
   defaultValue?: string; // 기본값
   formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
   selectedColumn?: string; // 쿼리 결과에서 선택된 컬럼명 (query 타입일 때만 사용)
@@ -278,7 +273,24 @@ export interface TargetTemplateMapping {
 // 개별 필드 매핑
 export interface FieldMapping {
   templateVariable: string; // 알림톡 템플릿의 변수명 (예: #{고객명})
-  targetField: string; // 대상 그룹 쿼리 결과의 필드명 (예: companyName)
+  
+  // 기본 매핑 (대상자 쿼리 필드 직접 매핑)
+  targetField: string; // 대상 그룹 쿼리 결과의 필드명 (예: companyName) - 출력 값으로 사용할 필드
+  
+  // 고급 매핑 (변수 쿼리 사용)
+  variableQuerySql?: string; // 변수 값을 가져오기 위한 SQL 쿼리
+  variableQueryKeyColumn?: string; // 변수 쿼리 결과의 JOIN 키 컬럼 (예: company_id)
+  targetQueryKeyColumn?: string; // 대상자 쿼리 결과의 JOIN 키 컬럼 (예: id)
+  variableQueryValueColumn?: string; // 변수 쿼리 결과의 실제 값 컬럼 (예: total_reviews)
+
+  // 개별 변수 쿼리 (새로운 방식)
+  customQuery?: string; // 이 변수를 위한 개별 SQL 쿼리
+  queryTestResult?: {
+    success: boolean;
+    sampleValue?: string;
+    error?: string;
+  }; // 쿼리 테스트 결과
+
   formatter?: 'number' | 'currency' | 'date' | 'text'; // 포맷터
   defaultValue?: string; // 기본값
 }
@@ -294,4 +306,14 @@ export interface MappingPreview {
 // 워크플로우에 매핑 정보 추가
 export interface WorkflowWithMapping extends Workflow {
   targetTemplateMappings?: TargetTemplateMapping[]; // 대상-템플릿 매핑 정보
+}
+
+export interface DynamicQuery {
+  sql: string;
+  description?: string;
+  expectedFields: string[];
+  lastExecuted?: string;
+  lastCount?: number;
+  contactColumn?: string; // 연락처로 사용할 컬럼
+  mappingColumns?: string[]; // 매핑에 사용할 컬럼들
 } 

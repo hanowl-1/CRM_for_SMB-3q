@@ -390,149 +390,81 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     });
   }, []);
 
-  const handleSave = async () => {
+  // 워크플로우 저장 함수 (탭 이동 시 호출)
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [workflowId, setWorkflowId] = useState<string | null>(workflow?.id || null);
+
+  // 워크플로우 저장 함수
+  const saveWorkflow = useCallback(async () => {
+    if (isSaving) return;
+    
+    setIsSaving(true);
     try {
-      console.log("🎯 WorkflowBuilder handleSave 함수 호출됨:", {
-        name,
-        description,
-        scheduleSettings,
-        selectedTemplatesCount: selectedTemplates.length,
-        targetGroupsCount: targetGroups.length,
-        timestamp: new Date().toISOString()
-      });
-      
-      console.log("🔍 상세 상태 정보:", {
-        name: name,
-        description: description,
-        scheduleSettings: JSON.stringify(scheduleSettings, null, 2),
-        selectedTemplates: selectedTemplates.map(t => ({ id: t.id, name: t.templateName })),
-        targetGroups: targetGroups.map(tg => ({ id: tg.id, name: tg.name })),
-        onSave: typeof onSave,
-        onSaveExists: !!onSave
-      });
-      
-      if (!onSave) {
-        console.error("❌ onSave 함수가 존재하지 않습니다!");
-        alert("onSave 함수가 존재하지 않습니다!");
-        return;
-      }
-      
-      console.log("🚀 워크플로우 데이터 생성 시작...");
-      
-      console.log("📝 템플릿 단계 생성 중...", { selectedTemplatesLength: selectedTemplates.length });
-      
-      // 선택된 템플릿들을 워크플로우 단계로 변환 (개인화 설정 포함)
-      const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => {
-        console.log(`📋 템플릿 ${index + 1} 처리 중:`, { 
-          id: template.id, 
-          name: template.templateName,
-          hasVariables: !!templateVariables[template.id],
-          hasPersonalization: !!templatePersonalizations[template.id]
-        });
-        
-        return {
-          id: `step_${template.id}_${Date.now()}`,
-          name: `${template.templateName} 발송`,
-          action: {
-            id: `action_${template.id}_${Date.now()}`,
-            type: 'send_alimtalk',
-            templateId: template.id,
-            templateCode: template.templateCode,
-            templateName: template.templateName,
-            variables: templateVariables[template.id] || {},
-            scheduleSettings: scheduleSettings,
-            personalization: templatePersonalizations[template.id]
-          } as any,
-          position: { x: 100, y: index * 150 + 100 }
-        };
-      });
-      
-      console.log("✅ 템플릿 단계 생성 완료:", { stepsCount: templateSteps.length });
-
-      console.log("🔧 트리거 정보 생성 중...");
-      
-      // 스케줄 설정에 따라 동적으로 트리거 설정
-      const getTriggerInfo = () => {
-        if (scheduleSettings.type === 'immediate') {
-          return {
-            type: 'manual' as const,
-            name: '수동 실행',
-            description: '관리자가 수동으로 실행하는 워크플로우'
-          };
-        } else {
-          return {
-            type: 'schedule' as const,
-            name: scheduleSettings.type === 'delay' ? `지연 실행 (${scheduleSettings.delay}분 후)` :
-                  scheduleSettings.type === 'scheduled' ? '예약 실행' :
-                  scheduleSettings.type === 'recurring' ? '반복 실행' : '스케줄 실행',
-            description: scheduleSettings.type === 'delay' ? `${scheduleSettings.delay}분 후 자동 실행되는 워크플로우` :
-                        scheduleSettings.type === 'scheduled' ? '예약된 시간에 자동 실행되는 워크플로우' :
-                        scheduleSettings.type === 'recurring' ? '반복 일정에 따라 자동 실행되는 워크플로우' :
-                        '스케줄에 따라 자동 실행되는 워크플로우'
-          };
-        }
-      };
-
-      const triggerInfo = getTriggerInfo();
-      console.log("✅ 트리거 정보 생성 완료:", triggerInfo);
-      
-      const defaultTrigger: WorkflowTrigger = {
-        id: 'trigger_auto',
-        type: triggerInfo.type,
-        name: triggerInfo.name,
-        description: triggerInfo.description,
-        conditions: [],
-        conditionLogic: 'AND'
-      };
-
-      console.log("🏗️ 워크플로우 데이터 객체 생성 중...");
-      
-      const workflowData: Workflow = {
-        id: workflow?.id || `workflow_${Date.now()}`,
-        name,
-        description,
-        status: workflowStatus, // 🔥 하드코딩된 'draft' 대신 workflowStatus 사용
-        trigger: defaultTrigger,
+      const workflowData = {
+        name: name || '임시 워크플로우',
+        description: description || '',
+        selectedTemplates,
         targetGroups,
-        steps: templateSteps,
-        testSettings,
+        templatePersonalizations,
+        targetTemplateMappings,
         scheduleSettings,
-        createdAt: workflow?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          totalRuns: 0,
-          successRate: 0
-        },
-        // 대상-템플릿 매핑 정보를 워크플로우 레벨에서 별도 저장
-        targetTemplateMappings: targetTemplateMappings
+        testSettings
       };
 
-      console.log('💾 워크플로우 저장:', {
-        name: workflowData.name,
-        triggerType: defaultTrigger.type,
-        triggerName: defaultTrigger.name,
-        scheduleType: scheduleSettings.type,
-        targetGroupsCount: targetGroups.length,
-        stepsCount: workflowData.steps.length,
-        mappingsCount: targetTemplateMappings.length
+      const response = await fetch('/api/supabase/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: workflowId ? 'update' : 'create',
+          id: workflowId,
+          ...workflowData
+        })
       });
 
-      console.log("📞 onSave 함수 호출 중...");
+      const result = await response.json();
       
-      // 워크플로우 저장
-      onSave(workflowData);
-
-      console.log('✅ onSave 함수 호출 완료');
-      
-      // 🔥 크론잡 기반 시스템에서는 별도의 스케줄러 업데이트가 필요하지 않음
-      // 워크플로우가 활성화될 때 자동으로 크론잡에서 처리됨
-      console.log('✅ 워크플로우 저장 완료 - 크론잡 시스템에서 자동 처리됩니다.');
+      if (result.success) {
+        if (!workflowId) {
+          setWorkflowId(result.data.id);
+        }
+        setLastSaved(new Date().toLocaleTimeString());
+        console.log('✅ 워크플로우 저장 완료');
+        return true;
+      } else {
+        console.error('❌ 워크플로우 저장 실패:', result.error);
+        return false;
+      }
     } catch (error) {
-      console.error("🔥 handleSave 함수에서 오류 발생:", error);
-      console.error("🔥 오류 스택:", error instanceof Error ? error.stack : '스택 정보 없음');
-      alert(`저장 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('❌ 워크플로우 저장 오류:', error);
+      return false;
+    } finally {
+      setIsSaving(false);
     }
-  };
+  }, [
+    isSaving, 
+    name,
+    description,
+    selectedTemplates, 
+    targetGroups, 
+    templatePersonalizations, 
+    targetTemplateMappings, 
+    scheduleSettings, 
+    testSettings,
+    workflowId
+  ]);
+
+  // 탭 변경 시 저장
+  const handleTabChange = useCallback(async (newTab: string) => {
+    // 기본정보나 알림톡 선택에서 다음 탭으로 넘어갈 때 저장
+    if ((activeTab === 'basic' || activeTab === 'templates') && newTab !== activeTab) {
+      if (name && description) {
+        console.log('💾 탭 이동으로 인한 저장 시작...');
+        await saveWorkflow();
+      }
+    }
+    setActiveTab(newTab);
+  }, [activeTab, name, description, saveWorkflow]);
 
   const handleTest = () => {
     if (onTest) {
@@ -760,7 +692,44 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   return (
     <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      {/* 워크플로우 빌더 헤더 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">워크플로우 빌더</h1>
+          <p className="text-muted-foreground mt-1">
+            개인화된 알림톡 발송 워크플로우를 설정하세요
+          </p>
+          {/* 저장 상태 표시 */}
+          {lastSaved && (
+            <div className="flex items-center gap-2 mt-2 text-sm">
+              <div className="w-2 h-2 bg-green-600 rounded-full"></div>
+              <span className="text-green-600">마지막 저장: {lastSaved}</span>
+              {workflowId && (
+                <span className="text-xs text-muted-foreground ml-2">ID: {workflowId.slice(0, 8)}...</span>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* 수동 저장 버튼 */}
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={saveWorkflow}
+            disabled={isSaving || !name || !description}
+            className="flex items-center gap-2"
+          >
+            {isSaving ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            저장
+          </Button>
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="basic" className="flex items-center gap-2">
             <Info className="w-4 h-4" />
@@ -778,8 +747,8 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             {isTabComplete('targets') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
           <TabsTrigger value="mapping" className="flex items-center gap-2">
-            <Target className="w-4 h-4" />
-            대상-템플릿 매핑
+            <CheckCircle className="w-4 h-4" />
+            매핑 설정 확인
             {isTabComplete('mapping') && <CheckCircle className="w-3 h-3 text-green-600" />}
           </TabsTrigger>
           <TabsTrigger value="schedule" className="flex items-center gap-2">
@@ -1005,7 +974,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               onClick={() => canProceedToNext('targets') && setActiveTab('mapping')}
               disabled={!canProceedToNext('targets')}
             >
-              다음: 대상-템플릿 매핑
+              다음: 매핑 설정 확인
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -1018,6 +987,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             selectedTemplates={selectedTemplates}
             currentMappings={targetTemplateMappings}
             onMappingChange={handleMappingChange}
+            templatePersonalizations={templatePersonalizations}
           />
 
           <div className="flex justify-between">
@@ -1323,7 +1293,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setActiveTab('mapping')}>
-              이전: 대상-템플릿 매핑
+              이전: 매핑 설정 확인
             </Button>
             <Button onClick={() => setActiveTab('review')}>
               다음: 최종 확인
@@ -1641,7 +1611,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   </div>
                   {targetTemplateMappings.length === 0 && targetGroups.some(g => g.type === 'dynamic') && (
                     <p className="text-xs text-yellow-600 mt-2">
-                      💡 동적 대상 그룹이 있지만 매핑이 설정되지 않았습니다. "대상-템플릿 매핑" 탭에서 설정해주세요.
+                      💡 동적 대상 그룹이 있지만 매핑이 설정되지 않았습니다. "변수-대상 매핑" 탭에서 설정해주세요.
                     </p>
                   )}
                 </div>
@@ -1844,13 +1814,53 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
               <Button onClick={() => {
                 try {
                   console.log("🔥 저장 버튼 클릭됨! 시작...");
-                  alert('저장 버튼 클릭됨!');
-                  console.log("🔥 handleSave 호출 전...");
-                  handleSave();
-                  console.log("🔥 handleSave 호출 후...");
+                  
+                  // 기존 워크플로우 저장 로직 사용
+                  const workflowData: Workflow = {
+                    id: workflow?.id || `workflow_${Date.now()}`,
+                    name,
+                    description,
+                    status: workflowStatus,
+                    trigger: {
+                      id: 'trigger_auto',
+                      type: 'manual',
+                      name: '수동 실행',
+                      description: '관리자가 수동으로 실행하는 워크플로우',
+                      conditions: [],
+                      conditionLogic: 'AND'
+                    },
+                    targetGroups,
+                    steps: selectedTemplates.map((template, index) => ({
+                      id: `step_${template.id}_${Date.now()}`,
+                      name: `${template.templateName} 발송`,
+                      action: {
+                        id: `action_${template.id}_${Date.now()}`,
+                        type: 'send_alimtalk',
+                        templateId: template.id,
+                        templateCode: template.templateCode,
+                        templateName: template.templateName,
+                        variables: templateVariables[template.id] || {},
+                        scheduleSettings: scheduleSettings,
+                        personalization: templatePersonalizations[template.id]
+                      } as any,
+                      position: { x: 100, y: index * 150 + 100 }
+                    })),
+                    testSettings,
+                    scheduleSettings,
+                    createdAt: workflow?.createdAt || new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    stats: {
+                      totalRuns: 0,
+                      successRate: 0
+                    },
+                    targetTemplateMappings: targetTemplateMappings
+                  };
+
+                  onSave(workflowData);
+                  console.log("✅ 워크플로우 저장 완료");
                 } catch (error) {
                   console.error("🔥 저장 버튼 클릭 중 오류:", error);
-                  alert(`저장 버튼 클릭 중 오류: ${error}`);
+                  alert(`저장 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`);
                 }
               }}>
                 <Save className="w-4 h-4 mr-2" />
