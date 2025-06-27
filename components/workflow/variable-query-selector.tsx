@@ -60,6 +60,7 @@ interface VariableQueryTemplate {
   updatedAt: string;
   isPublic: boolean;
   isFavorite?: boolean;
+  keyColumn?: string;
 }
 
 interface VariableQuerySelectorProps {
@@ -108,16 +109,30 @@ export default function VariableQuerySelector({
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          setQueryLibrary(result.data.queries || []);
-          console.log('✅ 쿼리 라이브러리 로드 완료:', result.data.queries?.length || 0, '개');
+          const queries = result.data?.queries || [];
+          // 각 쿼리 객체의 필수 속성들이 존재하는지 확인하고 기본값 설정
+          const normalizedQueries = queries.map((query: any) => ({
+            ...query,
+            usedInTemplates: query.usedInTemplates || [],
+            name: query.name || 'Untitled Query',
+            description: query.description || '',
+            sql: query.sql || '',
+            category: query.category || 'custom',
+            usageCount: query.usageCount || 0
+          }));
+          setQueryLibrary(normalizedQueries);
+          console.log('✅ 쿼리 라이브러리 로드 완료:', normalizedQueries.length, '개');
         } else {
           console.error('❌ 쿼리 라이브러리 로드 실패:', result.message);
+          setQueryLibrary([]);
         }
       } else {
         console.error('❌ 쿼리 라이브러리 API 호출 실패:', response.status);
+        setQueryLibrary([]);
       }
     } catch (error) {
       console.error('❌ 쿼리 라이브러리 로드 오류:', error);
+      setQueryLibrary([]);
     } finally {
       setIsLoadingLibrary(false);
     }
@@ -131,15 +146,30 @@ export default function VariableQuerySelector({
       
       if (result.success) {
         // 현재 변수명과 일치하는 템플릿만 필터링
-        const matchingTemplates = result.data.filter((template: any) => 
+        const allTemplates = result.data || [];
+        const matchingTemplates = allTemplates.filter((template: any) => 
           template.variableName === variableName
         );
-        setTemplates(matchingTemplates || []);
+        
+        // 템플릿 객체들의 필수 속성 확인 및 기본값 설정
+        const normalizedTemplates = matchingTemplates.map((template: any) => ({
+          ...template,
+          name: template.name || 'Untitled Template',
+          description: template.description || '',
+          query: template.query || '',
+          selectedColumn: template.selectedColumn || '',
+          category: template.category || 'custom',
+          usageCount: template.usageCount || 0
+        }));
+        
+        setTemplates(normalizedTemplates);
       } else {
         console.error('개별 변수 템플릿 로드 실패:', result.error);
+        setTemplates([]);
       }
     } catch (error) {
       console.error('개별 변수 템플릿 로드 오류:', error);
+      setTemplates([]);
     }
   };
 
@@ -251,10 +281,38 @@ export default function VariableQuerySelector({
     setShowSaveForm(true);
   };
 
+  // 쿼리에서 키 컬럼 자동 추출 함수
+  const extractKeyColumns = (query: string): string[] => {
+    const keyColumns: string[] = [];
+    
+    // FROM 절에서 테이블 별칭 추출
+    const fromMatch = query.match(/FROM\s+(\w+)\s+(\w+)/i);
+    if (fromMatch) {
+      const tableAlias = fromMatch[2];
+      
+      // SELECT 절에서 해당 별칭의 id 컬럼 찾기 (멀티라인 지원)
+      const selectMatch = query.replace(/\n/g, ' ').match(/SELECT\s+(.*?)\s+FROM/i);
+      if (selectMatch) {
+        const selectClause = selectMatch[1];
+        const idMatches = selectClause.match(new RegExp(`${tableAlias}\\.\\w*id\\w*`, 'gi'));
+        if (idMatches) {
+          keyColumns.push(...idMatches);
+        }
+      }
+    }
+    
+    return keyColumns;
+  };
+
   // 쿼리 저장 (기존 개별 변수 시스템에 저장)
   const handleSaveQuery = async () => {
     if (!saveForm.name.trim()) {
-      alert('쿼리 이름을 입력해주세요.');
+      alert('템플릿 이름을 입력해주세요.');
+      return;
+    }
+    
+    if (!saveForm.description.trim()) {
+      alert('템플릿 설명을 입력해주세요.');
       return;
     }
 
@@ -270,96 +328,96 @@ export default function VariableQuerySelector({
     }
 
     try {
-      // 중복 체크: 같은 변수명으로 이미 저장된 쿼리가 있는지 확인
-      const existingTemplate = templates.find(t => 
-        t.variableName === variableName && t.name === saveForm.name.trim()
-      );
+      // 키 컬럼 자동 추출
+      const keyColumns = extractKeyColumns(currentQuery);
+      const keyColumn = keyColumns.length > 0 ? keyColumns[0] : '';
       
-      if (existingTemplate) {
-        const proceed = confirm(
-          `"${saveForm.name}" 이름으로 이미 저장된 쿼리가 있습니다.\n` +
-          '덮어쓰시겠습니까?'
-        );
-        if (!proceed) {
-          return;
-        }
-        
-        // 기존 쿼리 업데이트
-        const response = await fetch('/api/supabase/individual-variables?action=update', {
+      console.log('🔑 추출된 키 컬럼:', keyColumn);
+      console.log('📊 선택된 출력 컬럼:', currentSelectedColumn);
+
+      // 먼저 기존 레코드가 있는지 확인
+      console.log('🔍 기존 레코드 확인 중:', variableName);
+      const checkResponse = await fetch(`/api/supabase/individual-variables?action=get&variableName=${encodeURIComponent(variableName)}`);
+      const checkResult = await checkResponse.json();
+      
+      let response;
+      if (checkResult.success && checkResult.data) {
+        // 기존 레코드가 있으면 업데이트
+        console.log('🔄 기존 레코드 업데이트 중:', checkResult.data.id);
+        response = await fetch('/api/supabase/individual-variables?action=update', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            id: existingTemplate.id,
+            id: checkResult.data.id,
+            displayName: saveForm.name,
+            sourceType: 'query',
+            sourceField: currentQuery,
+            selectedColumn: currentSelectedColumn || '',
+            keyColumn: keyColumn,
+            formatter: 'text',
+            category: saveForm.category,
+            tags: saveForm.tags,
+            isPublic: saveForm.isPublic
+          }),
+        });
+      } else {
+        // 기존 레코드가 없으면 새로 생성
+        console.log('🆕 새 레코드 생성 중:', variableName);
+        response = await fetch('/api/supabase/individual-variables?action=create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             variableName,
             displayName: saveForm.name,
             sourceType: 'query',
             sourceField: currentQuery,
             selectedColumn: currentSelectedColumn || '',
+            keyColumn: keyColumn,
             formatter: 'text',
             category: saveForm.category,
             tags: saveForm.tags,
             isPublic: saveForm.isPublic,
-            description: saveForm.description || '', // 비고는 선택사항
             createdBy: 'user'
           }),
         });
+      }
 
-        const result = await response.json();
+      const result = await response.json();
+      
+      if (result.success) {
+        const action = checkResult.success && checkResult.data ? '업데이트' : '저장';
+        alert(`쿼리 템플릿이 ${action}되었습니다!\n출력 컬럼: ${currentSelectedColumn || '미선택'}\n키 컬럼: ${keyColumn || '자동 추출 실패'}`);
+        onSave?.(result.data);
+        setShowSaveForm(false);
         
-        if (result.success) {
-          alert(`쿼리가 업데이트되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
-          onSave?.(result.data);
-          setShowSaveForm(false);
-          
-          if (showLibrary) {
-            loadTemplates();
-            loadQueryLibrary();
-          }
-        } else {
-          throw new Error(result.error || '업데이트 실패');
+        if (showLibrary) {
+          loadTemplates();
+          // 쿼리 라이브러리도 새로고침
+          loadQueryLibrary();
         }
       } else {
-        // 새 쿼리 생성
-        const response = await fetch('/api/supabase/individual-variables?action=create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            variableName,
-            displayName: saveForm.name,
-            sourceType: 'query',
-            sourceField: currentQuery,
-            selectedColumn: currentSelectedColumn || '',
-            formatter: 'text',
-            category: saveForm.category,
-            tags: saveForm.tags,
-            isPublic: saveForm.isPublic,
-            description: saveForm.description || '', // 비고는 선택사항
-            createdBy: 'user'
-          }),
-        });
-
-        const result = await response.json();
-        
-        if (result.success) {
-          alert(`쿼리가 저장되었습니다!\n${currentSelectedColumn ? `선택된 컬럼: ${currentSelectedColumn}` : '컬럼: 미선택'}`);
-          onSave?.(result.data);
-          setShowSaveForm(false);
-          
-          if (showLibrary) {
-            loadTemplates();
-            loadQueryLibrary();
-          }
-        } else {
-          throw new Error(result.error || '저장 실패');
-        }
+        throw new Error(result.error || '저장 실패');
       }
     } catch (error) {
       console.error('쿼리 저장 오류:', error);
-      alert('저장 중 오류가 발생했습니다: ' + (error instanceof Error ? error.message : String(error)));
+      
+      // 구체적인 에러 메시지 제공
+      let errorMessage = '저장 중 오류가 발생했습니다.';
+      if (error instanceof Error) {
+        if (error.message.includes('duplicate key')) {
+          errorMessage = '이미 동일한 변수명으로 저장된 템플릿이 있습니다. 기존 템플릿을 수정하거나 다른 이름을 사용해주세요.';
+        } else if (error.message.includes('23505')) {
+          errorMessage = '이미 존재하는 템플릿입니다. 다시 시도해주세요.';
+        } else {
+          errorMessage = `저장 오류: ${error.message}`;
+        }
+      }
+      
+      alert(errorMessage);
     }
   };
 
@@ -387,11 +445,11 @@ export default function VariableQuerySelector({
   };
 
   // 필터링된 쿼리 라이브러리
-  const filteredQueryLibrary = queryLibrary.filter(query => {
+  const filteredQueryLibrary = (queryLibrary || []).filter(query => {
     const matchesSearch = !searchTerm || 
-      query.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      query.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      query.sql.toLowerCase().includes(searchTerm.toLowerCase());
+      query.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      query.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      query.sql?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCategory = selectedCategory === 'all' || query.category === selectedCategory;
     
@@ -399,11 +457,11 @@ export default function VariableQuerySelector({
   });
 
   // 필터링된 개별 변수 템플릿
-  const filteredTemplates = templates.filter(template => {
+  const filteredTemplates = (templates || []).filter(template => {
     const matchesSearch = !searchTerm || 
-      template.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      template.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      template.query.toLowerCase().includes(searchTerm.toLowerCase());
+      template.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      template.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      template.query?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCategory = selectedCategory === 'all' || template.category === selectedCategory;
     
@@ -483,7 +541,7 @@ export default function VariableQuerySelector({
                   </TabsTrigger>
                   <TabsTrigger value="templates" className="flex items-center gap-2">
                     <Star className="w-4 h-4" />
-                    저장된 쿼리
+                    개별 변수 템플릿
                     <Badge variant="secondary">{filteredTemplates.length}</Badge>
                   </TabsTrigger>
                 </TabsList>
@@ -511,35 +569,35 @@ export default function VariableQuerySelector({
                             <div className="flex items-start justify-between">
                               <div className="flex-1" onClick={() => handleSelectFromLibrary(query)}>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="font-medium">{query.name}</h4>
-                                  <Badge className={getCategoryColor(query.category)}>
-                                    {query.category}
+                                  <h4 className="font-medium">{query.name || 'Untitled Query'}</h4>
+                                  <Badge className={getCategoryColor(query.category || 'custom')}>
+                                    {query.category || 'custom'}
                                   </Badge>
-                                  {query.usageCount > 0 && (
+                                  {(query.usageCount || 0) > 0 && (
                                     <Badge variant="outline">
-                                      {query.usageCount}회 사용
+                                      {query.usageCount || 0}회 사용
                                     </Badge>
                                   )}
                                 </div>
                                 <p className="text-sm text-muted-foreground mb-2">
-                                  {query.description}
+                                  {query.description || 'No description'}
                                 </p>
                                 <div className="bg-gray-50 rounded p-2 font-mono text-xs">
                                   <pre className="whitespace-pre-wrap line-clamp-3">
-                                    {query.sql.length > 150 ? query.sql.substring(0, 150) + '...' : query.sql}
+                                    {(query.sql || '').length > 150 ? (query.sql || '').substring(0, 150) + '...' : (query.sql || '')}
                                   </pre>
                                 </div>
-                                {query.usedInTemplates.length > 0 && (
+                                {(query.usedInTemplates || []).length > 0 && (
                                   <div className="mt-2">
                                     <p className="text-xs text-muted-foreground mb-1">사용처:</p>
-                                    {query.usedInTemplates.slice(0, 2).map((usage, index) => (
+                                    {(query.usedInTemplates || []).slice(0, 2).map((usage, index) => (
                                       <Badge key={index} variant="outline" className="text-xs mr-1">
                                         {usage.templateName}
                                       </Badge>
                                     ))}
-                                    {query.usedInTemplates.length > 2 && (
+                                    {(query.usedInTemplates || []).length > 2 && (
                                       <span className="text-xs text-muted-foreground">
-                                        +{query.usedInTemplates.length - 2}개 더
+                                        +{(query.usedInTemplates || []).length - 2}개 더
                                       </span>
                                     )}
                                   </div>
@@ -551,7 +609,7 @@ export default function VariableQuerySelector({
                                   size="sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    copySQL(query.sql);
+                                    copySQL(query.sql || '');
                                   }}
                                 >
                                   <Copy className="w-3 h-3" />
@@ -570,9 +628,9 @@ export default function VariableQuerySelector({
                   {filteredTemplates.length === 0 ? (
                     <div className="text-center py-8">
                       <Star className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">저장된 쿼리가 없습니다</p>
+                      <p className="text-muted-foreground">저장된 템플릿이 없습니다</p>
                       <p className="text-sm text-muted-foreground mt-2">
-                        현재 쿼리를 저장해보세요
+                        현재 쿼리를 템플릿으로 저장해보세요
                       </p>
                     </div>
                   ) : (
@@ -583,29 +641,34 @@ export default function VariableQuerySelector({
                             <div className="flex items-start justify-between">
                               <div className="flex-1 cursor-pointer" onClick={() => handleSelectTemplate(template)}>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="font-medium">{template.name}</h4>
-                                  <Badge className={getCategoryColor(template.category)}>
-                                    {template.category}
+                                  <h4 className="font-medium">{template.name || 'Untitled Template'}</h4>
+                                  <Badge className={getCategoryColor(template.category || 'custom')}>
+                                    {template.category || 'custom'}
                                   </Badge>
-                                  {template.usageCount > 0 && (
+                                  {(template.usageCount || 0) > 0 && (
                                     <Badge variant="outline">
-                                      {template.usageCount}회 사용
+                                      {template.usageCount || 0}회 사용
                                     </Badge>
                                   )}
                                 </div>
                                 <p className="text-sm text-muted-foreground mb-2">
-                                  {template.description}
+                                  {template.description || 'No description'}
                                 </p>
                                 <div className="bg-gray-50 rounded p-2 font-mono text-xs">
                                   <pre className="whitespace-pre-wrap line-clamp-3">
-                                    {template.query.length > 150 ? template.query.substring(0, 150) + '...' : template.query}
+                                    {(template.query || '').length > 150 ? (template.query || '').substring(0, 150) + '...' : (template.query || '')}
                                   </pre>
                                 </div>
                                 {template.selectedColumn && (
                                   <div className="mt-2">
-                                    <Badge variant="secondary" className="text-xs">
-                                      컬럼: {template.selectedColumn}
+                                    <Badge variant="secondary" className="text-xs mr-1">
+                                      출력: {template.selectedColumn}
                                     </Badge>
+                                    {template.keyColumn && (
+                                      <Badge variant="outline" className="text-xs">
+                                        키: {template.keyColumn}
+                                      </Badge>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -645,36 +708,19 @@ export default function VariableQuerySelector({
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" onClick={handleOpenSaveForm}>
               <Save className="w-4 h-4 mr-2" />
-              쿼리 저장
+              템플릿 저장
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent>
             <DialogHeader>
-              <DialogTitle>쿼리 저장</DialogTitle>
+              <DialogTitle>쿼리 템플릿 저장</DialogTitle>
             </DialogHeader>
             
             <div className="space-y-4">
-              {/* SQL 코드 정보 표시 */}
               <div>
-                <Label>저장할 SQL 쿼리</Label>
-                <div className="bg-gray-50 border rounded-lg p-3 mt-1">
-                  <pre className="text-sm font-mono whitespace-pre-wrap text-gray-800">
-                    {currentQuery || '쿼리가 입력되지 않았습니다'}
-                  </pre>
-                </div>
-                {currentSelectedColumn && (
-                  <div className="mt-2">
-                    <Badge variant="secondary" className="text-xs">
-                      선택된 컬럼: {currentSelectedColumn}
-                    </Badge>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <Label htmlFor="query-name">쿼리 이름 *</Label>
+                <Label htmlFor="template-name">템플릿 이름</Label>
                 <Input
-                  id="query-name"
+                  id="template-name"
                   value={saveForm.name}
                   onChange={(e) => setSaveForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="예: 총 리뷰 수 조회"
@@ -682,18 +728,18 @@ export default function VariableQuerySelector({
               </div>
               
               <div>
-                <Label htmlFor="query-notes">비고 (선택사항)</Label>
+                <Label htmlFor="template-description">설명</Label>
                 <Textarea
-                  id="query-notes"
+                  id="template-description"
                   value={saveForm.description}
                   onChange={(e) => setSaveForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="필요시 추가 설명을 입력하세요"
-                  rows={2}
+                  placeholder="이 쿼리의 용도를 설명해주세요"
+                  rows={3}
                 />
               </div>
               
               <div>
-                <Label htmlFor="query-category">카테고리</Label>
+                <Label htmlFor="template-category">카테고리</Label>
                 <Select 
                   value={saveForm.category} 
                   onValueChange={(value) => setSaveForm(prev => ({ ...prev, category: value }))}
@@ -711,11 +757,11 @@ export default function VariableQuerySelector({
               
               <div className="flex items-center space-x-2">
                 <Switch
-                  id="query-public"
+                  id="template-public"
                   checked={saveForm.isPublic}
                   onCheckedChange={(checked) => setSaveForm(prev => ({ ...prev, isPublic: checked }))}
                 />
-                <Label htmlFor="query-public">다른 사용자와 공유</Label>
+                <Label htmlFor="template-public">다른 사용자와 공유</Label>
               </div>
               
               <div className="flex justify-end gap-2">

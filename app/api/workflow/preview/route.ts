@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import { getSupabaseAdmin } from '@/lib/database/supabase-client';
+import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 
-const dbConfig = {
-  host: process.env.MYSQL_READONLY_HOST || 'supermembers-prod.cluster-cy8cnze5wxti.ap-northeast-2.rds.amazonaws.com',
-  port: parseInt(process.env.MYSQL_READONLY_PORT || '3306'),
-  user: process.env.MYSQL_READONLY_USER || 'readonly',
-  password: process.env.MYSQL_READONLY_PASSWORD || 'phozphoz1!',
-  database: process.env.MYSQL_READONLY_DATABASE || 'supermembers',
-  charset: 'utf8mb4',
-  timezone: '+09:00',
-  ssl: {
-    rejectUnauthorized: false
-  }
-};
+function getSampleValueForVariable(variableName: string): string {
+  const lowerName = variableName.toLowerCase();
+  
+  if (lowerName.includes('review') && lowerName.includes('count')) return '127';
+  if (lowerName.includes('total') && lowerName.includes('review')) return '127';
+  if (lowerName.includes('monthly') && lowerName.includes('review')) return '45';
+  if (lowerName.includes('post') && lowerName.includes('view')) return '1,234';
+  if (lowerName.includes('total') && lowerName.includes('view')) return '2,456';
+  if (lowerName.includes('place') && lowerName.includes('rank')) return '3위';
+  if (lowerName.includes('blog') && lowerName.includes('rank')) return '3위';
+  if (lowerName.includes('naver') && lowerName.includes('rank')) return '3위';
+  if (lowerName.includes('top') && lowerName.includes('reviewer')) return '127';
+  if (lowerName.includes('5p') && lowerName.includes('reviewer')) return '127';
+  if (lowerName.includes('view')) return '1,234';
+  if (lowerName.includes('rank')) return '3위';
+  if (lowerName.includes('count')) return '45';
+  if (lowerName.includes('total')) return '127';
+  
+  return '샘플값';
+}
 
 interface ContactPreview {
   groupName: string;
@@ -37,7 +46,6 @@ interface ContactPreview {
   }[];
 }
 
-// 대상-템플릿 매핑 관련 타입 정의
 interface FieldMapping {
   templateVariable: string;
   targetField: string;
@@ -55,376 +63,385 @@ interface TargetTemplateMapping {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('🚀 =================================');
-  console.log('🚀 워크플로우 미리보기 API 호출 시작');
-  console.log('🚀 =================================');
+  const executionLogs: string[] = [];
   
   try {
-    const { targetGroups, templates, templateVariables, targetTemplateMappings, limit = 5 } = await request.json();
-
-    console.log('🔄 워크플로우 미리보기 요청:', {
-      timestamp: new Date().toISOString(),
-      targetGroupsCount: targetGroups?.length || 0,
-      templatesCount: templates?.length || 0,
-      mappingsCount: targetTemplateMappings?.length || 0,
-      templateVariablesCount: Object.keys(templateVariables || {}).length,
-      limit
-    });
-
-    console.log('📊 요청 데이터 상세:', {
-      targetGroupsDetail: targetGroups?.map((g: any) => ({
-        id: g.id,
-        name: g.name,
-        type: g.type,
-        hasDynamicQuery: !!g.dynamicQuery,
-        sqlQuery: g.dynamicQuery?.sql ? g.dynamicQuery.sql.substring(0, 100) + '...' : 'N/A'
-      })),
-      templatesDetail: templates?.map((t: any) => ({
-        id: t.id,
-        name: t.templateName,
-        code: t.templateCode
-      })),
-      mappingsDetail: targetTemplateMappings?.map((m: any) => ({
-        id: m.id,
-        targetGroupId: m.targetGroupId,
-        templateId: m.templateId,
-        fieldMappingsCount: m.fieldMappings?.length || 0
-      }))
-    });
-
-    if (!targetGroups || !Array.isArray(targetGroups) || targetGroups.length === 0) {
-      console.log('❌ 대상 그룹이 없음');
-      return NextResponse.json({ error: '대상 그룹이 없습니다.' }, { status: 400 });
+    const { targetGroups, templates, templatePersonalizations = {} } = await request.json();
+    
+    if (!targetGroups || !templates) {
+      return NextResponse.json(
+        { error: 'targetGroups와 templates가 필요합니다.' },
+        { status: 400 }
+      );
     }
 
-    if (!templates || !Array.isArray(templates) || templates.length === 0) {
-      console.log('❌ 템플릿이 없음');
-      return NextResponse.json({ error: '템플릿이 없습니다.' }, { status: 400 });
+    executionLogs.push('🚀 워크플로우 미리보기 시작');
+    console.log('🚀 워크플로우 미리보기 시작');
+    console.log('📋 템플릿 개인화 설정:', templatePersonalizations);
+
+    // 🔥 1단계: 실제 알림톡 템플릿 데이터 로드
+    const actualTemplates = templates.map((template: any) => {
+      const templateKey = template.templateCode || template.id;
+      
+      // 여러 방법으로 템플릿 찾기
+      let realTemplate = null;
+      
+      // 1) 직접 키 매칭
+      realTemplate = KakaoAlimtalkTemplateById[templateKey];
+      
+      // 2) 113번 템플릿을 특별히 찾기
+      if (!realTemplate && template.templateName && template.templateName.includes('113.')) {
+        const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
+        for (const [key, tmpl] of templateEntries) {
+          if (tmpl.templateName && tmpl.templateName.includes('113.') && tmpl.templateName.includes('상위 블로거 참여 O')) {
+            realTemplate = tmpl;
+            executionLogs.push(`✅ 113번 템플릿 매칭 성공: ${key}`);
+            break;
+          }
+        }
+      }
+      
+      // 3) 템플릿 이름으로 매칭
+      if (!realTemplate && template.templateName) {
+        const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
+        for (const [key, tmpl] of templateEntries) {
+          if (tmpl.templateName === template.templateName) {
+            realTemplate = tmpl;
+            break;
+          }
+        }
+      }
+
+      if (realTemplate) {
+        executionLogs.push(`✅ 실제 템플릿 로드 성공: ${realTemplate.templateName}`);
+        return {
+          id: template.id || templateKey,
+          templateName: realTemplate.templateName,
+          templateCode: templateKey,
+          content: realTemplate.content,
+          templateParams: realTemplate.templateParams || []
+        };
+      } else {
+        executionLogs.push(`⚠️ 템플릿 데이터 없음: ${template.templateName}`);
+        return {
+          id: template.id || templateKey,
+          templateName: template.templateName || '알 수 없는 템플릿',
+          templateCode: templateKey,
+          content: '템플릿 내용을 불러올 수 없습니다.',
+          templateParams: []
+        };
+      }
+    });
+
+    console.log('✅ 실제 템플릿 로드 완료:', actualTemplates.map(t => t.templateName));
+
+    // 🔥 2단계: 저장된 개별 변수 매핑 정보 조회
+    executionLogs.push('🔍 저장된 개별 변수 매핑 정보 조회 중...');
+    const supabase = getSupabaseAdmin();
+    
+    const { data: savedMappings, error: mappingError } = await supabase
+      .from('individual_variable_mappings')
+      .select('*');
+
+    if (mappingError) {
+      console.error('❌ 매핑 정보 조회 오류:', mappingError);
+      executionLogs.push(`❌ 매핑 정보 조회 오류: ${mappingError.message}`);
+    } else {
+      executionLogs.push(`📋 ${savedMappings?.length || 0}개의 저장된 변수 매핑 발견`);
+      console.log('📋 저장된 매핑:', savedMappings);
     }
 
+    // 🔥 3단계: Feature_Workflow_Builder.md 4.1.1 범용적 매칭 시스템
+    // 알림톡 변수 쿼리 실행 (전체 데이터 조회하여 캐시)
+    const variableDataCache = new Map<string, any[]>();
+
+    if (savedMappings && savedMappings.length > 0) {
+      for (const mapping of savedMappings) {
+        if (mapping.source_type === 'query' && mapping.source_field) {
+          try {
+            executionLogs.push(`🔍 변수 쿼리 실행: ${mapping.variable_name}`);
+            console.log(`🔍 변수 쿼리 실행: ${mapping.variable_name}`);
+            console.log(`📝 쿼리: ${mapping.source_field}`);
+
+            // MySQL API 호출 - 전체 데이터 조회
+            const variableResponse = await fetch('http://localhost:3000/api/mysql/query', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                query: mapping.source_field,
+                limit: 10000 // 충분한 데이터 로드
+              })
+            });
+
+            if (variableResponse.ok) {
+              const variableResult = await variableResponse.json();
+              if (variableResult.success && variableResult.data) {
+                variableDataCache.set(mapping.variable_name, variableResult.data);
+                executionLogs.push(`✅ 변수 데이터 캐시됨: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
+                console.log(`✅ 변수 데이터 캐시됨: ${mapping.variable_name}`, {
+                  rowCount: variableResult.data.length,
+                  sampleData: variableResult.data.slice(0, 3),
+                  keyColumn: mapping.key_column,
+                  outputColumn: mapping.selected_column,
+                  query: mapping.source_field
+                });
+                
+                // 실행 로그에도 쿼리와 샘플 데이터 추가
+                executionLogs.push(`📝 쿼리: ${mapping.source_field}`);
+                executionLogs.push(`📊 샘플 데이터: ${JSON.stringify(variableResult.data.slice(0, 2))}`);
+              }
+            }
+          } catch (queryError) {
+            console.error(`❌ 변수 쿼리 실행 오류 (${mapping.variable_name}):`, queryError);
+            executionLogs.push(`❌ 변수 쿼리 실행 오류: ${mapping.variable_name}`);
+          }
+        }
+      }
+    }
+
+    console.log(`🔍 변수 캐시 상태: ${variableDataCache.size}개 변수, 총 ${Array.from(variableDataCache.values()).reduce((sum, arr) => sum + arr.length, 0)}개 행`);
+
+    // 🔥 4단계: 대상 그룹별 처리
     const previewData: ContactPreview[] = [];
+    executionLogs.push(`🚀 대상 그룹 처리 시작 (총 ${targetGroups.length}개)`);
 
     for (const group of targetGroups) {
+      if (group.type !== 'dynamic' || !group.dynamicQuery?.sql) {
+        continue;
+      }
+
+      executionLogs.push(`🔍 그룹 "${group.name}" 처리 시작`);
+      console.log(`🔍 그룹 "${group.name}" 처리 시작`);
+
       try {
-        console.log(`🔍 그룹 "${group.name}" 처리 시작:`, {
-          id: group.id,
-          type: group.type,
-          hasDynamicQuery: !!group.dynamicQuery,
-          sql: group.dynamicQuery?.sql
+        // 대상자 쿼리 실행 (미리보기용 5명만)
+        let targetQuery = group.dynamicQuery.sql.trim();
+        if (targetQuery.endsWith(';')) {
+          targetQuery = targetQuery.slice(0, -1);
+        }
+        
+        // 기존 LIMIT 절 제거 후 새로 추가
+        targetQuery = targetQuery.replace(/\s+LIMIT\s+\d+\s*$/i, '');
+        const limitedQuery = `${targetQuery} LIMIT 5`;
+
+        executionLogs.push(`📊 대상자 쿼리 실행: ${limitedQuery}`);
+        console.log(`📊 대상자 쿼리 실행: ${limitedQuery}`);
+
+        // MySQL API 호출
+        const response = await fetch('http://localhost:3000/api/mysql/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            query: limitedQuery,
+            limit: 5
+          })
         });
 
-        // 동적 쿼리만 처리 (정적 그룹은 제외)
-        if (group.type !== 'dynamic' || !group.dynamicQuery?.sql) {
-          console.log(`⏭️ 그룹 "${group.name}"은 동적 쿼리가 아니므로 건너뜀 (type: ${group.type})`);
+        if (!response.ok) {
+          throw new Error(`MySQL API 호출 실패: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.length });
+
+        if (!result.success || !result.data || result.data.length === 0) {
+          executionLogs.push(`⚠️ 그룹 "${group.name}"에서 데이터 없음`);
           continue;
         }
 
-        console.log(`🔄 MySQL 연결 시작 - 그룹 "${group.name}"`);
-        // MySQL 연결
-        const connection = await mysql.createConnection(dbConfig);
-        
-        try {
-          // 동적 쿼리 실행하여 실제 수신자 데이터 가져오기
-          // 세미콜론 제거 후 LIMIT 추가
-          let cleanQuery = group.dynamicQuery.sql.trim();
-          if (cleanQuery.endsWith(';')) {
-            cleanQuery = cleanQuery.slice(0, -1);
-          }
-          const limitedQuery = `${cleanQuery} LIMIT ${limit}`;
-          
-          console.log(`📊 쿼리 실행:`, { 
-            originalQuery: group.dynamicQuery.sql,
-            cleanedQuery: cleanQuery,
-            finalQuery: limitedQuery,
-            limit 
-          });
-          
-          const [rows] = await connection.execute(limitedQuery);
-          const contacts = rows as any[];
+        const contacts = result.data;
+        executionLogs.push(`✅ 그룹 "${group.name}"에서 ${contacts.length}개 연락처 조회됨`);
 
-          console.log(`📋 쿼리 결과:`, {
-            groupName: group.name,
-            rowsCount: contacts?.length || 0,
-            sampleRow: contacts?.[0] || null,
-            allFields: contacts?.[0] ? Object.keys(contacts[0]) : []
-          });
-
-          if (!contacts || contacts.length === 0) {
-            console.log(`❌ 그룹 "${group.name}"에서 조회된 연락처가 없음`);
-            continue;
-          }
-
-          console.log(`✅ 그룹 "${group.name}"에서 ${contacts.length}개 연락처 조회됨`);
-
-          // 각 연락처에 대해 개인화된 메시지 생성
+        // 🔥 5단계: 각 연락처별 개인화 메시지 생성
           for (const contact of contacts) {
             const contactPreview: ContactPreview = {
               groupName: group.name,
               contact: {
-                id: String(contact.id || contact.adId || contact.userId || contact.idx || 'unknown'),
-                name: String(contact.name || contact.companyName || contact.title || contact.company || contact.advertiser || '이름 없음'),
-                phone: String(contact.phone || contact.phoneNumber || contact.mobile || contact.tel || contact.contact || '번호 없음'),
-                email: contact.email || contact.emailAddress || contact.mail,
-                company: contact.company || contact.companyName || contact.advertiser || contact.business,
-                position: contact.position || contact.role || contact.job || contact.title,
+              id: String(contact.id || 'unknown'),
+              name: String(contact.name || '이름 없음'),
+              phone: String(contact.contacts || contact.phone || '번호 없음'),
+              email: contact.email,
+              company: contact.company_name || contact.company,
+              position: contact.position,
                 tags: [],
                 customFields: contact
               },
               messages: []
             };
 
-            console.log(`👤 연락처 정보 매핑:`, {
-              원본데이터: Object.keys(contact),
-              매핑결과: {
-                id: contactPreview.contact.id,
-                name: contactPreview.contact.name,
-                phone: contactPreview.contact.phone,
-                company: contactPreview.contact.company
+          // 🔥 6단계: 각 템플릿별 개인화 처리
+          for (const template of actualTemplates) {
+            // 기본 변수 설정
+            const personalizedVariables: Record<string, string> = {
+              'name': contactPreview.contact.name,
+              'id': contactPreview.contact.id,
+              'company_name': contactPreview.contact.company || contactPreview.contact.name,
+            };
+
+            // 🔥 7단계: Feature_Workflow_Builder.md 4.1.1 범용적 매칭 시스템
+            // AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 매칭
+            if (savedMappings) {
+              for (const mapping of savedMappings) {
+                if (mapping.source_type === 'query' && variableDataCache.has(mapping.variable_name)) {
+                  const variableData = variableDataCache.get(mapping.variable_name) || [];
+                  
+                  // BB열: 대상자 쿼리의 매칭 컬럼 (기본값: id)
+                  // key_column에서 테이블 별칭 제거 (예: "a.id" → "id")
+                  const rawKeyColumn = mapping.key_column || 'id';
+                  const targetMatchingColumn = rawKeyColumn.includes('.') ? rawKeyColumn.split('.').pop() : rawKeyColumn;
+                  const targetMatchingValue = contact[targetMatchingColumn];
+                  
+                  console.log(`🔍 매칭 시도: ${mapping.variable_name}`, {
+                    rawKeyColumn: rawKeyColumn,
+                    targetColumn: targetMatchingColumn,
+                    targetValue: targetMatchingValue,
+                    variableDataCount: variableData.length,
+                    outputColumn: mapping.selected_column,
+                    contactKeys: Object.keys(contact)
+                  });
+                  
+                  // AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 매칭
+                  const matchedRow = variableData.find(row => {
+                    // 변수 쿼리 결과에서 실제 사용 가능한 컬럼 확인
+                    const availableColumns = Object.keys(row);
+                    let variableMatchingValue;
+                    
+                    // 1) 설정된 key_column 사용 시도
+                    if (row[rawKeyColumn] !== undefined) {
+                      variableMatchingValue = row[rawKeyColumn];
+                    }
+                    // 2) adId 컬럼 사용 시도 (리뷰 데이터의 경우)
+                    else if (row['adId'] !== undefined) {
+                      variableMatchingValue = row['adId'];
+                    }
+                    // 3) id 컬럼 사용 시도
+                    else if (row['id'] !== undefined) {
+                      variableMatchingValue = row['id'];
+                    }
+                    // 4) 첫 번째 컬럼 사용
+                    else {
+                      variableMatchingValue = row[availableColumns[0]];
+                    }
+                    
+                    const isMatch = String(variableMatchingValue) === String(targetMatchingValue);
+                    if (isMatch) {
+                      console.log(`✅ 매칭 발견: ${variableMatchingValue} === ${targetMatchingValue} (컬럼: ${availableColumns.join(', ')})`);
+                    }
+                    return isMatch;
+                  });
+                  
+                  if (matchedRow) {
+                    // AB열(변수 쿼리의 출력 컬럼) → 최종 개인화 값
+                    const personalizedValue = matchedRow[mapping.selected_column];
+                    personalizedVariables[mapping.variable_name] = String(personalizedValue || mapping.default_value || '');
+                    
+                    executionLogs.push(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}" (${targetMatchingColumn}=${targetMatchingValue})`);
+                    console.log(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}"`);
+                    } else {
+                    // 매칭 실패 시 기본값 사용
+                    const defaultValue = mapping.default_value || getSampleValueForVariable(mapping.variable_name);
+                    personalizedVariables[mapping.variable_name] = defaultValue;
+                    executionLogs.push(`⚠️ 매칭 실패, 기본값 사용: ${mapping.variable_name} = "${defaultValue}" (대상값: ${targetMatchingValue})`);
+                    console.log(`⚠️ 매칭 실패: ${mapping.variable_name}, 대상값: ${targetMatchingValue}, 변수데이터 샘플:`, variableData.slice(0, 3));
+                    }
+                  }
+              }
+            }
+
+            // 🔥 8단계: 템플릿에서 모든 변수 패턴 찾기
+            let processedContent = template.content;
+            const templateVariableMatches = processedContent.match(/#{([^}]+)}/g) || [];
+                  
+            // 발견된 모든 변수에 대해 기본값 설정 (우선순위: 개별 매핑 > 템플릿 개인화 설정 > 샘플 값)
+            templateVariableMatches.forEach(fullVar => {
+              const variableName = fullVar.replace(/^#{|}$/g, '');
+              
+              // 매칭된 실제 값이 없는 경우에만 기본값 사용
+              if (personalizedVariables[variableName] === undefined) {
+                // 1순위: 템플릿 개인화 설정에서 기본값 찾기
+                const templatePersonalization = templatePersonalizations[template.id];
+                const variableMapping = templatePersonalization?.variableMappings?.find(
+                  (vm: any) => vm.templateVariable === fullVar
+                );
+                
+                if (variableMapping?.defaultValue) {
+                  personalizedVariables[variableName] = variableMapping.defaultValue;
+                  executionLogs.push(`📋 템플릿 개인화 기본값 사용: ${fullVar} = "${variableMapping.defaultValue}"`);
+                } else {
+                  // 2순위: 샘플 값 사용
+                  personalizedVariables[variableName] = getSampleValueForVariable(variableName);
+                  executionLogs.push(`🎲 샘플 값 사용: ${fullVar} = "${personalizedVariables[variableName]}"`);
+                }
               }
             });
 
-            // 선택된 템플릿들에 대해 개인화된 메시지 생성
-            if (templates && Array.isArray(templates)) {
-              for (const template of templates) {
-                console.log(`🔧 템플릿 "${template.templateName}" 처리 중...`);
-                
-                // 해당 그룹과 템플릿에 대한 매핑 정보 찾기
-                const targetMapping = targetTemplateMappings?.find((mapping: TargetTemplateMapping) => 
-                  mapping.targetGroupId === group.id && mapping.templateId === template.id
-                );
+            // 🔥 9단계: 변수 치환 (매칭된 실제 값 우선 사용)
+            for (const [key, value] of Object.entries(personalizedVariables)) {
+              // #{key} 패턴으로 저장된 값이 있으면 그것을 우선 사용
+              const actualValue = personalizedVariables[`#{${key}}`] || personalizedVariables[key] || value;
+              const patterns = [`#{${key}}`, `{${key}}`];
+              patterns.forEach(pattern => {
+                processedContent = processedContent.replace(new RegExp(pattern.replace(/[{}]/g, '\\$&'), 'g'), actualValue);
+              });
+            }
 
-                console.log(`🔍 매핑 정보:`, {
-                  groupId: group.id,
-                  templateId: template.id,
-                  mappingFound: !!targetMapping,
-                  fieldMappingsCount: targetMapping?.fieldMappings?.length || 0
-                });
-
-                const personalizedVariables: Record<string, string> = {};
-
-                if (targetMapping && targetMapping.fieldMappings) {
-                  // 대상-템플릿 매핑이 있는 경우: 매핑 정보를 사용하여 변수 생성
-                  console.log(`✅ 매핑 정보 사용하여 변수 생성`);
-                  
-                  // 먼저 기본 변수 값들을 설정 (templateVariables에서)
-                  const baseVariables = templateVariables?.[template.id] || {};
-                  Object.entries(baseVariables).forEach(([key, value]) => {
-                    personalizedVariables[key] = String(value || '');
-                  });
-                  
-                  console.log(`📋 기본 변수 값 설정:`, {
-                    templateId: template.id,
-                    baseVariables,
-                    personalizedVariables: { ...personalizedVariables }
-                  });
-                  
-                  // 그 다음 매핑 정보로 덮어쓰기 (실제 데이터베이스 값으로)
-                  for (const fieldMapping of targetMapping.fieldMappings) {
-                    const { templateVariable, targetField, formatter, defaultValue } = fieldMapping;
-                    
-                    // 연락처 데이터에서 해당 필드 값 가져오기
-                    let rawValue = contact[targetField];
-                    
-                    console.log(`🔍 필드 매핑 처리:`, {
-                      templateVariable,
-                      targetField,
-                      rawValue,
-                      hasValue: rawValue !== null && rawValue !== undefined && rawValue !== ''
-                    });
-                    
-                    // 템플릿 변수명에서 #{} 제거
-                    const variableName = templateVariable.replace(/^#{|}$/g, '');
-                    
-                    // 실제 데이터베이스 값이 있고 의미있는 값인 경우에만 덮어쓰기
-                    if (rawValue !== null && rawValue !== undefined && rawValue !== '' && 
-                        targetField !== 'id' && // id 필드는 제외 (모든 변수가 id로 매핑되는 것 방지)
-                        String(rawValue) !== contact.id) { // id 값과 같은 경우도 제외
-                      
-                      // 포맷터 적용
-                      let formattedValue = String(rawValue);
-                      if (formatter && rawValue) {
-                        switch (formatter) {
-                          case 'number':
-                            formattedValue = Number(rawValue).toLocaleString();
-                            break;
-                          case 'currency':
-                            formattedValue = `${Number(rawValue).toLocaleString()}원`;
-                            break;
-                          case 'date':
-                            formattedValue = new Date(rawValue).toLocaleDateString();
-                            break;
-                          default:
-                            formattedValue = String(rawValue);
-                        }
-                      }
-                      
-                      personalizedVariables[variableName] = formattedValue;
-                      console.log(`🔧 데이터베이스 값으로 변수 덮어쓰기:`, {
-                        templateVariable: variableName,
-                        targetField,
-                        rawValue,
-                        formattedValue,
-                        formatter
-                      });
-                    } else if (defaultValue && !personalizedVariables[variableName]) {
-                      // 기본값이 있고 현재 변수 값이 없는 경우에만 기본값 사용
-                      personalizedVariables[variableName] = defaultValue;
-                      console.log(`🔧 기본값으로 변수 설정:`, {
-                        templateVariable: variableName,
-                        defaultValue
-                      });
-                    } else {
-                      console.log(`⚠️ 기존 변수 값 유지:`, {
-                        templateVariable: variableName,
-                        reason: rawValue === null || rawValue === undefined || rawValue === '' ? '데이터 없음' :
-                               targetField === 'id' ? 'id 필드 제외' :
-                               String(rawValue) === contact.id ? 'id 값과 동일' : '알 수 없음',
-                        currentValue: personalizedVariables[variableName],
-                        targetField,
-                        rawValue
-                      });
-                    }
-                  }
-                } else {
-                  // 매핑 정보가 없는 경우: 기존 방식 사용 (하위 호환성)
-                  console.log(`⚠️ 매핑 정보 없음, 기존 방식 사용`);
-                  
-                  const variables = templateVariables?.[template.id] || {};
-                  
-                  // 기본 연락처 정보 매핑
-                  personalizedVariables['고객명'] = contactPreview.contact.name;
-                  personalizedVariables['회사명'] = contactPreview.contact.company || '회사명 없음';
-                  personalizedVariables['직책'] = contactPreview.contact.position || '직책 없음';
-                  personalizedVariables['이메일'] = contactPreview.contact.email || '이메일 없음';
-                  personalizedVariables['전화번호'] = contactPreview.contact.phone;
-
-                  // MySQL 쿼리 결과의 모든 필드를 변수로 매핑
-                  Object.entries(contact).forEach(([key, value]) => {
-                    if (value !== null && value !== undefined) {
-                      personalizedVariables[key] = String(value);
-                    }
-                  });
-
-                  // 설정된 변수 값으로 덮어쓰기
-                  Object.entries(variables).forEach(([key, value]) => {
-                    personalizedVariables[key] = String(value || '');
-                  });
-                }
-
-                // 템플릿 내용에 변수 치환
-                let processedContent = template.templateContent;
-                Object.entries(personalizedVariables).forEach(([key, value]) => {
-                  processedContent = processedContent.replace(new RegExp(`#{${key}}`, 'g'), value);
-                });
-
-                console.log(`📝 최종 메시지 생성:`, {
-                  originalLength: template.templateContent.length,
-                  processedLength: processedContent.length,
-                  variablesCount: Object.keys(personalizedVariables).length
-                });
-
+            // 메시지 정보 추가
                 contactPreview.messages.push({
                   templateId: template.id,
                   templateName: template.templateName,
                   templateCode: template.templateCode,
-                  originalContent: template.templateContent,
-                  processedContent,
+              originalContent: template.content,
+              processedContent: processedContent,
                   variables: personalizedVariables,
                   characterCount: processedContent.length
                 });
-              }
+
+            executionLogs.push(`✅ 메시지 생성 완료: ${contactPreview.contact.name} - ${template.templateName}`);
             }
 
             previewData.push(contactPreview);
           }
 
-        } finally {
-          await connection.end();
-        }
-
-      } catch (groupError) {
-        console.error(`그룹 "${group.name}" 처리 중 오류:`, groupError);
-        continue;
+      } catch (error) {
+        console.error(`❌ 그룹 "${group.name}" 처리 오류:`, error);
+        executionLogs.push(`❌ 그룹 "${group.name}" 처리 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
       }
     }
 
-    // 전체 예상 수신자 수 계산
-    let totalEstimatedCount = 0;
-    for (const group of targetGroups) {
-      try {
-        if (group.type !== 'dynamic' || !group.dynamicQuery?.sql) {
-          continue;
-        }
-
-        const connection = await mysql.createConnection(dbConfig);
-        
-        try {
-          // 세미콜론 제거 후 COUNT 쿼리 생성
-          let cleanCountQuery = group.dynamicQuery.sql.trim();
-          if (cleanCountQuery.endsWith(';')) {
-            cleanCountQuery = cleanCountQuery.slice(0, -1);
-          }
-          const countQuery = `SELECT COUNT(*) as total FROM (${cleanCountQuery}) as subquery`;
-          
-          console.log(`📊 카운트 쿼리 실행:`, {
-            originalQuery: group.dynamicQuery.sql,
-            cleanedQuery: cleanCountQuery,
-            finalCountQuery: countQuery
-          });
-          
-          const [countRows] = await connection.execute(countQuery);
-          const countResult = countRows as any[];
-          
-          if (countResult && countResult[0] && countResult[0].total) {
-            totalEstimatedCount += countResult[0].total;
-          }
-        } finally {
-          await connection.end();
-        }
-      } catch (countError) {
-        console.error(`그룹 "${group.name}" 수 계산 중 오류:`, countError);
-      }
-    }
-
-    console.log('✅ 미리보기 생성 완료:', {
-      previewDataCount: previewData.length,
-      totalEstimatedCount,
-      messagesGenerated: previewData.reduce((total, contact) => total + contact.messages.length, 0),
-      processedGroups: targetGroups.filter(g => g.type === 'dynamic' && g.dynamicQuery?.sql).length,
-      totalGroups: targetGroups.length,
-      templatesUsed: templates?.length || 0,
-      hasPreviewData: previewData.length > 0,
-      previewSample: previewData.length > 0 ? {
-        firstContact: previewData[0].contact.name,
-        firstGroupName: previewData[0].groupName,
-        messagesCount: previewData[0].messages.length
-      } : null
-    });
-
-    if (previewData.length === 0) {
-      console.log('⚠️ 미리보기 데이터가 생성되지 않았습니다. 가능한 원인:');
-      console.log('1. 동적 대상 그룹의 SQL 쿼리 결과가 비어있음');
-      console.log('2. 매핑 정보가 올바르지 않음');
-      console.log('3. 템플릿이 선택되지 않음');
-      console.log('4. MySQL 연결 문제');
-      
-      // 추가 안내: VariableMapping 시스템 사용 방법
-      console.log('💡 개인화된 변수 사용을 위해서는:');
-      console.log('- 워크플로우 빌더에서 "변수 매핑" 기능을 사용하세요');
-      console.log('- 각 템플릿 변수에 대해 sourceType을 "query"로 설정하고 SQL 쿼리를 입력하세요');
-    }
-
-    return NextResponse.json({
+    // 🔥 최종 응답
+    const response = {
       success: true,
       data: previewData,
-      totalEstimatedCount,
-      previewCount: previewData.length
+      totalEstimatedCount: previewData.length,
+      debug: {
+        savedMappingsCount: savedMappings?.length || 0,
+        variableCacheSize: variableDataCache.size,
+        templatesLoaded: actualTemplates.length,
+        realTemplatesFound: actualTemplates.filter(t => t.content !== '템플릿 내용을 불러올 수 없습니다.').length,
+        totalCachedRows: Array.from(variableDataCache.values()).reduce((sum, arr) => sum + arr.length, 0)
+      },
+      executionLogs
+    };
+
+    console.log('🎉 워크플로우 미리보기 완료');
+    console.log('📊 최종 결과:', {
+      contactsCount: previewData.length,
+      messagesCount: previewData.reduce((sum, contact) => sum + contact.messages.length, 0),
+      variableCacheHits: Array.from(variableDataCache.entries()).map(([name, data]) => ({ name, rows: data.length }))
     });
+
+    return NextResponse.json(response);
 
   } catch (error) {
     console.error('❌ 워크플로우 미리보기 오류:', error);
+    executionLogs.push(`❌ 전체 처리 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    
     return NextResponse.json(
-      { error: '미리보기를 생성하는 중 오류가 발생했습니다.' },
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : '알 수 없는 오류',
+        executionLogs 
+      },
       { status: 500 }
     );
   }

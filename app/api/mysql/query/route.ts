@@ -13,7 +13,7 @@ const dbConfig = {
 
 export async function POST(request: NextRequest) {
   try {
-    const { query, limit = 100 } = await request.json();
+    const { query, limit = 1000 } = await request.json();
 
     if (!query) {
       return NextResponse.json(
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       
       // LIMIT 추가
       if (!trimmedQuery.includes('limit') && limit) {
-        finalQuery += ` LIMIT ${Math.min(limit, 1000)}`;
+        finalQuery += ` LIMIT ${Math.min(limit, 50000)}`;
       }
 
       console.log('Executing query:', finalQuery);

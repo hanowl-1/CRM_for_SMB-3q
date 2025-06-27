@@ -1172,7 +1172,7 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
-      // 클라이언트 형식으로 변환
+      // 응답 데이터를 클라이언트 형식으로 변환
       const clientData = {
         id: data.id,
         name: data.name,
@@ -1223,7 +1223,7 @@ class SupabaseWorkflowService {
         return { success: false, error: error.message };
       }
 
-      // 클라이언트 형식으로 변환
+      // 응답 데이터를 클라이언트 형식으로 변환
       const clientData = {
         id: data.id,
         name: data.name,
@@ -1336,6 +1336,7 @@ class SupabaseWorkflowService {
         source_type: mapping.sourceType,
         source_field: mapping.sourceField,
         selected_column: mapping.selectedColumn,
+        key_column: mapping.keyColumn || '',
         default_value: mapping.defaultValue,
         formatter: mapping.formatter || 'text',
         category: mapping.category || 'general',
@@ -1372,6 +1373,7 @@ class SupabaseWorkflowService {
         sourceType: data.source_type,
         sourceField: data.source_field,
         selectedColumn: data.selected_column,
+        keyColumn: data.key_column,
         defaultValue: data.default_value,
         formatter: data.formatter,
         category: data.category,
@@ -1437,6 +1439,7 @@ class SupabaseWorkflowService {
         sourceType: item.source_type,
         sourceField: item.source_field,
         selectedColumn: item.selected_column,
+        keyColumn: item.key_column,
         defaultValue: item.default_value,
         formatter: item.formatter,
         category: item.category,
@@ -1483,6 +1486,7 @@ class SupabaseWorkflowService {
         sourceType: data.source_type,
         sourceField: data.source_field,
         selectedColumn: data.selected_column,
+        keyColumn: data.key_column,
         defaultValue: data.default_value,
         formatter: data.formatter,
         category: data.category,
@@ -1512,6 +1516,7 @@ class SupabaseWorkflowService {
       if (updates.sourceType !== undefined) updateData.source_type = updates.sourceType;
       if (updates.sourceField !== undefined) updateData.source_field = updates.sourceField;
       if (updates.selectedColumn !== undefined) updateData.selected_column = updates.selectedColumn;
+      if (updates.keyColumn !== undefined) updateData.key_column = updates.keyColumn;
       if (updates.defaultValue !== undefined) updateData.default_value = updates.defaultValue;
       if (updates.formatter !== undefined) updateData.formatter = updates.formatter;
       if (updates.category !== undefined) updateData.category = updates.category;
@@ -1539,6 +1544,7 @@ class SupabaseWorkflowService {
         sourceType: data.source_type,
         sourceField: data.source_field,
         selectedColumn: data.selected_column,
+        keyColumn: data.key_column,
         defaultValue: data.default_value,
         formatter: data.formatter,
         category: data.category,

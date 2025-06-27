@@ -65,8 +65,45 @@ export async function GET(request: NextRequest) {
     const workflows = workflowsResult.data || [];
     console.log(`📋 총 ${workflows.length}개 워크플로우 조회됨`);
 
+    // 저장된 개별 변수 템플릿도 조회
+    const individualTemplates = await supabaseWorkflowService.getIndividualVariableMappings();
+    console.log(`📋 총 ${individualTemplates.length}개 개별 변수 템플릿 조회됨`);
+
     // 쿼리 라이브러리 맵
     const queryLibrary = new Map<string, QueryLibraryItem>();
+
+    // 개별 변수 템플릿에서 쿼리 추가
+    individualTemplates.forEach((template: any) => {
+      if (template.sourceType === 'query' && template.sourceField && template.sourceField.trim()) {
+        const sql = template.sourceField.trim();
+        const queryId = generateQueryId(sql);
+        
+        if (!queryLibrary.has(queryId)) {
+          queryLibrary.set(queryId, {
+            id: queryId,
+            name: template.displayName || `${template.variableName} 쿼리`,
+            description: `${template.variableName} 값을 조회하는 저장된 템플릿`,
+            sql: sql,
+            category: template.category || categorizeQuery(sql),
+            usageCount: template.usageCount || 0,
+            lastUsed: template.lastUsedAt,
+            createdAt: template.createdAt || new Date().toISOString(),
+            updatedAt: template.updatedAt || new Date().toISOString(),
+            usedInTemplates: []
+          });
+        }
+        
+        const queryItem = queryLibrary.get(queryId)!;
+        // 저장된 템플릿 정보 추가
+        queryItem.usedInTemplates.push({
+          templateCode: 'SAVED_TEMPLATE',
+          templateName: template.displayName || template.variableName,
+          variableName: template.variableName,
+          workflowId: 'saved',
+          workflowName: '저장된 템플릿'
+        });
+      }
+    });
 
     // 각 워크플로우에서 사용 중인 쿼리 추출
     workflows.forEach((workflow: any) => {

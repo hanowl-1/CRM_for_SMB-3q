@@ -376,106 +376,310 @@ interface SavedQuery {
 
 ### 4. 3단계: 대상-템플릿 매핑
 
-#### 4.1 🔗 매핑 설정 UI
+#### 4.1 🔗 개인화 변수 매칭 시스템 (핵심)
 
-##### 4.1.1 드래그 앤 드롭 매핑
+##### 4.1.1 매칭 프로세스 개요
+
+**🚨 핵심: 메모리에서 데이터 매칭**
+
+**❌ 잘못된 방식: 쿼리로 매칭 시도**
+```sql
+-- 쿼리에서 직접 조인하거나 WHERE 조건으로 매칭하는 방식
+SELECT r.review_count 
+FROM reviews r 
+JOIN ads a ON r.customer_id = a.id 
+WHERE a.id = 7341;
+```
+
+**✅ 올바른 방식: 메모리에서 데이터 매칭**
+
+> **핵심 개념**: 각각의 쿼리를 별도로 실행한 후, **애플리케이션 메모리에서 데이터를 매칭**하는 것이 핵심입니다. 이는 유연성과 성능을 동시에 확보할 수 있는 범용적 매칭 시스템입니다.
+
+**1단계: 알림톡 변수 쿼리 실행** (전체 데이터 조회하여 메모리에 캐시)
+```sql
+-- 전체 리뷰 데이터를 메모리로 로드
+SELECT customer_id, COUNT(*) as review_count 
+FROM reviews 
+GROUP BY customer_id;
+-- 결과: [{customer_id: 7341, review_count: 25}, {customer_id: 7342, review_count: 30}, ...]
+```
+
+**2단계: 대상자 쿼리 실행** (대상자 데이터 조회)  
+```sql
+-- 대상자 정보 조회
+SELECT contacts, id, company_name 
+FROM ads 
+WHERE id IN (7341, 7342, 7343);
+-- 결과: [{id: 7341, contacts: "010-1234-5678", company_name: "회사A"}, ...]
+```
+
+**3단계: 메모리에서 매칭 수행** ⭐ **이게 핵심!**
 ```typescript
-interface MappingInterface {
-  // 왼쪽: 템플릿 변수 목록
-  templateVariables: {
-    name: string;
-    type: VariableType;
-    required: boolean;
-    defaultValue?: string;
-    description?: string;
-  }[];
+// 🔥 메모리에서 데이터 매칭 (쿼리 아님!)
+for (const targetContact of targetContacts) {
+  // BB열(대상자의 매칭 컬럼): targetContact.id = 7341
+  const targetMappingValue = targetContact.id;
   
-  // 오른쪽: 대상 데이터 컬럼
-  targetColumns: {
-    name: string;
-    type: string;
-    sampleValues: any[];
-    description?: string;
-  }[];
+  // AA열(변수 데이터의 매칭 컬럼)과 BB열 값이 같은 행 찾기
+  const matchedRow = variableData.find(row => 
+    row.customer_id === targetMappingValue  // AA열과 BB열 메모리 매칭
+  );
   
-  // 매핑 관계
-  mappings: {
-    templateVariable: string;
-    targetColumn: string;
-    formatter?: 'text' | 'number' | 'currency' | 'date';
-    defaultValue?: string;
-  }[];
+  // AB열(변수 데이터의 출력 컬럼) 값을 개인화 변수로 사용
+  const personalizedValue = matchedRow ? matchedRow.review_count : '0';
+  
+  console.log(`✅ 메모리 매칭 성공: ${targetContact.company_name} → ${personalizedValue}개`);
+}
+```
+
+**매칭 구조 설명:**
+- **AA열**: 알림톡 변수 쿼리의 **매칭 컬럼** (예: `customer_id`)
+- **AB열**: 알림톡 변수 쿼리의 **출력 컬럼** (예: `review_count`) 
+- **BA열**: 대상자 쿼리의 **연락처 컬럼** (예: `contacts`)
+- **BB열**: 대상자 쿼리의 **매칭 컬럼** (예: `id`)
+
+**매칭 원리**: `AA열 값 == BB열 값`인 행을 메모리에서 찾아서 `AB열` 값을 개인화 변수로 사용
+
+##### 4.1.2 매칭 설정 구조
+
+```typescript
+interface PersonalizationMappingConfig {
+  // 알림톡 변수 설정
+  templateVariable: {
+    name: string;           // 예: "#{total_reviews}"
+    sourceQuery: string;    // 전체 데이터 조회 쿼리
+    mappingColumn: string;  // AA열: 매칭에 사용할 컬럼 (예: "customer_id")
+    outputColumn: string;   // AB열: 출력할 값의 컬럼 (예: "review_count")
+  };
+  
+  // 대상자 설정  
+  targetData: {
+    sourceQuery: string;    // 대상자 조회 쿼리
+    contactColumn: string;  // BA열: 연락처 컬럼 (예: "contacts")
+    mappingColumn: string;  // BB열: 매칭에 사용할 컬럼 (예: "id")
+  };
+  
+  // 매칭 규칙
+  matchingRule: {
+    templateMappingColumn: string;  // AA열 (예: "customer_id")
+    targetMappingColumn: string;    // BB열 (예: "id")
+    matchType: 'exact' | 'contains' | 'regex';
+    defaultValue: string;           // 매칭 실패 시 기본값
+  };
+}
+```
+
+##### 4.1.3 매칭 실행 엔진
+
+```typescript
+class PersonalizationMatchingEngine {
+  async executePersonalization(
+    config: PersonalizationMappingConfig,
+    targetContacts: any[]
+  ): Promise<PersonalizationResult[]> {
+    
+    // 1. 알림톡 변수 쿼리 실행 (전체 데이터)
+    const variableData = await this.executeQuery(config.templateVariable.sourceQuery);
+    console.log(`🔍 변수 데이터 조회 완료: ${variableData.length}개 행`);
+    
+    // 2. 각 대상자별 개인화 수행
+    const results: PersonalizationResult[] = [];
+    
+    for (const contact of targetContacts) {
+      // 3. 매칭 키 값 추출
+      const targetMappingValue = contact[config.matchingRule.targetMappingColumn];
+      
+      // 4. 변수 데이터에서 매칭되는 행 찾기
+      const matchedRow = variableData.find(row => 
+        this.isMatch(
+          row[config.matchingRule.templateMappingColumn],
+          targetMappingValue,
+          config.matchingRule.matchType
+        )
+      );
+      
+      // 5. 개인화 값 결정
+      const personalizedValue = matchedRow 
+        ? String(matchedRow[config.templateVariable.outputColumn])
+        : config.matchingRule.defaultValue;
+      
+      results.push({
+        contact: contact,
+        variableName: config.templateVariable.name,
+        personalizedValue: personalizedValue,
+        matchFound: !!matchedRow,
+        matchingKey: targetMappingValue
+      });
+      
+      console.log(`✅ 매칭 완료: ${contact[config.targetData.contactColumn]} → ${personalizedValue}`);
+    }
+    
+    return results;
+  }
+  
+  private isMatch(templateValue: any, targetValue: any, matchType: string): boolean {
+    switch (matchType) {
+      case 'exact':
+        return String(templateValue) === String(targetValue);
+      case 'contains':
+        return String(templateValue).includes(String(targetValue));
+      case 'regex':
+        return new RegExp(String(templateValue)).test(String(targetValue));
+      default:
+        return false;
+    }
+  }
+}
+```
+
+##### 4.1.4 매칭 시각화 UI
+
+```typescript
+interface MappingVisualization {
+  // 매핑 관계 표시
+  mappingFlow: {
+    // 알림톡 변수 쪽
+    templateSide: {
+      queryPreview: string;
+      sampleData: any[];
+      mappingColumn: string;  // AA열
+      outputColumn: string;   // AB열
+    };
+    
+    // 대상자 쪽  
+    targetSide: {
+      queryPreview: string;
+      sampleData: any[];
+      contactColumn: string;  // BA열
+      mappingColumn: string;  // BB열
+    };
+    
+    // 매칭 결과
+    matchingResult: {
+      matchedCount: number;
+      unmatchedCount: number;
+      sampleMatches: MatchingSample[];
+    };
+  };
+}
+
+interface MatchingSample {
+  targetContact: string;           // 대상자 연락처
+  targetMappingValue: any;         // BB열 값
+  templateMappingValue: any;       // AA열 값 (매칭된)
+  personalizedValue: any;          // AB열 값 (최종 개인화 값)
+  matchStatus: 'matched' | 'unmatched';
 }
 ```
 
 **UI 구성:**
-- **2열 레이아웃**: 왼쪽 변수, 오른쪽 컬럼
-- **드래그 앤 드롭**: 직관적인 매핑 설정
-- **연결선 표시**: 매핑 관계 시각적 표현
-- **자동 제안**: 이름 유사성 기반 매핑 제안
+- **3열 레이아웃**: 알림톡 변수 | 매칭 흐름 | 대상자 데이터
+- **매칭 흐름 시각화**: AA열 ↔ BB열 연결선 표시
+- **실시간 미리보기**: 매칭 결과 즉시 확인
+- **매칭 통계**: 성공/실패 개수, 매칭률 표시
 
-##### 4.1.2 매핑 검증 및 미리보기
+##### 4.1.5 매칭 최적화 전략
+
 ```typescript
-class MappingValidator {
-  validateMapping(mapping: FieldMapping[]): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
+class MappingOptimizer {
+  // 대용량 데이터 매칭 최적화
+  async optimizedMatching(
+    variableData: any[],
+    targetContacts: any[],
+    mappingConfig: MappingConfig
+  ): Promise<PersonalizationResult[]> {
     
-    for (const map of mapping) {
-      // 필수 변수 검증
-      if (map.required && !map.targetColumn && !map.defaultValue) {
-        errors.push({
-          type: 'missing_required_mapping',
-          variable: map.templateVariable,
-          message: `필수 변수 '${map.templateVariable}'의 매핑이 설정되지 않았습니다.`
-        });
-      }
+    // 1. 변수 데이터를 Map으로 인덱싱 (O(1) 조회)
+    const variableMap = new Map();
+    variableData.forEach(row => {
+      const key = row[mappingConfig.templateMappingColumn];
+      variableMap.set(String(key), row);
+    });
+    
+    // 2. 대상자별 빠른 매칭
+    const results = targetContacts.map(contact => {
+      const targetKey = String(contact[mappingConfig.targetMappingColumn]);
+      const matchedRow = variableMap.get(targetKey);
       
-      // 데이터 타입 호환성 검증
-      if (map.targetColumn) {
-        const compatibility = this.checkTypeCompatibility(
-          map.templateVariableType,
-          map.targetColumnType
-        );
-        
-        if (!compatibility.compatible) {
-          warnings.push({
-            type: 'type_mismatch',
-            variable: map.templateVariable,
-            column: map.targetColumn,
-            message: compatibility.message,
-            suggestion: compatibility.suggestion
-          });
-        }
-      }
-    }
+      return {
+        contact,
+        personalizedValue: matchedRow 
+          ? String(matchedRow[mappingConfig.outputColumn])
+          : mappingConfig.defaultValue,
+        matchFound: !!matchedRow
+      };
+    });
     
-    return { errors, warnings, isValid: errors.length === 0 };
+    return results;
   }
   
-  async generatePreview(
-    template: KakaoTemplate,
-    mappings: FieldMapping[],
-    sampleData: any[]
-  ): Promise<MessagePreview[]> {
-    const previews: MessagePreview[] = [];
+  // 매칭 성능 분석
+  analyzeMatchingPerformance(results: PersonalizationResult[]): MatchingAnalysis {
+    const totalCount = results.length;
+    const matchedCount = results.filter(r => r.matchFound).length;
+    const unmatchedCount = totalCount - matchedCount;
     
-    for (const data of sampleData.slice(0, 5)) { // 최대 5개 미리보기
-      const resolvedVariables = await this.resolveVariables(mappings, data);
-      const finalMessage = this.renderTemplate(template.content, resolvedVariables);
-      
-      previews.push({
-        recipient: data.contacts,
-        recipientName: data.company_name,
-        message: finalMessage,
-        variables: resolvedVariables
-      });
-    }
-    
-    return previews;
+    return {
+      totalTargets: totalCount,
+      matchedTargets: matchedCount,
+      unmatchedTargets: unmatchedCount,
+      matchingRate: (matchedCount / totalCount) * 100,
+      recommendations: this.generateRecommendations(results)
+    };
   }
 }
 ```
+
+##### 4.1.6 매칭 디버깅 도구
+
+```typescript
+interface MappingDebugger {
+  // 매칭 실패 원인 분석
+  analyzeMatchingFailures(
+    unmatchedContacts: any[],
+    variableData: any[],
+    mappingConfig: MappingConfig
+  ): DebuggingReport {
+    
+    const issues: DebuggingIssue[] = [];
+    
+    unmatchedContacts.forEach(contact => {
+      const targetValue = contact[mappingConfig.targetMappingColumn];
+      
+      // 유사한 값 찾기
+      const similarValues = variableData
+        .map(row => ({
+          value: row[mappingConfig.templateMappingColumn],
+          similarity: this.calculateSimilarity(targetValue, row[mappingConfig.templateMappingColumn])
+        }))
+        .filter(item => item.similarity > 0.7)
+        .sort((a, b) => b.similarity - a.similarity);
+      
+      issues.push({
+        contact: contact[mappingConfig.contactColumn],
+        targetValue: targetValue,
+        issue: similarValues.length > 0 ? 'similar_values_found' : 'no_matching_data',
+        suggestions: similarValues.slice(0, 3),
+        recommendation: this.generateRecommendation(targetValue, similarValues)
+      });
+    });
+    
+    return {
+      totalIssues: issues.length,
+      issuesByType: this.groupIssuesByType(issues),
+      detailedIssues: issues,
+      overallRecommendations: this.generateOverallRecommendations(issues)
+    };
+  }
+}
+```
+
+이 매칭 시스템의 핵심 장점:
+- **범용성**: 모든 종류의 쿼리와 데이터에 적용 가능
+- **성능**: 인덱싱을 통한 빠른 매칭
+- **유연성**: 다양한 매칭 규칙 지원
+- **디버깅**: 매칭 실패 원인 분석 및 해결 방안 제시
+- **확장성**: 대용량 데이터 처리 최적화
 
 #### 4.2 📋 매핑 템플릿 관리
 

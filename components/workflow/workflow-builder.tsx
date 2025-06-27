@@ -260,27 +260,14 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
       case 'targets':
         return targetGroups.length > 0;
       case 'mapping':
+        // 🔥 기본값 '--' 사용으로 인해 매핑이 없어도 항상 통과
         // 동적 쿼리가 있는 대상 그룹이 있는 경우에만 매핑 필요
         const hasDynamicTargets = targetGroups.some(group => 
           group.type === 'dynamic' && group.dynamicQuery
         );
         if (!hasDynamicTargets) return true; // 동적 대상이 없으면 매핑 불필요
         
-        // 모든 동적 대상 그룹과 템플릿 조합에 대해 매핑이 있는지 확인
-        const dynamicTargets = targetGroups.filter(group => 
-          group.type === 'dynamic' && group.dynamicQuery
-        );
-        
-        for (const target of dynamicTargets) {
-          for (const template of selectedTemplates) {
-            const mapping = targetTemplateMappings.find(m => 
-              m.targetGroupId === target.id && m.templateId === template.id
-            );
-            if (!mapping || mapping.fieldMappings.length === 0) {
-              return false; // 매핑이 없으면 미완료
-            }
-          }
-        }
+        // 🔥 설정이 안 되어 있어도 기본값 '--'로 처리하므로 항상 통과
         return true;
       case 'schedule':
         return true; // 스케줄은 기본값이 있으므로 항상 완료
@@ -401,6 +388,23 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     
     setIsSaving(true);
     try {
+      // 🔥 선택된 템플릿들로부터 steps 생성
+      const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
+        id: `step_${template.id}_${Date.now()}`,
+        name: `${template.templateName} 발송`,
+        action: {
+          id: `action_${template.id}_${Date.now()}`,
+          type: 'send_alimtalk',
+          templateId: template.id,
+          templateCode: template.templateCode,
+          templateName: template.templateName,
+          variables: templateVariables[template.id] || {},
+          scheduleSettings: scheduleSettings,
+          personalization: templatePersonalizations[template.id]
+        },
+        position: { x: 100, y: index * 150 + 100 }
+      }));
+
       const workflowData = {
         name: name || '임시 워크플로우',
         description: description || '',
@@ -409,8 +413,17 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         templatePersonalizations,
         targetTemplateMappings,
         scheduleSettings,
-        testSettings
+        testSettings,
+        steps: templateSteps // 🔥 steps 추가
       };
+
+      console.log('💾 워크플로우 저장 데이터:', {
+        name: workflowData.name,
+        targetGroupsCount: workflowData.targetGroups.length,
+        templatesCount: workflowData.selectedTemplates.length,
+        stepsCount: workflowData.steps.length,
+        mappingsCount: workflowData.targetTemplateMappings.length
+      });
 
       const response = await fetch('/api/supabase/workflows', {
         method: 'POST',
@@ -456,11 +469,14 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
 
   // 탭 변경 시 저장
   const handleTabChange = useCallback(async (newTab: string) => {
-    // 기본정보나 알림톡 선택에서 다음 탭으로 넘어갈 때 저장
-    if ((activeTab === 'basic' || activeTab === 'templates') && newTab !== activeTab) {
-      if (name && description) {
-        console.log('💾 탭 이동으로 인한 저장 시작...');
-        await saveWorkflow();
+    // 🔥 탭 이동 시 저장 (기본정보가 있을 때)
+    if (name && description) {
+      console.log('💾 탭 이동으로 인한 저장 시작...');
+      const saved = await saveWorkflow();
+      if (saved) {
+        console.log('✅ 탭 이동 저장 완료');
+      } else {
+        console.log('❌ 탭 이동 저장 실패');
       }
     }
     setActiveTab(newTab);
@@ -622,6 +638,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
           templates: selectedTemplates,
           templateVariables,
           targetTemplateMappings,
+          templatePersonalizations, // 🔥 템플릿 개인화 설정 추가
           limit: 5
         })
       });
@@ -1749,8 +1766,9 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                                   <Badge variant="outline" className="text-xs">{message.templateCode}</Badge>
                                 </div>
                                 
-                                <div className="bg-gray-50 border rounded p-2 mb-2">
-                                  <div className="text-sm whitespace-pre-wrap">{message.processedContent}</div>
+                                <div className="bg-white border-2 border-blue-200 rounded-lg p-4 mb-3">
+                                  <div className="text-sm font-medium text-gray-600 mb-2">📱 개인화된 메시지</div>
+                                  <div className="text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 rounded border">{message.processedContent}</div>
                                 </div>
                                 
                                 <div className="flex items-center justify-between text-xs text-muted-foreground">

@@ -95,7 +95,7 @@ function DashboardContent() {
     try {
       console.log("📊 Supabase에서 워크플로우 목록 로드 중...");
       
-      const response = await fetch('/api/supabase/workflows');
+      const response = await fetch('/api/supabase/workflows?action=list');
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -263,37 +263,41 @@ function DashboardContent() {
         console.log('📊 스케줄러 상태 결과:', result);
         
         if (result.success && result.data) {
-          const { stats, upcomingJobs, recentJobs } = result.data;
+          const { statistics, jobs } = result.data;
           
-          // 새로운 데이터 구조에 맞게 상태 설정
+          // API 응답 구조에 맞게 상태 설정
           setSchedulerStatus({
-            isRunning: stats.isRunning,
-            totalJobs: stats.totalJobs,
-            pendingJobs: stats.pendingJobs,
-            runningJobs: stats.runningJobs,
-            completedJobs: stats.completedJobs,
-            failedJobs: stats.failedJobs,
+            isRunning: statistics.running > 0 || statistics.pending > 0,
+            totalJobs: statistics.total,
+            pendingJobs: statistics.pending,
+            runningJobs: statistics.running,
+            completedJobs: statistics.completed,
+            failedJobs: statistics.failed,
             activeWorkflows: workflows.filter(w => w.status === 'active').length,
-            scheduledWorkflows: stats.pendingJobs, // 대기 중인 작업 수를 스케줄된 워크플로우로 표시
-            totalExecutions: stats.completedJobs + stats.failedJobs,
-            todayExecutions: recentJobs?.length || 0,
+            scheduledWorkflows: statistics.pending, // 대기 중인 작업 수를 스케줄된 워크플로우로 표시
+            totalExecutions: statistics.completed + statistics.failed,
+            todayExecutions: jobs?.filter(j => {
+              const jobDate = new Date(j.scheduled_time).toDateString();
+              const today = new Date().toDateString();
+              return jobDate === today;
+            }).length || 0,
             currentJobs: {
-              pending: stats.pendingJobs,
-              running: stats.runningJobs
+              pending: statistics.pending,
+              running: statistics.running
             },
-            lastExecutionTime: recentJobs && recentJobs.length > 0 
-              ? recentJobs[0].completedTimeKST || '실행 중'
+            lastExecutionTime: jobs && jobs.length > 0 && jobs.find(j => j.status === 'completed')
+              ? new Date(jobs.find(j => j.status === 'completed').executed_at || jobs.find(j => j.status === 'completed').scheduled_time).toISOString()
               : '실행 기록 없음',
-            nextJob: upcomingJobs && upcomingJobs.length > 0 ? {
-              workflow: { name: upcomingJobs[0].workflowName },
-              scheduledTime: upcomingJobs[0].scheduledTime
+            nextJob: jobs && jobs.length > 0 && jobs.find(j => j.status === 'pending') ? {
+              workflow: { name: jobs.find(j => j.status === 'pending').workflow_data?.name || 'Unknown' },
+              scheduledTime: jobs.find(j => j.status === 'pending').scheduled_time
             } : null
           });
           
           console.log('✅ 스케줄러 상태 업데이트 완료:', {
-            pendingJobs: stats.pendingJobs,
-            runningJobs: stats.runningJobs,
-            upcomingJobsCount: upcomingJobs?.length || 0
+            pendingJobs: statistics.pending,
+            runningJobs: statistics.running,
+            upcomingJobsCount: jobs?.filter(j => j.status === 'pending').length || 0
           });
         } else {
           console.warn('⚠️ 스케줄러 상태 로드 실패:', result.message);
@@ -608,8 +612,8 @@ function DashboardContent() {
                   <>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">상태</span>
-                      <Badge variant={schedulerStatus.isRunning ? "default" : "secondary"}>
-                        {schedulerStatus.isRunning ? (
+                      <Badge variant={schedulerStatus?.isRunning ? "default" : "secondary"} className="h-5">
+                        {schedulerStatus?.isRunning ? (
                           <>
                             <CheckCircle className="w-3 h-3 mr-1" />
                             실행 중
@@ -626,34 +630,34 @@ function DashboardContent() {
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-600">활성 워크플로우:</span>
-                        <span className="font-medium">{schedulerStatus.activeWorkflows || 0}</span>
+                        <span className="font-medium">{schedulerStatus?.activeWorkflows || 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">스케줄 설정:</span>
-                        <span className="font-medium text-blue-600">{schedulerStatus.scheduledWorkflows || 0}</span>
+                        <span className="font-medium text-blue-600">{schedulerStatus?.scheduledWorkflows || 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">전체 실행:</span>
-                        <span className="font-medium text-green-600">{schedulerStatus.totalExecutions || 0}</span>
+                        <span className="font-medium text-green-600">{schedulerStatus?.totalExecutions || 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">오늘 실행:</span>
-                        <span className="font-medium text-orange-600">{schedulerStatus.todayExecutions || 0}</span>
+                        <span className="font-medium text-orange-600">{schedulerStatus?.todayExecutions || 0}</span>
                       </div>
                     </div>
 
                     {/* 현재 작업 상태 (메모리 기반) */}
-                    {schedulerStatus.currentJobs && (
+                    {schedulerStatus?.currentJobs && (
                       <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
                         <div className="font-medium text-gray-700 mb-1">현재 작업 상태:</div>
                         <div className="grid grid-cols-2 gap-1">
-                          <span>대기: {schedulerStatus.currentJobs.pending || schedulerStatus.pendingJobs || 0}</span>
-                          <span>실행: {schedulerStatus.currentJobs.running || schedulerStatus.runningJobs || 0}</span>
+                          <span>대기: {schedulerStatus?.currentJobs?.pending || schedulerStatus?.pendingJobs || 0}</span>
+                          <span>실행: {schedulerStatus?.currentJobs?.running || schedulerStatus?.runningJobs || 0}</span>
                         </div>
                       </div>
                     )}
 
-                    {schedulerStatus.nextJob && (
+                    {schedulerStatus?.nextJob && (
                       <div className="mt-3 p-2 bg-blue-50 rounded text-xs">
                         <div className="font-medium text-blue-800">다음 실행 예정:</div>
                         <div className="text-blue-600">
@@ -671,7 +675,7 @@ function DashboardContent() {
                       </div>
                     )}
 
-                    {schedulerStatus.lastExecutionTime && (
+                    {schedulerStatus?.lastExecutionTime && (
                       <div className="mt-2 p-2 bg-green-50 rounded text-xs">
                         <div className="font-medium text-green-800">최근 실행:</div>
                         <div className="text-green-600">

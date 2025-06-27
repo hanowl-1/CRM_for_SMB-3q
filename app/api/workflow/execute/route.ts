@@ -3,11 +3,24 @@ import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
+import mysql from 'mysql2/promise';
+import { supabase } from '@/lib/database/supabase-client';
 
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
+const COOLSMS_SENDER = process.env.COOLSMS_SENDER;
 const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
 const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER;
+
+// MySQL 설정
+const dbConfig = {
+  host: process.env.MYSQL_HOST || 'localhost',
+  port: parseInt(process.env.MYSQL_PORT || '3306'),
+  user: process.env.MYSQL_USER || 'root',
+  password: process.env.MYSQL_PASSWORD || '',
+  database: process.env.MYSQL_DATABASE || 'test',
+  timezone: '+09:00'
+};
 
 interface ExecuteRequest {
   workflow: Workflow;
@@ -351,18 +364,145 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           for (const variableMapping of step.action.personalization.variableMappings) {
             const { templateVariable, sourceType, sourceField, selectedColumn, defaultValue, formatter } = variableMapping;
             
-            let value = defaultValue || `[${templateVariable.replace(/[#{}]/g, '')}]`;
+            let value = defaultValue || '--'; // 🔥 기본값이 없으면 '--' 사용
             
             if (sourceType === 'field' && sourceField) {
               const rawData = target.rawData || target;
-              value = rawData[sourceField] || defaultValue || value;
+              value = rawData[sourceField] || defaultValue || '--'; // 🔥 데이터가 없으면 '--' 사용
             } else if (sourceType === 'query' && variableMapping.actualValue) {
               // 이미 계산된 쿼리 결과값 사용
-              value = variableMapping.actualValue;
+              value = variableMapping.actualValue || defaultValue || '--'; // 🔥 쿼리 결과가 없으면 '--' 사용
             }
             
-            // 포맷터 적용
-            if (formatter && value !== `[${templateVariable.replace(/[#{}]/g, '')}]`) {
+            // 🔥 저장된 개별 변수 매핑 정보도 확인하여 실제 쿼리 실행
+            try {
+              const { data: savedMappings } = await supabase
+                .from('individual_variables')
+                .select('*')
+                .eq('variableName', `#{${templateVariable}}`);
+
+              if (savedMappings && savedMappings.length > 0) {
+                const mapping = savedMappings[0];
+                const { sourceType, sourceField, selectedColumn, keyColumn } = mapping;
+                
+                if (sourceType === 'query' && sourceField && selectedColumn) {
+                  console.log(`🔍 실행 시 쿼리 변수 처리:`, { variableName: templateVariable, sourceField, selectedColumn, keyColumn });
+                  
+                  // 🔥 새로운 방식: 전체 쿼리 실행 후 메모리에서 매칭
+                  console.log(`🔍 실행 시 전체 변수 데이터 조회 시작: ${templateVariable}`);
+                  
+                  // 1. 변수 쿼리 전체 실행 (WHERE 조건 없이)
+                  const variableQueryResult = await fetch('http://localhost:3000/api/mysql/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                      query: sourceField, // 원본 쿼리 그대로 실행
+                      limit: 50000, // 🔥 더 큰 limit 설정 (개인화 변수는 모든 데이터 필요)
+                      params: []
+                    })
+                  });
+
+                  if (variableQueryResult.ok) {
+                    const variableData = await variableQueryResult.json();
+                    
+                    if (variableData.success && variableData.data && variableData.data.length > 0) {
+                      console.log(`📊 실행 시 변수 데이터 조회 완료: ${variableData.data.length}개 행`);
+                      
+                      // 2. 현재 대상자의 매칭 키 값 결정
+                      const rawData = target.rawData || target;
+                      let targetMappingValue = rawData.id || target.id; // 기본값
+                      
+                      if (keyColumn) {
+                        if (keyColumn.includes('.')) {
+                          // 'a.id' 같은 경우 -> 'id'로 변환
+                          const simpleColumn = keyColumn.split('.').pop();
+                          targetMappingValue = rawData[simpleColumn] || rawData.id || target.id;
+                        } else {
+                          targetMappingValue = rawData[keyColumn] || rawData.id || target.id;
+                        }
+                      }
+                      
+                      console.log(`🔍 실행 시 매칭 키 값:`, { 
+                        keyColumn, 
+                        targetMappingValue, 
+                        rawDataKeys: Object.keys(rawData),
+                        targetId: target.id
+                      });
+                      
+                      // 3. 메모리에서 매칭 수행
+                      const mappingColumn = keyColumn || 'id'; // 매칭에 사용할 변수 데이터의 컬럼
+                      const simpleMappingColumn = mappingColumn.includes('.') ? mappingColumn.split('.').pop() : mappingColumn;
+                      
+                      const matchedRow = variableData.data.find(row => {
+                        const variableMappingValue = row[simpleMappingColumn];
+                        const isMatched = String(variableMappingValue) === String(targetMappingValue);
+                        
+                        if (isMatched) {
+                          console.log(`✅ 실행 시 매칭 성공:`, {
+                            templateVariable,
+                            targetValue: targetMappingValue,
+                            variableValue: variableMappingValue,
+                            mappingColumn: simpleMappingColumn
+                          });
+                        }
+                        
+                        return isMatched;
+                      });
+                      
+                      // 4. 매칭 결과에 따른 개인화 값 설정
+                      if (matchedRow) {
+                        const personalizedValue = matchedRow[selectedColumn];
+                        if (personalizedValue !== null && personalizedValue !== undefined) {
+                          value = String(personalizedValue);
+                          console.log(`✅ 실행 시 개인화 변수 설정 성공:`, {
+                            templateVariable,
+                            selectedColumn,
+                            personalizedValue: String(personalizedValue)
+                          });
+                        } else {
+                          value = '--';
+                          console.log(`⚠️ 실행 시 매칭된 행에서 출력 컬럼 값 없음:`, { 
+                            templateVariable, 
+                            selectedColumn 
+                          });
+                        }
+                      } else {
+                        value = '--';
+                        console.log(`⚠️ 실행 시 매칭되는 데이터 없음:`, { 
+                          templateVariable,
+                          targetValue: targetMappingValue,
+                          mappingColumn: simpleMappingColumn,
+                          availableKeys: variableData.data.length > 0 ? Object.keys(variableData.data[0]) : []
+                        });
+                      }
+                    } else {
+                      value = '--';
+                      console.log(`⚠️ 실행 시 변수 쿼리 결과 데이터 없음:`, { templateVariable });
+                    }
+                  } else {
+                    value = '--';
+                    console.log(`❌ 실행 시 변수 쿼리 실행 실패:`, { templateVariable, status: variableQueryResult.status });
+                  }
+                } else if (sourceType === 'field' && sourceField) {
+                  // 필드 매핑인 경우
+                  const rawData = target.rawData || target;
+                  const fieldValue = rawData[sourceField];
+                  if (fieldValue !== null && fieldValue !== undefined) {
+                    value = String(fieldValue);
+                    console.log(`✅ 실행 시 필드 매핑 성공:`, {
+                      templateVariable,
+                      sourceField,
+                      fieldValue: String(fieldValue)
+                    });
+                  }
+                }
+              }
+            } catch (mappingError) {
+              console.error(`❌ 실행 시 변수 매핑 오류 (${templateVariable}):`, mappingError);
+            }
+            
+            // 포맷터 적용 (기본값 '--'일 때는 포맷터 적용하지 않음)
+            if (formatter && value !== '--') {
               switch (formatter) {
                 case 'number':
                   value = Number(value).toLocaleString();

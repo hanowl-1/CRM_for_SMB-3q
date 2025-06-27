@@ -54,13 +54,15 @@ export function TargetTemplateMapping({
   templatePersonalizations = {}
 }: TargetTemplateMappingProps) {
   const [mappings, setMappings] = useState<TargetTemplateMapping[]>([]);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveDialogData, setSaveDialogData] = useState<any>(null);
   const [previewData, setPreviewData] = useState<Record<string, any[]>>({});
   const [isLoadingPreview, setIsLoadingPreview] = useState<Record<string, boolean>>({});
-  const [mappingPreviews, setMappingPreviews] = useState<Record<string, MappingPreview[]>>({});
-  
-  // 🔥 NEW: 변수 쿼리 테스트 관련 상태
-  const [queryTestResults, setQueryTestResults] = useState<Record<string, { success: boolean; data?: any[]; columns?: string[]; error?: string }>>({});
+  const [queryTestResults, setQueryTestResults] = useState<Record<string, any>>({});
   const [isLoadingTest, setIsLoadingTest] = useState<Record<string, boolean>>({});
+
+  // 🔥 새로운 상태: 저장된 변수 매핑 정보
+  const [savedVariableMappings, setSavedVariableMappings] = useState<Record<string, any>>({});
 
   // 안정적인 참조를 위한 ref들
   const onMappingChangeRef = useRef(onMappingChange);
@@ -68,7 +70,6 @@ export function TargetTemplateMapping({
   const isInitializedRef = useRef(false);
 
   // 현재 설정 저장 상태
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -416,7 +417,37 @@ export function TargetTemplateMapping({
     for (const group of dynamicGroups) {
       await loadPreviewData(group);
     }
+    // 저장된 변수 매핑 정보도 새로고침
+    await loadSavedVariableMappings();
   };
+
+  // 🔥 저장된 변수 매핑 정보 로드
+  const loadSavedVariableMappings = useCallback(async () => {
+    try {
+      const response = await fetch('/api/supabase/individual-variables?action=list');
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        const mappingsByVariable: Record<string, any> = {};
+        result.data.forEach((mapping: any) => {
+          // 변수명에서 #{} 제거
+          const cleanVariableName = mapping.variableName?.replace(/^#{|}$/g, '') || mapping.displayName?.replace(/^#{|}$/g, '');
+          if (cleanVariableName) {
+            mappingsByVariable[cleanVariableName] = mapping;
+          }
+        });
+        setSavedVariableMappings(mappingsByVariable);
+        console.log('📋 저장된 변수 매핑 로드 완료:', mappingsByVariable);
+      }
+    } catch (error) {
+      console.error('❌ 저장된 변수 매핑 로드 실패:', error);
+    }
+  }, []);
+
+  // 컴포넌트 마운트 시 저장된 변수 매핑 로드
+  useEffect(() => {
+    loadSavedVariableMappings();
+  }, [loadSavedVariableMappings]);
 
   // 컴포넌트 조건부 렌더링
   if (allTargetGroups.length === 0) {
@@ -589,6 +620,10 @@ export function TargetTemplateMapping({
                     const variableMapping = personalization?.variableMappings?.find(
                       vm => vm.templateVariable === variable
                     );
+                    
+                    // 🔥 저장된 변수 매핑 정보도 확인
+                    const savedMapping = savedVariableMappings[variable];
+                    const hasMapping = variableMapping || savedMapping;
 
                     return (
                       <div key={variable} className="border rounded-lg p-3">
@@ -596,9 +631,9 @@ export function TargetTemplateMapping({
                           <span className="font-mono text-sm bg-purple-100 px-2 py-1 rounded">
                             #{variable}
                           </span>
-                          {variableMapping ? (
+                          {hasMapping ? (
                             <Badge variant="secondary" className="text-xs">
-                              {variableMapping.sourceType === 'query' ? '쿼리 설정됨' : '필드 매핑됨'}
+                              {savedMapping ? '저장된 설정' : variableMapping?.sourceType === 'query' ? '쿼리 설정됨' : '필드 매핑됨'}
                             </Badge>
                           ) : (
                             <Badge variant="destructive" className="text-xs">
@@ -607,51 +642,53 @@ export function TargetTemplateMapping({
                           )}
                         </div>
 
-                        {variableMapping ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {/* 출력 열 */}
-                            <div className="p-2 bg-orange-50 border border-orange-200 rounded">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Database className="w-3 h-3 text-orange-600" />
-                                <span className="text-xs font-medium text-orange-800">출력 열</span>
-                              </div>
-                              <div className="text-xs">
-                                {variableMapping.selectedColumn ? (
-                                  <span className="font-mono bg-white px-1 py-0.5 rounded border">
-                                    {variableMapping.selectedColumn}
-                                  </span>
+                        {hasMapping ? (
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="bg-orange-50 p-2 rounded border">
+                              <span className="text-orange-600 font-medium">출력 열:</span>
+                              <div className="mt-1">
+                                {savedMapping ? (
+                                  <span className="text-gray-900">{savedMapping.selectedColumn || savedMapping.displayName}</span>
+                                ) : variableMapping ? (
+                                  <span className="text-gray-900">{variableMapping.selectedColumn || variableMapping.sourceField}</span>
                                 ) : (
-                                  <span className="text-amber-600">미설정</span>
+                                  <span className="text-gray-400">설정 필요</span>
                                 )}
                               </div>
                             </div>
-
-                            {/* 매핑 열 */}
-                            <div className="p-2 bg-cyan-50 border border-cyan-200 rounded">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Link2 className="w-3 h-3 text-cyan-600" />
-                                <span className="text-xs font-medium text-cyan-800">매핑 열</span>
-                              </div>
-                              <div className="text-xs">
-                                {variableMapping.mappingKeyField ? (
-                                  <span className="font-mono bg-white px-1 py-0.5 rounded border">
-                                    {variableMapping.mappingKeyField}
-                                  </span>
+                            <div className="bg-blue-50 p-2 rounded border">
+                              <span className="text-blue-600 font-medium">매핑 열:</span>
+                              <div className="mt-1">
+                                {savedMapping ? (
+                                  <span className="text-gray-900">{savedMapping.keyColumn || '--'}</span>
+                                ) : variableMapping ? (
+                                  <span className="text-gray-900">{variableMapping.mappingKeyField || '--'}</span>
                                 ) : (
-                                  <span className="text-amber-600">미설정</span>
+                                  <span className="text-gray-400">--</span>
                                 )}
                               </div>
                             </div>
                           </div>
                         ) : (
-                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
-                            <div className="flex items-center gap-2 text-yellow-800">
-                              <AlertCircle className="w-4 h-4" />
-                              <span className="text-sm font-medium">변수 설정 필요</span>
+                          <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                            <div className="flex items-center gap-2 text-gray-800">
+                              <CheckCircle className="w-4 h-4" />
+                              <span className="text-sm font-medium">기본값 사용</span>
                             </div>
-                            <p className="text-xs text-yellow-700 mt-1">
-                              알림톡 선택 탭에서 이 변수의 쿼리를 설정해주세요.
+                            <p className="text-xs text-gray-700 mt-1">
+                              이 변수는 기본값 <code className="bg-white px-1 rounded border">--</code>로 처리됩니다.
+                              필요시 알림톡 선택 탭에서 매핑을 설정할 수 있습니다.
                             </p>
+                          </div>
+                        )}
+
+                        {/* 🔥 기본값 표시 추가 */}
+                        {(savedMapping?.defaultValue || variableMapping?.defaultValue) && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded border">
+                            <span className="text-gray-600 font-medium text-sm">기본값:</span>
+                            <span className="ml-2 text-gray-900 text-sm">
+                              {savedMapping?.defaultValue || variableMapping?.defaultValue}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -693,19 +730,19 @@ export function TargetTemplateMapping({
                 {selectedTemplates.map(template => {
                   const variables = extractTemplateVariables(template);
                   const personalization = templatePersonalizations[template.id];
-                  const mappedCount = variables.filter(variable => 
-                    personalization?.variableMappings?.some(vm => vm.templateVariable === variable)
-                  ).length;
+                  const mappedCount = variables.filter(variable => {
+                    const hasPersonalizationMapping = personalization?.variableMappings?.some(vm => vm.templateVariable === variable);
+                    const hasSavedMapping = savedVariableMappings[variable];
+                    // 🔥 설정이 안 되어 있어도 기본값 '--'로 처리하므로 항상 true로 간주
+                    return hasPersonalizationMapping || hasSavedMapping || true;
+                  }).length;
                   
                   return (
                     <div key={template.id} className="flex items-center gap-2 mb-1">
-                      {mappedCount === variables.length ? (
-                        <CheckCircle className="w-3 h-3 text-green-600" />
-                      ) : (
-                        <XCircle className="w-3 h-3 text-red-600" />
-                      )}
+                      {/* 🔥 모든 변수가 설정된 것으로 간주 (기본값 사용) */}
+                      <CheckCircle className="w-3 h-3 text-green-600" />
                       <span className="text-xs">
-                        {mappedCount}/{variables.length} 변수 설정됨
+                        {variables.length}/{variables.length} 변수 준비됨 (기본값 포함)
                       </span>
                     </div>
                   );

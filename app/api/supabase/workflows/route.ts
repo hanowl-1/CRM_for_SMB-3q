@@ -74,8 +74,17 @@ export async function POST(request: NextRequest) {
         targetTemplateMappings,
         scheduleSettings,
         testSettings,
+        steps,
         createdBy = 'user'
       } = body;
+
+      console.log('🔥 워크플로우 생성 요청:', {
+        name,
+        targetGroupsCount: targetGroups?.length || 0,
+        templatesCount: selectedTemplates?.length || 0,
+        stepsCount: steps?.length || 0,
+        mappingsCount: targetTemplateMappings?.length || 0
+      });
 
       const { data, error } = await supabase
         .from('workflows')
@@ -84,11 +93,22 @@ export async function POST(request: NextRequest) {
           description,
           trigger_type: 'manual',
           trigger_config: scheduleSettings || {},
-          target_config: targetGroups || {},
-          message_config: selectedTemplates || {},
-          variables: templatePersonalizations || {},
+          target_config: {
+            targetGroups: targetGroups || [],
+            targetTemplateMappings: targetTemplateMappings || []
+          },
+          message_config: {
+            steps: steps || [],
+            selectedTemplates: selectedTemplates || []
+          },
+          variables: {
+            templatePersonalizations: templatePersonalizations || {},
+            testSettings: testSettings || {}
+          },
           schedule_config: scheduleSettings || {},
-          mapping_config: targetTemplateMappings || {},
+          mapping_config: {
+            targetTemplateMappings: targetTemplateMappings || []
+          },
           created_by: createdBy,
           status: 'draft'
         })
@@ -96,6 +116,12 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (error) throw error;
+
+      console.log('✅ 워크플로우 생성 완료:', {
+        id: data.id,
+        target_config: data.target_config,
+        message_config: data.message_config
+      });
 
       return NextResponse.json({
         success: true,
@@ -114,8 +140,18 @@ export async function POST(request: NextRequest) {
         templatePersonalizations,
         targetTemplateMappings,
         scheduleSettings,
-        testSettings
+        testSettings,
+        steps
       } = body;
+
+      console.log('🔥 워크플로우 업데이트 요청:', {
+        id,
+        name,
+        targetGroupsCount: targetGroups?.length || 0,
+        templatesCount: selectedTemplates?.length || 0,
+        stepsCount: steps?.length || 0,
+        mappingsCount: targetTemplateMappings?.length || 0
+      });
 
       const { data, error } = await supabase
         .from('workflows')
@@ -123,11 +159,22 @@ export async function POST(request: NextRequest) {
           name,
           description,
           trigger_config: scheduleSettings || {},
-          target_config: targetGroups || {},
-          message_config: selectedTemplates || {},
-          variables: templatePersonalizations || {},
+          target_config: {
+            targetGroups: targetGroups || [],
+            targetTemplateMappings: targetTemplateMappings || []
+          },
+          message_config: {
+            steps: steps || [],
+            selectedTemplates: selectedTemplates || []
+          },
+          variables: {
+            templatePersonalizations: templatePersonalizations || {},
+            testSettings: testSettings || {}
+          },
           schedule_config: scheduleSettings || {},
-          mapping_config: targetTemplateMappings || {},
+          mapping_config: {
+            targetTemplateMappings: targetTemplateMappings || []
+          },
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -135,6 +182,12 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (error) throw error;
+
+      console.log('✅ 워크플로우 업데이트 완료:', {
+        id: data.id,
+        target_config: data.target_config,
+        message_config: data.message_config
+      });
 
       return NextResponse.json({
         success: true,
