@@ -1,11 +1,23 @@
 import moment from 'moment-timezone';
 import { toZonedTime, fromZonedTime, format } from 'date-fns-tz';
 
+/**
+ * 🕐 시간대 처리 원칙:
+ * - 저장: UTC로 DB 저장 (서버 환경 독립적)
+ * - 입력: 사용자는 KST로 입력
+ * - 출력: 사용자에게는 KST로 표시
+ * - 연산: 내부 비교는 같은 시간대끼리
+ * 
+ * 이 파일의 모든 함수는 "저장은 UTC, 입력/출력은 KST" 원칙을 따릅니다.
+ */
+
 // 한국 시간대 상수
 export const KOREA_TIMEZONE = 'Asia/Seoul';
 
 /**
  * 현재 한국 시간을 반환
+ * 🔥 사용 목적: 현재 시간을 한국 시간 기준으로 가져올 때 사용
+ * 🔥 시간대 처리: 서버 환경에 관계없이 항상 한국 시간 반환
  */
 export function getKoreaTime(): Date {
   return moment.tz(KOREA_TIMEZONE).toDate();
@@ -13,6 +25,7 @@ export function getKoreaTime(): Date {
 
 /**
  * 현재 한국 시간을 moment 객체로 반환
+ * 🔥 사용 목적: moment 기반 시간 계산이 필요할 때 사용
  */
 export function getKoreaMoment() {
   return moment.tz(KOREA_TIMEZONE);
@@ -40,6 +53,7 @@ export function createKoreaDateTime(timeString: string, date?: Date): Date {
 
 /**
  * 한국 시간을 UTC로 변환
+ * 🔥 사용 목적: 내부 시간 계산용 (일반적으로 koreaTimeToUTCString 사용 권장)
  * @param koreaTime 한국 시간 Date 객체
  */
 export function koreaTimeToUTC(koreaTime: Date): Date {
@@ -48,6 +62,7 @@ export function koreaTimeToUTC(koreaTime: Date): Date {
 
 /**
  * UTC 시간을 한국 시간으로 변환
+ * 🔥 사용 목적: DB에서 조회한 UTC 시간을 한국 시간으로 표시할 때 사용
  * @param utcTime UTC 시간 Date 객체
  */
 export function utcToKoreaTime(utcTime: Date): Date {
@@ -74,6 +89,9 @@ export function toKoreaISOString(date: Date): string {
 
 /**
  * 한국 시간을 UTC ISO 문자열로 변환 (DB 저장용)
+ * 🔥 사용 목적: DB에 시간을 저장할 때 반드시 사용해야 하는 함수
+ * 🔥 시간대 처리: 한국 시간 → UTC 변환 → ISO 문자열 반환
+ * 🔥 예시: getKoreaTime() → "2025-06-27T12:00:00.000Z" (UTC)
  * @param koreaTime 한국 시간 Date 객체
  */
 export function koreaTimeToUTCString(koreaTime: Date): string {

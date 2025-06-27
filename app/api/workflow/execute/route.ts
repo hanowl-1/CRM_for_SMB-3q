@@ -5,6 +5,12 @@ import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
 import mysql from 'mysql2/promise';
 import { supabase } from '@/lib/database/supabase-client';
+import { 
+  getKoreaTime, 
+  koreaTimeToUTCString, 
+  formatKoreaTime,
+  debugTimeInfo 
+} from '@/lib/utils/timezone';
 
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
@@ -69,7 +75,14 @@ export async function POST(request: NextRequest) {
 
     // 워크플로우 실행 기록 생성
     const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const startTime = new Date();
+    
+    /**
+     * 🕐 시간대 처리 원칙:
+     * - 저장: UTC로 DB 저장 (서버 환경 독립적)
+     * - 표시: 사용자에게는 KST로 표시
+     * - 연산: 내부 처리는 한국 시간 기준
+     */
+    const startTime = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 시작 시간 기록
 
     try {
       // 🔥 3단계 워크플로우 구조에 맞춘 데이터 추출
@@ -171,7 +184,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const endTime = new Date();
+      // 🔥 시간대 처리: 한국 시간 기준으로 종료 시간 기록
+      const endTime = getKoreaTime();
       const executionTimeMs = endTime.getTime() - startTime.getTime();
 
       // 실행 결과를 데이터베이스에 저장
@@ -186,8 +200,9 @@ export async function POST(request: NextRequest) {
           failedCount: totalFailedCount,
           totalCost: 0, // 비용 계산 로직 추가 필요
           executionTimeMs,
-          startedAt: startTime.toISOString(),
-          completedAt: endTime.toISOString(),
+          // 🔥 시간대 처리: 한국 시간을 UTC로 변환하여 DB 저장
+          startedAt: koreaTimeToUTCString(startTime),
+          completedAt: koreaTimeToUTCString(endTime),
           logs: results
         });
 
@@ -561,7 +576,8 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           provider: 'coolsms',
           providerMessageId: result.messageId,
           costAmount: 15, // 카카오 알림톡 기본 비용
-          sentAt: enableRealSending ? new Date().toISOString() : null
+          // 🔥 시간대 처리: 발송 시간을 한국 시간 기준으로 기록 후 UTC 저장
+          sentAt: enableRealSending ? koreaTimeToUTCString(getKoreaTime()) : null
         });
 
         successCount++;
@@ -702,6 +718,7 @@ async function sendAlimtalk({
   const templateInfo = KakaoAlimtalkTemplateById[templateId as keyof typeof KakaoAlimtalkTemplateById];
   const pfId = getPfIdForTemplate(templateId);
   
+  // 🔥 시간대 처리: API 인증을 위한 현재 시간 (UTC 기준)
   const date = new Date().toISOString();
   const salt = Date.now().toString();
   const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);

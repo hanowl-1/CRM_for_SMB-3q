@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
+import { 
+  getKoreaTime, 
+  koreaTimeToUTCString 
+} from '@/lib/utils/timezone';
 
 // GET: 워크플로우 목록 조회
 export async function GET(request: NextRequest) {
@@ -175,7 +179,7 @@ export async function POST(request: NextRequest) {
           mapping_config: {
             targetTemplateMappings: targetTemplateMappings || []
           },
-          updated_at: new Date().toISOString()
+          updated_at: koreaTimeToUTCString(getKoreaTime())
         })
         .eq('id', id)
         .select()
@@ -212,7 +216,7 @@ export async function POST(request: NextRequest) {
         .from('workflows')
         .update({
           status: status,
-          updated_at: new Date().toISOString()
+          updated_at: koreaTimeToUTCString(getKoreaTime())
         })
         .eq('id', id)
         .select()
