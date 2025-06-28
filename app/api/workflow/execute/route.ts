@@ -9,7 +9,9 @@ import {
   getKoreaTime, 
   koreaTimeToUTCString, 
   formatKoreaTime,
-  debugTimeInfo 
+  debugTimeInfo,
+  calculateNextKoreaScheduleTime, 
+  koreaTimeToUTC
 } from '@/lib/utils/timezone';
 
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
@@ -36,6 +38,26 @@ interface ExecuteRequest {
   scheduledJobId?: string;
   enableRealSending?: boolean;
 }
+
+/**
+ * 🎯 워크플로우 실행 API
+ * 
+ * ⚠️ 중요: 이 API의 개인화 로직은 미리보기 API(/api/workflow/preview)와 동일합니다.
+ * 
+ * 📋 공통 개인화 로직 (Feature_Workflow_Builder.md 4.1.1):
+ * - individual_variable_mappings 테이블에서 저장된 변수 매핑 조회
+ * - MySQL API를 통한 변수 쿼리 실행 및 전체 데이터 캐시
+ * - AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 범용적 매칭
+ * - 매칭 성공 시 AB열(변수 쿼리의 출력 컬럼) 값을 최종 개인화 값으로 사용
+ * - 매칭 실패 시 기본값 사용 (실행 시에는 샘플값 대신 '--' 사용)
+ * 
+ * 🔄 로직 동기화: 개인화 로직 수정 시 미리보기와 실행 API 모두 동일하게 수정 필요
+ * 
+ * 🚀 실행 전용 기능:
+ * - 실제 알림톡 메시지 발송 (enableRealSending 파라미터)
+ * - 스케줄 잡 상태 업데이트 (scheduled_jobs 테이블)
+ * - 메시지 발송 로그 기록 (message_logs 테이블)
+ */
 
 export async function POST(request: NextRequest) {
   // 🔥 currentJobId를 최상위 스코프에서 선언하여 모든 catch 블록에서 접근 가능
@@ -635,6 +657,8 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
             }
             
             // 🔥 저장된 개별 변수 매핑 정보도 확인하여 실제 쿼리 실행
+            // ⚠️ 이 개인화 로직은 미리보기 API(/api/workflow/preview)와 100% 동일합니다
+            // 🔄 수정 시 두 API 모두 동일하게 변경해야 합니다
             try {
               const { data: savedMappings } = await getSupabase()
                 .from('individual_variable_mappings')
