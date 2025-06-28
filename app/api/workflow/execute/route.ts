@@ -413,6 +413,93 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 🔥 워크플로우 실행 완료 후 처리 (return 전에 실행되어야 함)
+      try {
+        // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
+        if (currentJobId) {
+          console.log(`🔄 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
+          try {
+            await getSupabase()
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'completed',
+                completed_at: koreaTimeToUTCString(endTime),
+                updated_at: koreaTimeToUTCString(endTime)
+              })
+              .eq('id', currentJobId);
+            console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`);
+          } catch (updateError) {
+            console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, updateError);
+          }
+        }
+
+        // 2. 기존 스케줄 실행 잡 완료 처리 (스케줄 실행인 경우)
+        if (scheduledExecution && jobId) {
+          console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
+          console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
+          
+          const { data: updateResult, error: updateError } = await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'completed',
+              completed_at: koreaTimeToUTCString(endTime),
+              updated_at: koreaTimeToUTCString(endTime)
+            })
+            .eq('id', jobId)
+            .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
+          
+          if (updateError) {
+            console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+          } else if (updateResult && updateResult.length > 0) {
+            console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+          } else {
+            console.warn(`⚠️ 스케줄 잡을 찾을 수 없음: ${jobId}`);
+          }
+        } else {
+          console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
+        }
+        
+        // 3. 반복 스케줄인 경우 다음 스케줄 잡 생성
+        const scheduleConfig = workflow.scheduleSettings || (workflow as any).schedule_config;
+        
+        if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
+          console.log('🔄 반복 스케줄 감지, 다음 스케줄 잡 생성 중...');
+          
+          try {
+            // 스케줄 등록 API 호출
+            const baseUrl = process.env.NODE_ENV === 'production' 
+              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+              : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+
+            console.log('📡 다음 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
+            
+            const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+                'x-vercel-set-bypass-cookie': 'true'
+              }
+            });
+
+            if (registerResponse.ok) {
+              const registerResult = await registerResponse.json();
+              console.log('✅ 다음 스케줄 등록 성공:', registerResult.message);
+            } else {
+              const errorText = await registerResponse.text();
+              console.warn('⚠️ 다음 스케줄 등록 실패:', errorText);
+            }
+          } catch (registerError) {
+            console.warn('⚠️ 다음 스케줄 등록 중 오류:', registerError);
+          }
+        }
+        
+      } catch (postProcessError) {
+        console.warn('⚠️ 워크플로우 실행 후 처리 중 오류:', postProcessError);
+        // 후처리 실패는 전체 실행 성공에 영향을 주지 않음
+      }
+
+      // 🔥 모든 처리 완료 후 응답 반환
       return NextResponse.json({
         success: true,
         message: '워크플로우 실행이 완료되었습니다.',
@@ -476,92 +563,6 @@ export async function POST(request: NextRequest) {
       }
 
       throw error;
-    }
-
-    // 🔥 워크플로우 실행 완료 후 처리
-    try {
-      // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
-      if (currentJobId) {
-        console.log(`🔄 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
-        try {
-          await getSupabase()
-            .from('scheduled_jobs')
-            .update({ 
-              status: 'completed',
-              completed_at: koreaTimeToUTCString(endTime),
-              updated_at: koreaTimeToUTCString(endTime)
-            })
-            .eq('id', currentJobId);
-          console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`);
-        } catch (updateError) {
-          console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, updateError);
-        }
-      }
-
-      // 2. 기존 스케줄 실행 잡 완료 처리 (스케줄 실행인 경우)
-      if (scheduledExecution && jobId) {
-        console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
-        console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
-        
-        const { data: updateResult, error: updateError } = await getSupabase()
-          .from('scheduled_jobs')
-          .update({ 
-            status: 'completed',
-            completed_at: koreaTimeToUTCString(endTime),
-            updated_at: koreaTimeToUTCString(endTime)
-          })
-          .eq('id', jobId)
-          .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
-        
-        if (updateError) {
-          console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
-        } else if (updateResult && updateResult.length > 0) {
-          console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
-        } else {
-          console.warn(`⚠️ 스케줄 잡을 찾을 수 없음: ${jobId}`);
-        }
-      } else {
-        console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
-      }
-      
-      // 3. 반복 스케줄인 경우 다음 스케줄 잡 생성
-      const scheduleConfig = workflow.scheduleSettings || (workflow as any).schedule_config;
-      
-      if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
-        console.log('🔄 반복 스케줄 감지, 다음 스케줄 잡 생성 중...');
-        
-        try {
-          // 스케줄 등록 API 호출
-          const baseUrl = process.env.NODE_ENV === 'production' 
-            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
-            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
-
-          console.log('📡 다음 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
-          
-          const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
-              'x-vercel-set-bypass-cookie': 'true'
-            }
-          });
-
-          if (registerResponse.ok) {
-            const registerResult = await registerResponse.json();
-            console.log('✅ 다음 스케줄 등록 성공:', registerResult.message);
-          } else {
-            const errorText = await registerResponse.text();
-            console.warn('⚠️ 다음 스케줄 등록 실패:', errorText);
-          }
-        } catch (registerError) {
-          console.warn('⚠️ 다음 스케줄 등록 중 오류:', registerError);
-        }
-      }
-      
-    } catch (postProcessError) {
-      console.warn('⚠️ 워크플로우 실행 후 처리 중 오류:', postProcessError);
-      // 후처리 실패는 전체 실행 성공에 영향을 주지 않음
     }
 
   } catch (error) {
