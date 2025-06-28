@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { LoginForm } from "@/components/auth/LoginForm"
 import { UserMenu } from "@/components/auth/UserMenu"
+import { toast } from "sonner"
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -371,35 +372,40 @@ function DashboardContent() {
         setWorkflows(prev => prev.map(w => 
           w.id === workflowId ? { ...w, status: newStatus } : w
         ));
-        
-        // 성공 알림
-        alert(`워크플로우가 ${newStatus === 'active' ? '시작' : '일시정지'}되었습니다.`);
-        
-        // 스케줄러 상태 새로고침 (상태 변경 후 항상 실행)
-        console.log('🔄 상태 변경 후 스케줄러 상태 새로고침...');
-        loadSchedulerStatus();
-        
-        // 활성화된 워크플로우인 경우 스케줄러에 등록 시도
+
+        // 🔥 워크플로우를 활성화할 때 즉시 실행
         if (newStatus === 'active') {
-          console.log('🚀 워크플로우 활성화됨, 크론잡 시스템에서 자동 처리됩니다.');
+          console.log(`🚀 워크플로우 활성화 후 즉시 실행: ${workflowId}`);
           
-          // 🔥 크론잡 기반 시스템에서는 별도의 스케줄러 등록이 필요하지 않음
-          // 활성 워크플로우는 크론잡에서 자동으로 감지하여 처리됨
-          console.log('ℹ️ 크론잡 시스템: 활성 워크플로우는 자동으로 스케줄링됩니다.');
+          const executeResponse = await fetch('/api/workflow/execute', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              workflowId: workflowId
+            })
+          });
+
+          const executeResult = await executeResponse.json();
           
-        } else if (newStatus === 'paused') {
-          // 일시정지된 워크플로우의 경우 크론잡 시스템에서 자동으로 처리됨
-          console.log('⏸️ 워크플로우 일시정지됨, 크론잡 시스템에서 자동으로 비활성화됩니다.');
-          console.log('ℹ️ 크론잡 시스템: 비활성 워크플로우는 자동으로 스케줄에서 제외됩니다.');
+          if (executeResult.success) {
+            console.log(`✅ 워크플로우 즉시 실행 성공`);
+            toast.success("워크플로우가 활성화되고 즉시 실행되었습니다.");
+          } else {
+            console.error(`❌ 워크플로우 즉시 실행 실패:`, executeResult.error);
+            toast.error(`워크플로우는 활성화되었지만 실행에 실패했습니다: ${executeResult.error}`);
+          }
+        } else {
+          toast.success("워크플로우가 일시정지되었습니다.");
         }
-        
       } else {
-        throw new Error(result.message || '상태 변경에 실패했습니다.');
+        console.error('❌ 워크플로우 상태 변경 실패:', result.error);
+        toast.error(`워크플로우 상태 변경에 실패했습니다: ${result.error}`);
       }
-      
     } catch (error) {
-      console.error('❌ 워크플로우 상태 변경 실패:', error);
-      alert(`상태 변경에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+      console.error('❌ 워크플로우 상태 변경 중 오류:', error);
+      toast.error("워크플로우 상태 변경 중 오류가 발생했습니다.");
     }
   };
 

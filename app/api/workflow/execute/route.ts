@@ -4,7 +4,7 @@ import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
 import mysql from 'mysql2/promise';
-import { supabase } from '@/lib/database/supabase-client';
+import { getSupabase } from '@/lib/database/supabase-client';
 import { 
   getKoreaTime, 
   koreaTimeToUTCString, 
@@ -38,6 +38,9 @@ interface ExecuteRequest {
 }
 
 export async function POST(request: NextRequest) {
+  // 🔥 currentJobId를 최상위 스코프에서 선언하여 모든 catch 블록에서 접근 가능
+  let currentJobId: string | undefined;
+  
   try {
     // 🔥 Vercel Protection 우회를 위한 응답 헤더 설정
     const headers = new Headers();
@@ -79,7 +82,7 @@ export async function POST(request: NextRequest) {
       console.log(`📋 workflowId로 워크플로우 정보 조회 중: ${workflowId}`);
       
       try {
-        const { data: workflowData, error: workflowError } = await supabase
+        const { data: workflowData, error: workflowError } = await getSupabase()
           .from('workflows')
           .select('*')
           .eq('id', workflowId)
@@ -182,6 +185,44 @@ export async function POST(request: NextRequest) {
      */
     const startTime = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 시작 시간 기록
     let endTime = getKoreaTime(); // 🔥 endTime을 상위 스코프에서 선언
+
+    // 🔥 수동 실행도 스케줄 잡으로 기록하여 통합 모니터링
+    if (!scheduledExecution) {
+      console.log('📝 수동 실행을 스케줄 잡으로 기록 중...');
+      try {
+        const { data: newJob, error: insertError } = await getSupabase()
+          .from('scheduled_jobs')
+          .insert({
+            workflow_id: workflow.id,
+            workflow_data: {
+              id: workflow.id,
+              name: workflow.name,
+              description: workflow.description,
+              message_config: workflow.message_config || (workflow as any).message_config,
+              target_config: workflow.target_config || (workflow as any).target_config,
+              schedule_config: { type: 'immediate' }
+            },
+            scheduled_time: koreaTimeToUTCString(startTime), // 즉시 실행이므로 현재 시간
+            status: 'running',
+            retry_count: 0,
+            max_retries: 1, // 수동 실행은 재시도 안 함
+            created_at: koreaTimeToUTCString(startTime),
+            executed_at: koreaTimeToUTCString(startTime) // 즉시 실행 시작
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('❌ 수동 실행 스케줄 잡 생성 실패:', insertError);
+        } else {
+          currentJobId = newJob.id;
+          console.log(`✅ 수동 실행 스케줄 잡 생성 완료: ${currentJobId}`);
+        }
+      } catch (scheduleError) {
+        console.error('⚠️ 수동 실행 스케줄 잡 생성 중 오류:', scheduleError);
+        // 스케줄 잡 생성 실패는 워크플로우 실행에 영향을 주지 않음
+      }
+    }
 
     try {
       // 🔥 3단계 워크플로우 구조에 맞춘 데이터 추출
@@ -357,6 +398,25 @@ export async function POST(request: NextRequest) {
       });
 
     } catch (error) {
+      // 🔥 실행 실패 시 스케줄 잡 상태 업데이트
+      if (currentJobId) {
+        try {
+          console.log(`❌ 워크플로우 실행 실패, 스케줄 잡 상태 업데이트: ${currentJobId}`);
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'failed',
+              error_message: error instanceof Error ? error.message : '알 수 없는 오류',
+              completed_at: koreaTimeToUTCString(getKoreaTime()),
+              updated_at: koreaTimeToUTCString(getKoreaTime())
+            })
+            .eq('id', currentJobId);
+          console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);
+        } catch (updateError) {
+          console.error('❌ 스케줄 잡 실패 상태 업데이트 실패:', updateError);
+        }
+      }
+
       // 실행 실패 기록
       try {
         await supabaseWorkflowService.createWorkflowRun({
@@ -382,12 +442,30 @@ export async function POST(request: NextRequest) {
 
     // 🔥 워크플로우 실행 완료 후 처리
     try {
-      // 1. 현재 스케줄 잡 완료 처리 (스케줄 실행인 경우)
+      // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
+      if (currentJobId) {
+        console.log(`🔄 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
+        try {
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'completed',
+              completed_at: koreaTimeToUTCString(endTime),
+              updated_at: koreaTimeToUTCString(endTime)
+            })
+            .eq('id', currentJobId);
+          console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`);
+        } catch (updateError) {
+          console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, updateError);
+        }
+      }
+
+      // 2. 기존 스케줄 실행 잡 완료 처리 (스케줄 실행인 경우)
       if (scheduledExecution && jobId) {
         console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
         console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
         
-        const { data: updateResult, error: updateError } = await supabase
+        const { data: updateResult, error: updateError } = await getSupabase()
           .from('scheduled_jobs')
           .update({ 
             status: 'completed',
@@ -408,7 +486,7 @@ export async function POST(request: NextRequest) {
         console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
       }
       
-      // 2. 반복 스케줄인 경우 다음 스케줄 잡 생성
+      // 3. 반복 스케줄인 경우 다음 스케줄 잡 생성
       const scheduleConfig = workflow.scheduleSettings || (workflow as any).schedule_config;
       
       if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
@@ -558,7 +636,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
             
             // 🔥 저장된 개별 변수 매핑 정보도 확인하여 실제 쿼리 실행
             try {
-              const { data: savedMappings } = await supabase
+              const { data: savedMappings } = await getSupabase()
                 .from('individual_variables')
                 .select('*')
                 .eq('variableName', `#{${templateVariable}}`);
@@ -962,4 +1040,4 @@ function getPfIdForTemplate(templateId: string): string {
   }
   
   return KAKAO_SENDER_KEY || '';
-} 
+}
