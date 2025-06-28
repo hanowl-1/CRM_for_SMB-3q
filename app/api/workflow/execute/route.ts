@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
     const allMessageLogs = []; // 메시지 로그 저장용 배열 추가
 
     // 워크플로우 실행 기록 생성
-    const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const runId = crypto.randomUUID(); // 🔥 UUID 형식으로 변경하여 DB 호환성 확보
     
     /**
      * 🕐 시간대 처리 원칙:
