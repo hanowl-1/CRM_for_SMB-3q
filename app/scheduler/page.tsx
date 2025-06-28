@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Clock, Play, Pause, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Clock, Play, Pause, CheckCircle, XCircle, AlertCircle, RefreshCw, Home, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 
 interface ScheduledJob {
   id: string;
@@ -173,6 +174,12 @@ export default function SchedulerMonitorPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          <Link href="/">
+            <Button variant="outline" size="sm">
+              <Home className="h-4 w-4 mr-2" />
+              홈
+            </Button>
+          </Link>
           <div className="text-sm text-gray-600">
             <div>현재 시간 (한국): <span className="font-mono">{schedulerData.current_time.korea_time}</span></div>
             <div>UTC 시간: <span className="font-mono">{new Date(schedulerData.current_time.utc_time).toISOString()}</span></div>

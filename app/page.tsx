@@ -373,28 +373,25 @@ function DashboardContent() {
           w.id === workflowId ? { ...w, status: newStatus } : w
         ));
 
-        // 🔥 워크플로우를 활성화할 때 즉시 실행
+        // 🔥 워크플로우를 활성화할 때 스케줄 등록
         if (newStatus === 'active') {
-          console.log(`🚀 워크플로우 활성화 후 즉시 실행: ${workflowId}`);
+          console.log(`📅 워크플로우 활성화 후 스케줄 등록: ${workflowId}`);
           
-          const executeResponse = await fetch('/api/workflow/execute', {
+          const scheduleResponse = await fetch('/api/scheduler/register', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              workflowId: workflowId
-            })
+            }
           });
 
-          const executeResult = await executeResponse.json();
+          const scheduleResult = await scheduleResponse.json();
           
-          if (executeResult.success) {
-            console.log(`✅ 워크플로우 즉시 실행 성공`);
-            toast.success("워크플로우가 활성화되고 즉시 실행되었습니다.");
+          if (scheduleResult.success) {
+            console.log(`✅ 워크플로우 스케줄 등록 성공`);
+            toast.success("워크플로우가 활성화되고 스케줄에 등록되었습니다.");
           } else {
-            console.error(`❌ 워크플로우 즉시 실행 실패:`, executeResult.error);
-            toast.error(`워크플로우는 활성화되었지만 실행에 실패했습니다: ${executeResult.error}`);
+            console.error(`❌ 워크플로우 스케줄 등록 실패:`, scheduleResult.message);
+            toast.error(`워크플로우는 활성화되었지만 스케줄 등록에 실패했습니다: ${scheduleResult.message}`);
           }
         } else {
           toast.success("워크플로우가 일시정지되었습니다.");
