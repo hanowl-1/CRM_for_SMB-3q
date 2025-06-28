@@ -230,9 +230,11 @@ export default function WorkflowDetailPage() {
         console.error("❌ API 응답 오류:", {
           status: response.status,
           statusText: response.statusText,
-          body: errorText
+          url: apiUrl,
+          body: errorText,
+          headers: Object.fromEntries(response.headers.entries())
         });
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
       
     } catch (error) {
