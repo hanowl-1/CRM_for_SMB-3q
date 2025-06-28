@@ -695,6 +695,14 @@ function DashboardContent() {
                     <span className="text-sm text-gray-500">상태 확인 중...</span>
                   </div>
                 )}
+                
+                {/* 스케줄러 모니터링 페이지 링크 */}
+                <Link href="/scheduler" className="block mt-3">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Monitor className="w-4 h-4 mr-2" />
+                    상세 모니터링
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           </div>
