@@ -247,7 +247,9 @@ export async function GET(request: NextRequest) {
             workflowId: workflow.id,
             workflow: workflow,
             scheduledExecution: true,
-            scheduledJobId: job.id
+            scheduledJobId: job.id,
+            // 🔥 스케줄러 실행 시 실제 메시지 발송 활성화
+            enableRealSending: true
           })
         });
         

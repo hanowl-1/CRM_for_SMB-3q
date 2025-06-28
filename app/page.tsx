@@ -3,7 +3,25 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, MessageSquare, Users, BarChart3, Play, Pause, Settings, FileText, Wrench, Database, Code, Monitor, Zap, Target, TrendingUp, RefreshCw, Clock, CheckCircle, AlertCircle } from "lucide-react"
+import { 
+  Plus, 
+  Play, 
+  Pause, 
+  MessageSquare, 
+  Target, 
+  FileText, 
+  Monitor,
+  Database,
+  BarChart3,
+  Clock,
+  AlertCircle,
+  RefreshCw,
+  Wrench,
+  Zap,
+  CheckCircle,
+  Settings,
+  TrendingUp
+} from "lucide-react"
 import Link from "next/link"
 import { Workflow } from "@/lib/types/workflow"
 import { Badge } from "@/components/ui/badge"
@@ -526,6 +544,28 @@ function DashboardContent() {
                     시스템 대시보드
                   </Button>
                 </Link>
+                <Link href="/scheduler" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Clock className="w-4 h-4 mr-2" />
+                    스케줄러 모니터링
+                  </Button>
+                </Link>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => window.open('/api/scheduler/health', '_blank')}
+                >
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  스케줄러 헬스체크
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => window.open('/api/system/cleanup', '_blank')}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  시스템 정리 체크
+                </Button>
               </CardContent>
             </Card>
 
