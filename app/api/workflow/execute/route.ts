@@ -197,7 +197,16 @@ export async function POST(request: NextRequest) {
     const allMessageLogs = []; // 메시지 로그 저장용 배열 추가
 
     // 워크플로우 실행 기록 생성
-    const runId = crypto.randomUUID(); // 🔥 UUID 형식으로 변경하여 DB 호환성 확보
+    // 🔥 UUID 생성 안전성 강화: crypto.randomUUID() 실패 시 fallback 제공
+    let runId: string;
+    try {
+      runId = crypto.randomUUID();
+      console.log(`🆔 워크플로우 실행 ID 생성: ${runId} (UUID 형식)`);
+    } catch (uuidError) {
+      // UUID 생성 실패 시 fallback (매우 드문 경우)
+      runId = `fallback_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+      console.warn(`⚠️ UUID 생성 실패, fallback ID 사용: ${runId}`, uuidError);
+    }
     
     /**
      * 🕐 시간대 처리 원칙:
@@ -350,8 +359,9 @@ export async function POST(request: NextRequest) {
       endTime = getKoreaTime();
       const executionTimeMs = endTime.getTime() - startTime.getTime();
 
-      // 실행 결과를 데이터베이스에 저장
+      // 🔥 워크플로우 실행 기록 저장 (실패해도 스케줄 작업 상태 업데이트에 영향 없음)
       try {
+        console.log(`💾 워크플로우 실행 기록 저장 시작: ${runId}`);
         await supabaseWorkflowService.createWorkflowRun({
           id: runId,
           workflowId: workflow.id,
@@ -367,34 +377,40 @@ export async function POST(request: NextRequest) {
           completedAt: koreaTimeToUTCString(endTime),
           logs: results
         });
-
-        // 메시지 로그 저장
-        if (allMessageLogs.length > 0) {
-          try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production' 
-              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://your-domain.vercel.app')
-              : 'http://localhost:3000')}/api/supabase/message-logs`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                action: 'bulk_create',
-                logs: allMessageLogs
-              })
-            });
-
-            if (!response.ok) {
-              console.error('메시지 로그 저장 실패:', await response.text());
-            } else {
-              console.log(`✅ ${allMessageLogs.length}개 메시지 로그 저장 완료`);
-            }
-          } catch (logError) {
-            console.error('메시지 로그 저장 오류:', logError);
-          }
-        }
+        console.log(`✅ 워크플로우 실행 기록 저장 성공: ${runId}`);
       } catch (dbError) {
-        console.error('워크플로우 실행 기록 저장 실패:', dbError);
+        console.error('❌ 워크플로우 실행 기록 저장 실패:', dbError);
+        console.log('⚠️ 실행 기록 저장 실패했지만 워크플로우는 성공적으로 완료되었습니다.');
+        // 🔥 실행 기록 저장 실패는 워크플로우 성공에 영향을 주지 않음
+      }
+
+      // 🔥 메시지 로그 저장 (실패해도 스케줄 작업 상태 업데이트에 영향 없음)
+      if (allMessageLogs.length > 0) {
+        try {
+          console.log(`💾 메시지 로그 저장 시작: ${allMessageLogs.length}개`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production' 
+            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://your-domain.vercel.app')
+            : 'http://localhost:3000')}/api/supabase/message-logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'bulk_create',
+              logs: allMessageLogs
+            })
+          });
+
+          if (!response.ok) {
+            console.error('❌ 메시지 로그 저장 실패:', await response.text());
+          } else {
+            console.log(`✅ ${allMessageLogs.length}개 메시지 로그 저장 완료`);
+          }
+        } catch (logError) {
+          console.error('❌ 메시지 로그 저장 오류:', logError);
+          console.log('⚠️ 메시지 로그 저장 실패했지만 워크플로우는 성공적으로 완료되었습니다.');
+          // 🔥 메시지 로그 저장 실패는 워크플로우 성공에 영향을 주지 않음
+        }
       }
 
       return NextResponse.json({
