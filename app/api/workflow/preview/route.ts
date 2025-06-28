@@ -2,21 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 
-/**
- * 🎯 워크플로우 미리보기 API
- * 
- * ⚠️ 중요: 이 API의 개인화 로직은 실행 API(/api/workflow/execute)와 동일합니다.
- * 
- * 📋 공통 개인화 로직 (Feature_Workflow_Builder.md 4.1.1):
- * - individual_variable_mappings 테이블에서 저장된 변수 매핑 조회
- * - MySQL API를 통한 변수 쿼리 실행 및 전체 데이터 캐시
- * - AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 범용적 매칭
- * - 매칭 성공 시 AB열(변수 쿼리의 출력 컬럼) 값을 최종 개인화 값으로 사용
- * - 매칭 실패 시 기본값 또는 샘플값 사용
- * 
- * 🔄 로직 동기화: 개인화 로직 수정 시 미리보기와 실행 API 모두 동일하게 수정 필요
- */
-
 function getSampleValueForVariable(variableName: string): string {
   const lowerName = variableName.toLowerCase();
   
@@ -157,8 +142,6 @@ export async function POST(request: NextRequest) {
     console.log('✅ 실제 템플릿 로드 완료:', actualTemplates.map(t => t.templateName));
 
     // 🔥 2단계: 저장된 개별 변수 매핑 정보 조회
-    // ⚠️ 이 개인화 로직은 실행 API(/api/workflow/execute)와 100% 동일합니다
-    // 🔄 수정 시 두 API 모두 동일하게 변경해야 합니다
     executionLogs.push('🔍 저장된 개별 변수 매핑 정보 조회 중...');
     const supabase = getSupabaseAdmin();
     
