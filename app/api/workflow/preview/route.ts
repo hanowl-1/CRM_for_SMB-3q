@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     
     const { data: savedMappings, error: mappingError } = await supabase
-      .from('individual_variables')
+      .from('individual_variable_mappings')
       .select('*');
 
     if (mappingError) {
@@ -163,11 +163,11 @@ export async function POST(request: NextRequest) {
 
     if (savedMappings && savedMappings.length > 0) {
       for (const mapping of savedMappings) {
-        if (mapping.sourceType === 'query' && mapping.sourceField) {
+        if (mapping.source_type === 'query' && mapping.source_field) {
           try {
-            executionLogs.push(`🔍 변수 쿼리 실행: ${mapping.variableName}`);
-            console.log(`🔍 변수 쿼리 실행: ${mapping.variableName}`);
-            console.log(`📝 쿼리: ${mapping.sourceField}`);
+            executionLogs.push(`🔍 변수 쿼리 실행: ${mapping.variable_name}`);
+            console.log(`🔍 변수 쿼리 실행: ${mapping.variable_name}`);
+            console.log(`📝 쿼리: ${mapping.source_field}`);
 
             // MySQL API 호출 - 전체 데이터 조회
             const variableResponse = await fetch(`${baseUrl}/api/mysql/query`, {
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
                 'x-vercel-set-bypass-cookie': 'true'
               },
               body: JSON.stringify({ 
-                query: mapping.sourceField,
+                query: mapping.source_field,
                 limit: 10000 // 충분한 데이터 로드
               })
             });
@@ -186,30 +186,30 @@ export async function POST(request: NextRequest) {
             if (variableResponse.ok) {
               const variableResult = await variableResponse.json();
               if (variableResult.success && variableResult.data) {
-                variableDataCache.set(mapping.variableName, variableResult.data);
-                executionLogs.push(`✅ 변수 데이터 캐시됨: ${mapping.variableName} (${variableResult.data.length}개 행)`);
-                console.log(`✅ 변수 데이터 캐시됨: ${mapping.variableName}`, {
+                variableDataCache.set(mapping.variable_name, variableResult.data);
+                executionLogs.push(`✅ 변수 데이터 캐시됨: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
+                console.log(`✅ 변수 데이터 캐시됨: ${mapping.variable_name}`, {
                   rowCount: variableResult.data.length,
                   sampleData: variableResult.data.slice(0, 3),
-                  keyColumn: mapping.keyColumn,
-                  outputColumn: mapping.selectedColumn,
-                  query: mapping.sourceField
+                  keyColumn: mapping.key_column,
+                  outputColumn: mapping.selected_column,
+                  query: mapping.source_field
                 });
                 
                 // 실행 로그에도 쿼리와 샘플 데이터 추가
-                executionLogs.push(`📝 쿼리: ${mapping.sourceField}`);
+                executionLogs.push(`📝 쿼리: ${mapping.source_field}`);
                 executionLogs.push(`📊 샘플 데이터: ${JSON.stringify(variableResult.data.slice(0, 2))}`);
               } else {
-                executionLogs.push(`❌ 변수 쿼리 결과 없음: ${mapping.variableName}`);
+                executionLogs.push(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
             } else {
               const errorText = await variableResponse.text();
-              executionLogs.push(`❌ 변수 쿼리 API 호출 실패: ${mapping.variableName} (${variableResponse.status})`);
-              console.error(`❌ MySQL API 오류 (${mapping.variableName}):`, errorText);
+              executionLogs.push(`❌ 변수 쿼리 API 호출 실패: ${mapping.variable_name} (${variableResponse.status})`);
+              console.error(`❌ MySQL API 오류 (${mapping.variable_name}):`, errorText);
             }
           } catch (queryError) {
-            console.error(`❌ 변수 쿼리 실행 오류 (${mapping.variableName}):`, queryError);
-            executionLogs.push(`❌ 변수 쿼리 실행 오류: ${mapping.variableName} - ${queryError instanceof Error ? queryError.message : '알 수 없는 오류'}`);
+            console.error(`❌ 변수 쿼리 실행 오류 (${mapping.variable_name}):`, queryError);
+            executionLogs.push(`❌ 변수 쿼리 실행 오류: ${mapping.variable_name} - ${queryError instanceof Error ? queryError.message : '알 수 없는 오류'}`);
           }
         }
       }
@@ -303,21 +303,21 @@ export async function POST(request: NextRequest) {
             // AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 매칭
             if (savedMappings) {
               for (const mapping of savedMappings) {
-                if (mapping.sourceType === 'query' && variableDataCache.has(mapping.variableName)) {
-                  const variableData = variableDataCache.get(mapping.variableName) || [];
+                if (mapping.source_type === 'query' && variableDataCache.has(mapping.variable_name)) {
+                  const variableData = variableDataCache.get(mapping.variable_name) || [];
                   
                   // BB열: 대상자 쿼리의 매칭 컬럼 (기본값: id)
                   // keyColumn에서 테이블 별칭 제거 (예: "a.id" → "id")
-                  const rawKeyColumn = mapping.keyColumn || 'id';
+                  const rawKeyColumn = mapping.key_column || 'id';
                   const targetMatchingColumn = rawKeyColumn.includes('.') ? rawKeyColumn.split('.').pop() : rawKeyColumn;
                   const targetMatchingValue = contact[targetMatchingColumn];
                   
-                  console.log(`🔍 매칭 시도: ${mapping.variableName}`, {
+                  console.log(`🔍 매칭 시도: ${mapping.variable_name}`, {
                     rawKeyColumn: rawKeyColumn,
                     targetColumn: targetMatchingColumn,
                     targetValue: targetMatchingValue,
                     variableDataCount: variableData.length,
-                    outputColumn: mapping.selectedColumn,
+                    outputColumn: mapping.selected_column,
                     contactKeys: Object.keys(contact)
                   });
                   
@@ -353,17 +353,17 @@ export async function POST(request: NextRequest) {
                   
                   if (matchedRow) {
                     // AB열(변수 쿼리의 출력 컬럼) → 최종 개인화 값
-                    const personalizedValue = matchedRow[mapping.selectedColumn];
-                    personalizedVariables[mapping.variableName] = String(personalizedValue || mapping.defaultValue || '');
+                    const personalizedValue = matchedRow[mapping.selected_column];
+                    personalizedVariables[mapping.variable_name] = String(personalizedValue || mapping.default_value || '');
                     
-                    executionLogs.push(`🔗 매칭 성공: ${mapping.variableName} = "${personalizedValue}" (${targetMatchingColumn}=${targetMatchingValue})`);
-                    console.log(`🔗 매칭 성공: ${mapping.variableName} = "${personalizedValue}"`);
+                    executionLogs.push(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}" (${targetMatchingColumn}=${targetMatchingValue})`);
+                    console.log(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}"`);
                     } else {
                     // 매칭 실패 시 기본값 사용
-                    const defaultValue = mapping.defaultValue || getSampleValueForVariable(mapping.variableName);
-                    personalizedVariables[mapping.variableName] = defaultValue;
-                    executionLogs.push(`⚠️ 매칭 실패, 기본값 사용: ${mapping.variableName} = "${defaultValue}" (대상값: ${targetMatchingValue})`);
-                    console.log(`⚠️ 매칭 실패: ${mapping.variableName}, 대상값: ${targetMatchingValue}, 변수데이터 샘플:`, variableData.slice(0, 3));
+                    const defaultValue = mapping.default_value || getSampleValueForVariable(mapping.variable_name);
+                    personalizedVariables[mapping.variable_name] = defaultValue;
+                    executionLogs.push(`⚠️ 매칭 실패, 기본값 사용: ${mapping.variable_name} = "${defaultValue}" (대상값: ${targetMatchingValue})`);
+                    console.log(`⚠️ 매칭 실패: ${mapping.variable_name}, 대상값: ${targetMatchingValue}, 변수데이터 샘플:`, variableData.slice(0, 3));
                     }
                   }
               }
