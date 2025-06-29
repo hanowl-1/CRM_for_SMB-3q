@@ -386,28 +386,28 @@ export async function POST(request: NextRequest) {
       }
 
       // 🔥 메시지 로그 저장 (실패해도 스케줄 작업 상태 업데이트에 영향 없음)
-      if (allMessageLogs.length > 0) {
-        try {
+        if (allMessageLogs.length > 0) {
+          try {
           console.log(`💾 메시지 로그 저장 시작: ${allMessageLogs.length}개`);
-          const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production' 
-            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://your-domain.vercel.app')
-            : 'http://localhost:3000')}/api/supabase/message-logs`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              action: 'bulk_create',
-              logs: allMessageLogs
-            })
-          });
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production' 
+              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://your-domain.vercel.app')
+              : 'http://localhost:3000')}/api/supabase/message-logs`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                action: 'bulk_create',
+                logs: allMessageLogs
+              })
+            });
 
-          if (!response.ok) {
+            if (!response.ok) {
             console.error('❌ 메시지 로그 저장 실패:', await response.text());
-          } else {
-            console.log(`✅ ${allMessageLogs.length}개 메시지 로그 저장 완료`);
-          }
-        } catch (logError) {
+            } else {
+              console.log(`✅ ${allMessageLogs.length}개 메시지 로그 저장 완료`);
+            }
+          } catch (logError) {
           console.error('❌ 메시지 로그 저장 오류:', logError);
           console.log('⚠️ 메시지 로그 저장 실패했지만 워크플로우는 성공적으로 완료되었습니다.');
           // 🔥 메시지 로그 저장 실패는 워크플로우 성공에 영향을 주지 않음
@@ -416,21 +416,32 @@ export async function POST(request: NextRequest) {
 
       // 🔥 워크플로우 실행 완료 후 처리 (return 전에 실행되어야 함)
       try {
+        console.log(`🔍 워크플로우 실행 완료 후 처리 시작`);
+        console.log(`📋 파라미터 상태: scheduledExecution=${scheduledExecution}, jobId=${jobId}, currentJobId=${currentJobId}`);
+        
         // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
         if (currentJobId) {
           console.log(`🔄 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
           try {
-            await getSupabase()
+            const { data: manualUpdateResult, error: manualUpdateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
                 completed_at: koreaTimeToUTCString(endTime),
                 updated_at: koreaTimeToUTCString(endTime)
               })
-              .eq('id', currentJobId);
-            console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`);
+              .eq('id', currentJobId)
+              .select();
+              
+            if (manualUpdateError) {
+              console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, manualUpdateError);
+            } else if (manualUpdateResult && manualUpdateResult.length > 0) {
+              console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`, manualUpdateResult[0]);
+            } else {
+              console.warn(`⚠️ 수동 실행 스케줄 잡을 찾을 수 없음: ${currentJobId}`);
+            }
           } catch (updateError) {
-            console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, updateError);
+            console.error(`❌ 수동 실행 스케줄 잡 완료 처리 예외: ${currentJobId}`, updateError);
           }
         }
 
@@ -439,60 +450,41 @@ export async function POST(request: NextRequest) {
           console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
           console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
           
-          const { data: updateResult, error: updateError } = await getSupabase()
+          // 🔥 스케줄 잡 존재 여부 먼저 확인
+          const { data: existingJob, error: checkError } = await getSupabase()
             .from('scheduled_jobs')
-            .update({ 
-              status: 'completed',
-              completed_at: koreaTimeToUTCString(endTime),
-              updated_at: koreaTimeToUTCString(endTime)
-            })
+            .select('id, status, workflow_id')
             .eq('id', jobId)
-            .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
-          
-          if (updateError) {
-            console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
-          } else if (updateResult && updateResult.length > 0) {
-            console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+            .single();
+            
+          if (checkError) {
+            console.error(`❌ 스케줄 잡 조회 실패: ${jobId}`, checkError);
+          } else if (!existingJob) {
+            console.warn(`⚠️ 스케줄 잡이 존재하지 않음: ${jobId}`);
           } else {
-            console.warn(`⚠️ 스케줄 잡을 찾을 수 없음: ${jobId}`);
+            console.log(`📋 스케줄 잡 확인됨: ${jobId}`, existingJob);
+            
+            // 실제 업데이트 수행
+            const { data: updateResult, error: updateError } = await getSupabase()
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'completed',
+                completed_at: koreaTimeToUTCString(endTime),
+                updated_at: koreaTimeToUTCString(endTime)
+              })
+              .eq('id', jobId)
+              .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
+            
+            if (updateError) {
+              console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+            } else if (updateResult && updateResult.length > 0) {
+              console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+            } else {
+              console.warn(`⚠️ 스케줄 잡 업데이트 결과 없음: ${jobId}`);
+            }
           }
         } else {
           console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
-        }
-        
-        // 3. 반복 스케줄인 경우 다음 스케줄 잡 생성
-        const scheduleConfig = workflow.scheduleSettings || (workflow as any).schedule_config;
-        
-        if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
-          console.log('🔄 반복 스케줄 감지, 다음 스케줄 잡 생성 중...');
-          
-          try {
-            // 스케줄 등록 API 호출
-            const baseUrl = process.env.NODE_ENV === 'production' 
-              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://v0-kakao-beryl.vercel.app')
-              : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
-
-            console.log('📡 다음 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
-            
-            const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
-                'x-vercel-set-bypass-cookie': 'true'
-              }
-            });
-
-            if (registerResponse.ok) {
-              const registerResult = await registerResponse.json();
-              console.log('✅ 다음 스케줄 등록 성공:', registerResult.message);
-            } else {
-              const errorText = await registerResponse.text();
-              console.warn('⚠️ 다음 스케줄 등록 실패:', errorText);
-            }
-          } catch (registerError) {
-            console.warn('⚠️ 다음 스케줄 등록 중 오류:', registerError);
-          }
         }
         
       } catch (postProcessError) {
@@ -1010,51 +1002,51 @@ async function getTargetsFromGroup(targetGroup: any) {
           : 'http://localhost:3000';
 
         const response = await fetch(`${baseUrl}/api/mysql/query`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
             'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
             'x-vercel-set-bypass-cookie': 'true'
-          },
-          body: JSON.stringify({ 
+        },
+        body: JSON.stringify({
             query: targetGroup.dynamicQuery.sql,
             limit: 10000 // 충분한 데이터 로드
-          })
-        });
+        })
+      });
 
-        if (!response.ok) {
+      if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`MySQL API 호출 실패: ${response.status} - ${errorText}`);
-        }
+      }
 
-        const result = await response.json();
+      const result = await response.json();
         console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.length });
-
+      
         if (!result.success || !result.data || result.data.length === 0) {
           console.warn(`⚠️ 대상자 조회 결과 없음`);
           return [];
-        }
+      }
 
         const contacts = result.data;
         console.log(`✅ 대상자 조회 성공: ${contacts.length}명`);
 
-        // MySQL 결과를 대상자 형식으로 변환
+      // MySQL 결과를 대상자 형식으로 변환
         return contacts.map((row: any, index: number) => {
-          // 연락처 필드 찾기 (contacts, phone, phoneNumber 등)
-          const phoneNumber = row.contacts || row.phone || row.phoneNumber || '01000000000';
-          const name = row.name || row.company || row.title || `대상자${index + 1}`;
-          const email = row.email || null;
+        // 연락처 필드 찾기 (contacts, phone, phoneNumber 등)
+        const phoneNumber = row.contacts || row.phone || row.phoneNumber || '01000000000';
+        const name = row.name || row.company || row.title || `대상자${index + 1}`;
+        const email = row.email || null;
 
           console.log(`👤 대상자 ${index + 1}: ${name} (${phoneNumber})`);
 
-          return {
-            id: row.id || index + 1,
-            name: name,
-            phoneNumber: phoneNumber,
-            email: email,
-            rawData: row // 원본 데이터 보관 (변수 치환용)
-          };
-        });
+        return {
+          id: row.id || index + 1,
+          name: name,
+          phoneNumber: phoneNumber,
+          email: email,
+          rawData: row // 원본 데이터 보관 (변수 치환용)
+        };
+      });
       } catch (apiError) {
         console.error(`❌ MySQL API 호출 실패:`, apiError);
         throw apiError;
@@ -1185,4 +1177,4 @@ function getPfIdForTemplate(templateId: string): string {
   }
   
   return KAKAO_SENDER_KEY || '';
-}
+} 

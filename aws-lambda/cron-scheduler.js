@@ -1,4 +1,5 @@
 const moment = require('moment-timezone');
+const https = require('https');
 
 // 한국 시간대 상수
 const KOREA_TIMEZONE = 'Asia/Seoul';
