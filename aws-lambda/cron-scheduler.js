@@ -59,10 +59,10 @@ exports.handler = async (event, context) => {
 
   const options = {
     hostname: projectUrl,
-    path: '/api/cron',
+    path: '/api/scheduler/execute',
     method: 'GET',
     headers: {
-      'Authorization': `Bearer ${secretToken}`,
+      'x-cron-secret': secretToken,
       'Content-Type': 'application/json',
       'User-Agent': 'AWS-Lambda-Scheduler/1.0'
     },
@@ -70,7 +70,7 @@ exports.handler = async (event, context) => {
   };
 
   return new Promise((resolve, reject) => {
-    console.log(`📡 Calling Vercel API: https://${projectUrl}/api/cron`);
+    console.log(`📡 Calling Vercel API: https://${projectUrl}/api/scheduler/execute`);
     
     const req = https.request(options, (res) => {
       let data = '';
