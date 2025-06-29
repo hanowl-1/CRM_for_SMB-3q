@@ -468,7 +468,7 @@ export async function POST(request: NextRequest) {
           try {
             // 스케줄 등록 API 호출
             const baseUrl = process.env.NODE_ENV === 'production' 
-              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
+              ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://v0-kakao-beryl.vercel.app')
               : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
             console.log('📡 다음 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
@@ -863,10 +863,21 @@ async function getTargetsFromGroup(targetGroup: any) {
   try {
     // MySQL 동적 쿼리 실행하여 실제 대상자 조회
     if (targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.sql) {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/mysql/query`, {
+      // 🔥 Vercel 환경에서도 작동하는 baseURL 생성
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://v0-kakao-beryl.vercel.app')
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+      
+      console.log(`🔍 대상자 조회 API 호출: ${baseUrl}/api/mysql/query`);
+      console.log(`📋 쿼리: ${targetGroup.dynamicQuery.sql}`);
+      
+      const response = await fetch(`${baseUrl}/api/mysql/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // Vercel Protection Bypass 헤더 추가
+          'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+          'x-vercel-set-bypass-cookie': 'true'
         },
         body: JSON.stringify({
           query: targetGroup.dynamicQuery.sql
@@ -874,14 +885,20 @@ async function getTargetsFromGroup(targetGroup: any) {
       });
 
       if (!response.ok) {
-        throw new Error(`MySQL 쿼리 실행 실패: ${response.status}`);
+        console.error(`❌ MySQL 쿼리 API 호출 실패: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`❌ 오류 내용: ${errorText}`);
+        throw new Error(`MySQL 쿼리 실행 실패: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
       
       if (!result.success || !result.data) {
+        console.error(`❌ MySQL 쿼리 결과 없음:`, result);
         throw new Error(`MySQL 쿼리 결과 없음: ${result.message}`);
       }
+
+      console.log(`✅ 대상자 조회 성공: ${result.data.length}명`);
 
       // MySQL 결과를 대상자 형식으로 변환
       return result.data.map((row: any, index: number) => {
@@ -900,7 +917,7 @@ async function getTargetsFromGroup(targetGroup: any) {
       });
     }
   } catch (error) {
-    console.error('대상자 조회 실패:', error);
+    console.error('❌ 대상자 조회 실패:', error);
     // 에러 발생 시 빈 배열 반환
     return [];
   }
