@@ -597,15 +597,30 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     let savedMappings: any[] = [];
     
     try {
-      const { data: mappings, error: mappingError } = await getSupabase()
+      console.log('📋 Supabase 연결 시도 중...');
+      const supabase = getSupabase();
+      console.log('📋 Supabase 클라이언트 생성 완료');
+      
+      const { data: mappings, error: mappingError } = await supabase
         .from('individual_variable_mappings')
         .select('*');
+        
+      console.log('📋 매핑 조회 결과:', {
+        hasData: !!mappings,
+        dataLength: mappings?.length || 0,
+        hasError: !!mappingError,
+        errorMessage: mappingError?.message,
+        errorCode: mappingError?.code
+      });
         
       if (mappingError) {
         console.error('❌ 개인화 매핑 조회 실패:', mappingError);
       } else {
         savedMappings = mappings || [];
         console.log(`📋 개인화 매핑 ${savedMappings.length}개 조회됨`);
+        if (savedMappings.length > 0) {
+          console.log('📋 첫 번째 매핑 샘플:', savedMappings[0]);
+        }
       }
     } catch (mappingFetchError) {
       console.error('❌ 개인화 매핑 조회 중 오류:', mappingFetchError);
