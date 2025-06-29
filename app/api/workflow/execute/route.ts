@@ -415,13 +415,14 @@ export async function POST(request: NextRequest) {
       }
 
       // 🔥 워크플로우 실행 완료 후 처리 (return 전에 실행되어야 함)
+      console.log(`🚨🚨🚨 워크플로우 실행 완료 후 처리 시작 - 이 로그가 보이면 후처리 로직이 실행됨 🚨🚨🚨`);
       try {
         console.log(`🔍 워크플로우 실행 완료 후 처리 시작`);
         console.log(`📋 파라미터 상태: scheduledExecution=${scheduledExecution}, jobId=${jobId}, currentJobId=${currentJobId}`);
         
         // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
         if (currentJobId) {
-          console.log(`🔄 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
+          console.log(`🚨 수동 실행 스케줄 잡 완료 처리 시작: ${currentJobId} 🚨`);
           try {
             const { data: manualUpdateResult, error: manualUpdateError } = await getSupabase()
               .from('scheduled_jobs')
@@ -443,14 +444,18 @@ export async function POST(request: NextRequest) {
           } catch (updateError) {
             console.error(`❌ 수동 실행 스케줄 잡 완료 처리 예외: ${currentJobId}`, updateError);
           }
+        } else {
+          console.log(`📋 currentJobId가 없어서 수동 실행 스케줄 잡 처리 건너뜀`);
         }
 
         // 2. 기존 스케줄 실행 잡 완료 처리 (스케줄 실행인 경우)
+        console.log(`🚨🚨🚨 스케줄 실행 잡 완료 처리 체크: scheduledExecution=${scheduledExecution}, jobId=${jobId} 🚨🚨🚨`);
         if (scheduledExecution && jobId) {
-          console.log(`🔄 스케줄 잡 완료 처리 시작: ${jobId}`);
+          console.log(`🚨🚨🚨 스케줄 잡 완료 처리 시작: ${jobId} - 이 로그가 보이면 스케줄 잡 업데이트가 시작됨 🚨🚨🚨`);
           console.log(`📋 scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
           
           // 🔥 스케줄 잡 존재 여부 먼저 확인
+          console.log(`🔍 스케줄 잡 존재 여부 확인 중: ${jobId}`);
           const { data: existingJob, error: checkError } = await getSupabase()
             .from('scheduled_jobs')
             .select('id, status, workflow_id')
@@ -458,13 +463,14 @@ export async function POST(request: NextRequest) {
             .single();
             
           if (checkError) {
-            console.error(`❌ 스케줄 잡 조회 실패: ${jobId}`, checkError);
+            console.error(`❌🚨 스케줄 잡 조회 실패: ${jobId}`, checkError);
           } else if (!existingJob) {
-            console.warn(`⚠️ 스케줄 잡이 존재하지 않음: ${jobId}`);
+            console.warn(`⚠️🚨 스케줄 잡이 존재하지 않음: ${jobId}`);
           } else {
-            console.log(`📋 스케줄 잡 확인됨: ${jobId}`, existingJob);
+            console.log(`📋✅ 스케줄 잡 확인됨: ${jobId}`, existingJob);
             
             // 실제 업데이트 수행
+            console.log(`🚨 실제 스케줄 잡 업데이트 수행 중: ${jobId} 🚨`);
             const { data: updateResult, error: updateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
@@ -476,19 +482,27 @@ export async function POST(request: NextRequest) {
               .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
             
             if (updateError) {
-              console.error(`❌ 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+              console.error(`❌🚨🚨🚨 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
             } else if (updateResult && updateResult.length > 0) {
-              console.log(`✅ 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+              console.log(`✅🚨🚨🚨 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
             } else {
-              console.warn(`⚠️ 스케줄 잡 업데이트 결과 없음: ${jobId}`);
+              console.warn(`⚠️🚨🚨🚨 스케줄 잡 업데이트 결과 없음: ${jobId}`);
             }
           }
         } else {
-          console.log(`📋 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
+          console.log(`📋🚨 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
+          if (!scheduledExecution) {
+            console.log(`📋 scheduledExecution이 false이므로 스케줄 잡 처리 안함`);
+          }
+          if (!jobId) {
+            console.log(`📋 jobId가 없으므로 스케줄 잡 처리 안함`);
+          }
         }
         
+        console.log(`🚨🚨🚨 워크플로우 실행 완료 후 처리 종료 🚨🚨🚨`);
+        
       } catch (postProcessError) {
-        console.warn('⚠️ 워크플로우 실행 후 처리 중 오류:', postProcessError);
+        console.error(`⚠️🚨🚨🚨 워크플로우 실행 후 처리 중 오류:`, postProcessError);
         // 후처리 실패는 전체 실행 성공에 영향을 주지 않음
       }
 
