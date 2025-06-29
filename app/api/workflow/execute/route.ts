@@ -733,13 +733,16 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               if (matchedRow) {
                 // AB열(변수 쿼리의 출력 컬럼) → 최종 개인화 값
                 const personalizedValue = matchedRow[mapping.selected_column];
-                personalizedVariables[mapping.variable_name] = String(personalizedValue || mapping.default_value || '--');
+                // 🔥 변수명에서 브레이스 제거하여 저장 (#{total_reviews} → total_reviews)
+                const cleanVariableName = mapping.variable_name.replace(/^#{|}$/g, '');
+                personalizedVariables[cleanVariableName] = String(personalizedValue || mapping.default_value || '--');
                 
                 console.log(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}" (${targetMatchingColumn}=${targetMatchingValue})`);
               } else {
                 // 매칭 실패 시 기본값 사용
                 const defaultValue = mapping.default_value || '--';
-                personalizedVariables[mapping.variable_name] = defaultValue;
+                const cleanVariableName = mapping.variable_name.replace(/^#{|}$/g, '');
+                personalizedVariables[cleanVariableName] = defaultValue;
                 console.log(`⚠️ 매칭 실패, 기본값 사용: ${mapping.variable_name} = "${defaultValue}" (대상값: ${targetMatchingValue})`);
               }
             }
