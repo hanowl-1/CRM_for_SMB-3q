@@ -585,10 +585,92 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     const templateId = step.action.templateId;
     const templateCode = step.action.templateCode;
     
-    // 템플릿 정보 조회
-    const templateInfo = KakaoAlimtalkTemplateById[templateId as keyof typeof KakaoAlimtalkTemplateById];
+    console.log(`🔍 템플릿 조회 시작:`, {
+      templateId,
+      templateCode,
+      hasAction: !!step.action,
+      actionKeys: Object.keys(step.action || {}),
+      hasTemplates: !!step.templates,
+      templatesLength: step.templates?.length || 0
+    });
+    
+    // 🔥 미리보기 API와 동일한 템플릿 조회 로직
+    const templateKey = templateCode || templateId;
+    console.log(`🔑 템플릿 키: ${templateKey}`);
+    
+    // 여러 방법으로 템플릿 찾기
+    let templateInfo = null;
+    
+    // 1) 직접 키 매칭
+    console.log(`🔍 1단계: 직접 키 매칭 시도 (${templateKey})`);
+    templateInfo = KakaoAlimtalkTemplateById[templateKey as keyof typeof KakaoAlimtalkTemplateById];
+    console.log(`📋 1단계 결과:`, !!templateInfo ? '성공' : '실패');
+    
+    // 1-1) 정확한 템플릿 ID로 재시도
+    if (!templateInfo && templateId === 'KA01TP250610072652095M0BPif67w7I') {
+      console.log(`🔍 1-1단계: 정확한 템플릿 ID로 재시도`);
+      templateInfo = KakaoAlimtalkTemplateById['KA01TP250610072652095M0BPif67w7I'];
+      console.log(`📋 1-1단계 결과:`, !!templateInfo ? '성공' : '실패');
+      if (templateInfo) {
+        console.log(`✅ 직접 매칭 성공:`, templateInfo.templateName);
+      }
+    }
+    
+    // 2) 113번 템플릿을 특별히 찾기
+    if (!templateInfo && step.templates?.[0]?.templateName?.includes('113.')) {
+      console.log(`🔍 2단계: 113번 템플릿 특별 매칭 시도`);
+      const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
+      console.log(`📋 총 템플릿 개수: ${templateEntries.length}`);
+      for (const [key, tmpl] of templateEntries) {
+        if (tmpl.templateName && tmpl.templateName.includes('113.') && tmpl.templateName.includes('상위 블로거 참여 O')) {
+          templateInfo = tmpl;
+          console.log(`✅ 113번 템플릿 매칭 성공: ${key}`);
+          break;
+        }
+      }
+      console.log(`📋 2단계 결과:`, !!templateInfo ? '성공' : '실패');
+    }
+    
+    // 3) 템플릿 이름으로 매칭
+    if (!templateInfo && step.templates?.[0]?.templateName) {
+      const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
+      for (const [key, tmpl] of templateEntries) {
+        if (tmpl.templateName === step.templates[0].templateName) {
+          templateInfo = tmpl;
+          console.log(`✅ 템플릿 이름 매칭 성공: ${key}`);
+          break;
+        }
+      }
+    }
+    
+    // 4) step.templates에서 직접 사용
+    if (!templateInfo && step.templates?.[0]) {
+      templateInfo = {
+        templateName: step.templates[0].templateName || '사용자 정의 템플릿',
+        content: step.templates[0].content,
+        templateParams: []
+      };
+      console.log(`✅ 사용자 정의 템플릿 사용: ${templateInfo.templateName}`);
+    }
+    
     if (!templateInfo) {
       throw new Error(`템플릿을 찾을 수 없습니다: ${templateId}`);
+    }
+    
+    console.log(`✅ 템플릿 로드 성공: ${templateInfo.templateName}`);
+    
+    // 🔥 실제 템플릿 ID 결정 (CoolSMS API 호출용)
+    let actualTemplateId = templateId;
+    
+    // 113번 템플릿인 경우 실제 CoolSMS 템플릿 ID로 변경
+    if (templateInfo.templateName?.includes('113.') && templateInfo.templateName?.includes('상위 블로거 참여 O')) {
+      actualTemplateId = 'KA01TP250610072652095M0BPif67w7I';
+      console.log(`🔄 113번 템플릿 ID 변경: ${templateId} → ${actualTemplateId}`);
+    }
+    // 다른 템플릿들도 실제 ID로 매핑
+    else if (templateInfo.templateId) {
+      actualTemplateId = templateInfo.templateId;
+      console.log(`🔄 템플릿 ID 업데이트: ${templateId} → ${actualTemplateId}`);
     }
 
     // 🔥 미리보기 API와 동일한 개인화 로직 사용 (Feature_Workflow_Builder.md 4.1.1 범용적 매칭 시스템)
@@ -620,6 +702,12 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
         console.log(`📋 개인화 매핑 ${savedMappings.length}개 조회됨`);
         if (savedMappings.length > 0) {
           console.log('📋 첫 번째 매핑 샘플:', savedMappings[0]);
+          console.log('📋 모든 매핑 목록:', savedMappings.map(m => ({
+            variable_name: m.variable_name,
+            source_type: m.source_type,
+            key_column: m.key_column,
+            selected_column: m.selected_column
+          })));
         }
       }
     } catch (mappingFetchError) {
@@ -679,6 +767,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
                 variableDataCache.set(mapping.variable_name, variableResult.data);
                 console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
                 console.log(`📊 샘플 데이터:`, variableResult.data.slice(0, 2));
+                console.log(`📊 첫 번째 행의 컬럼들:`, Object.keys(variableResult.data[0] || {}));
               } else {
                 console.log(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
@@ -720,70 +809,78 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
         // AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 매칭
         if (savedMappings.length > 0) {
           const contact = target.rawData || target;
+          console.log(`👤 대상자 정보:`, {
+            name: target.name,
+            id: target.id,
+            phoneNumber: target.phoneNumber,
+            contactKeys: Object.keys(contact),
+            contactData: contact
+          });
           
+          // 🔥 각 대상자별로 개별 변수 쿼리 실행 (동적 필터링)
           for (const mapping of savedMappings) {
-            if (mapping.source_type === 'query' && variableDataCache.has(mapping.variable_name)) {
-              const variableData = variableDataCache.get(mapping.variable_name) || [];
+            if (mapping.source_type === 'query' && mapping.source_field) {
               
               // BB열: 대상자 쿼리의 매칭 컬럼 (기본값: id)
-              // keyColumn에서 테이블 별칭 제거 (예: "a.id" → "id")
-              const rawKeyColumn = mapping.key_column || 'id';
-              const targetMatchingColumn = rawKeyColumn.includes('.') ? rawKeyColumn.split('.').pop() : rawKeyColumn;
-              const targetMatchingValue = contact[targetMatchingColumn];
+              const rawKeyColumn = mapping.key_column?.replace(/^[a-zA-Z]+\./, '') || 'id';
+              const targetMatchingValue = contact[rawKeyColumn] || contact.id || target.id;
               
-              console.log(`🔍 매칭 시도: ${mapping.variable_name}`, {
-                rawKeyColumn: rawKeyColumn,
-                targetColumn: targetMatchingColumn,
-                targetValue: targetMatchingValue,
-                variableDataCount: variableData.length,
-                outputColumn: mapping.selected_column,
-                contactKeys: Object.keys(contact)
-              });
+              console.log(`🎯 대상자별 변수 쿼리 실행: ${mapping.variable_name}`);
+              console.log(`📋 대상자 매칭 값: ${targetMatchingValue} (컬럼: ${rawKeyColumn})`);
               
-              // AA열(변수 쿼리의 매칭 컬럼) ↔ BB열(대상자 쿼리의 매칭 컬럼) 매칭
-              const matchedRow = variableData.find(row => {
-                // 변수 쿼리 결과에서 실제 사용 가능한 컬럼 확인
-                const availableColumns = Object.keys(row);
-                let variableMatchingValue;
+              try {
+                // 🔥 동적 WHERE 조건 추가하여 대상자별 데이터만 조회
+                let dynamicQuery = mapping.source_field;
                 
-                // 1) 설정된 keyColumn 사용 시도
-                if (row[rawKeyColumn] !== undefined) {
-                  variableMatchingValue = row[rawKeyColumn];
-                }
-                // 2) adId 컬럼 사용 시도 (리뷰 데이터의 경우)
-                else if (row['adId'] !== undefined) {
-                  variableMatchingValue = row['adId'];
-                }
-                // 3) id 컬럼 사용 시도
-                else if (row['id'] !== undefined) {
-                  variableMatchingValue = row['id'];
-                }
-                // 4) 첫 번째 컬럼 사용
-                else {
-                  variableMatchingValue = row[availableColumns[0]];
+                // 기존 쿼리에 WHERE 조건이 있는지 확인
+                if (dynamicQuery.toLowerCase().includes('where')) {
+                  // 기존 WHERE 조건에 AND 추가
+                  dynamicQuery = dynamicQuery.replace(/where/i, `WHERE a.id = ${targetMatchingValue} AND`);
+                } else {
+                  // WHERE 조건 추가
+                  if (dynamicQuery.toLowerCase().includes('group by')) {
+                    dynamicQuery = dynamicQuery.replace(/group by/i, `WHERE a.id = ${targetMatchingValue} GROUP BY`);
+                  } else {
+                    dynamicQuery += ` WHERE a.id = ${targetMatchingValue}`;
+                  }
                 }
                 
-                const isMatch = String(variableMatchingValue) === String(targetMatchingValue);
-                if (isMatch) {
-                  console.log(`✅ 매칭 발견: ${variableMatchingValue} === ${targetMatchingValue} (컬럼: ${availableColumns.join(', ')})`);
-                }
-                return isMatch;
-              });
-              
-              if (matchedRow) {
-                // AB열(변수 쿼리의 출력 컬럼) → 최종 개인화 값
-                const personalizedValue = matchedRow[mapping.selected_column];
-                // 🔥 변수명에서 브레이스 제거하여 저장 (#{total_reviews} → total_reviews)
-                const cleanVariableName = mapping.variable_name.replace(/^#{|}$/g, '');
-                personalizedVariables[cleanVariableName] = String(personalizedValue || mapping.default_value || '--');
+                console.log(`📝 동적 쿼리: ${dynamicQuery}`);
                 
-                console.log(`🔗 매칭 성공: ${mapping.variable_name} = "${personalizedValue}" (${targetMatchingColumn}=${targetMatchingValue})`);
-              } else {
-                // 매칭 실패 시 기본값 사용
+                const variableResponse = await fetch(`${baseUrl}/api/mysql/query`, {
+                  method: 'POST',
+                  headers: { 
+                    'Content-Type': 'application/json',
+                    'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || ''
+                  },
+                  body: JSON.stringify({ query: dynamicQuery })
+                });
+                
+                const variableResult = await variableResponse.json();
+                
+                if (variableResult.success && variableResult.data?.length > 0) {
+                  const variableData = variableResult.data;
+                  console.log(`✅ 대상자별 변수 데이터 조회 성공: ${variableData.length}개`);
+                  
+                  // 첫 번째 결과 사용 (대상자별로 필터링되었으므로 정확한 데이터)
+                  const matchedRow = variableData[0];
+                  const personalizedValue = matchedRow[mapping.selected_column];
+                  
+                  // 🔥 미리보기 API와 동일하게 변수명 그대로 사용 (#{total_reviews} 형태 유지)
+                  personalizedVariables[mapping.variable_name] = String(personalizedValue || mapping.default_value || '--');
+                  
+                  console.log(`🔗 대상자별 매칭 성공: ${mapping.variable_name} = "${personalizedValue}"`);
+                } else {
+                  console.log(`⚠️ 대상자별 변수 데이터 없음: ${mapping.variable_name}`);
+                  const defaultValue = mapping.default_value || '--';
+                  personalizedVariables[mapping.variable_name] = defaultValue;
+                  console.log(`🎲 기본값 사용: ${mapping.variable_name} = "${defaultValue}"`);
+                }
+                
+              } catch (error) {
+                console.error(`❌ 대상자별 변수 쿼리 실행 실패: ${mapping.variable_name}`, error);
                 const defaultValue = mapping.default_value || '--';
-                const cleanVariableName = mapping.variable_name.replace(/^#{|}$/g, '');
-                personalizedVariables[cleanVariableName] = defaultValue;
-                console.log(`⚠️ 매칭 실패, 기본값 사용: ${mapping.variable_name} = "${defaultValue}" (대상값: ${targetMatchingValue})`);
+                personalizedVariables[mapping.variable_name] = defaultValue;
               }
             }
           }
@@ -795,20 +892,17 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               
         // 발견된 모든 변수에 대해 기본값 설정
         templateVariableMatches.forEach(fullVar => {
-          const variableName = fullVar.replace(/^#{|}$/g, '');
-          
           // 매칭된 실제 값이 없는 경우에만 기본값 사용
-          if (personalizedVariables[variableName] === undefined) {
+          if (personalizedVariables[fullVar] === undefined) {
             // 워크플로우에서 설정한 기본값 또는 '--' 사용
-            personalizedVariables[variableName] = '--';
+            personalizedVariables[fullVar] = '--';
             console.log(`🎲 기본값 사용: ${fullVar} = "--"`);
           }
         });
 
         // 🔥 변수 치환 (매칭된 실제 값 우선 사용)
         templateVariableMatches.forEach(fullVar => {
-          const variableName = fullVar.replace(/^#{|}$/g, '');
-          const replacementValue = personalizedVariables[variableName] || '--';
+          const replacementValue = personalizedVariables[fullVar] || '--';
           processedContent = processedContent.replace(new RegExp(fullVar.replace(/[{}]/g, '\\$&'), 'g'), replacementValue);
         });
 
@@ -816,7 +910,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
         console.log(`📋 최종 개인화 변수:`, personalizedVariables);
 
         const result = await sendAlimtalk({
-          templateId,
+          templateId: actualTemplateId,
           templateContent: processedContent as any,
           phoneNumber: target.phoneNumber,
           variables: personalizedVariables,
@@ -838,7 +932,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           recipientPhone: target.phoneNumber,
           recipientEmail: target.email || null,
           recipientName: target.name || null,
-          templateId: templateId,
+          templateId: actualTemplateId,
           templateName: templateInfo.templateName || step.name,
           messageContent: processedContent, // 개인화된 콘텐츠 저장
           variables: personalizedVariables,
@@ -867,7 +961,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           recipientPhone: target.phoneNumber,
           recipientEmail: target.email || null,
           recipientName: target.name || null,
-          templateId: templateId,
+          templateId: actualTemplateId,
           templateName: templateInfo.templateName || step.name,
           messageContent: templateInfo.content,
           variables: step.action.variables,
@@ -1017,10 +1111,12 @@ async function sendAlimtalk({
   const salt = Date.now().toString();
   const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
 
-  // CoolSMS API에 맞는 변수 형식으로 변환: #{변수명} 형식
+  // CoolSMS API에 맞는 변수 형식으로 변환: 
+  // variables 객체에 이미 #{변수명} 형태로 저장되어 있으므로 그대로 사용
   const coolsmsVariables: Record<string, string> = {};
   Object.entries(variables).forEach(([key, value]) => {
-    coolsmsVariables[`#{${key}}`] = value;
+    // key가 이미 #{변수명} 형태이므로 그대로 사용
+    coolsmsVariables[key] = value;
   });
 
   // 변수 치환된 메시지 내용 생성 (로깅용)
