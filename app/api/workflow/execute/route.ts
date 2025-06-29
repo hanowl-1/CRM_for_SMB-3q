@@ -4,7 +4,7 @@ import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
 import mysql from 'mysql2/promise';
-import { getSupabase } from '@/lib/database/supabase-client';
+import { getSupabase, getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { 
   getKoreaTime, 
   koreaTimeToUTCString, 
@@ -598,7 +598,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     
     try {
       console.log('📋 Supabase 연결 시도 중...');
-      const supabase = getSupabase();
+      const supabase = getSupabaseAdmin();
       console.log('📋 Supabase 클라이언트 생성 완료');
       
       const { data: mappings, error: mappingError } = await supabase
