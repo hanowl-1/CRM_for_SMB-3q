@@ -632,13 +632,26 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
       ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://your-domain.vercel.app')
       : 'http://localhost:3000');
 
+    console.log('🌐 베이스 URL:', baseUrl);
+    console.log('🔍 매핑 데이터 확인:', {
+      savedMappingsLength: savedMappings.length,
+      firstMapping: savedMappings.length > 0 ? savedMappings[0] : null
+    });
+
     if (savedMappings.length > 0) {
       console.log('🔍 변수 쿼리 실행 시작...');
       
       for (const mapping of savedMappings) {
+        console.log(`📊 매핑 처리 중: ${mapping.variable_name}`, {
+          sourceType: mapping.source_type,
+          hasSourceField: !!mapping.source_field,
+          alreadyCached: variableDataCache.has(mapping.variable_name)
+        });
+        
         if (mapping.source_type === 'query' && mapping.source_field && !variableDataCache.has(mapping.variable_name)) {
           try {
             console.log(`📊 변수 쿼리 실행: ${mapping.variable_name}`);
+            console.log(`📝 쿼리: ${mapping.source_field}`);
             
             const variableResponse = await fetch(`${baseUrl}/api/mysql/query`, {
               method: 'POST',
@@ -652,23 +665,35 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               })
             });
 
+            console.log(`📡 MySQL API 응답 상태: ${variableResponse.status}`);
+
             if (variableResponse.ok) {
               const variableResult = await variableResponse.json();
+              console.log(`📊 변수 쿼리 결과:`, {
+                success: variableResult.success,
+                hasData: !!variableResult.data,
+                dataLength: variableResult.data?.length || 0
+              });
+              
               if (variableResult.success && variableResult.data && variableResult.data.length > 0) {
                 variableDataCache.set(mapping.variable_name, variableResult.data);
                 console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
+                console.log(`📊 샘플 데이터:`, variableResult.data.slice(0, 2));
               } else {
                 console.log(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
             } else {
               const errorText = await variableResponse.text();
               console.error(`❌ 변수 쿼리 API 호출 실패: ${mapping.variable_name} (${variableResponse.status})`);
+              console.error(`❌ 오류 내용:`, errorText);
             }
           } catch (queryError) {
             console.error(`❌ 변수 쿼리 실행 오류 (${mapping.variable_name}):`, queryError);
           }
         }
       }
+    } else {
+      console.log('⚠️ 저장된 매핑이 없습니다. 기본값만 사용됩니다.');
     }
 
     console.log(`🔍 변수 캐시 상태: ${variableDataCache.size}개 변수, 총 ${Array.from(variableDataCache.values()).reduce((sum, arr) => sum + arr.length, 0)}개 행`);
