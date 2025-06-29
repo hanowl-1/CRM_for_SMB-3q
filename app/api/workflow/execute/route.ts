@@ -599,8 +599,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     try {
       const { data: mappings, error: mappingError } = await getSupabase()
         .from('individual_variable_mappings')
-        .select('*')
-        .eq('workflow_id', workflow.id);
+        .select('*');
         
       if (mappingError) {
         console.error('❌ 개인화 매핑 조회 실패:', mappingError);
