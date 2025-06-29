@@ -13,6 +13,7 @@ import {
   calculateNextKoreaScheduleTime, 
   koreaTimeToUTC
 } from '@/lib/utils/timezone';
+import { executeQuery } from '@/lib/database/mysql-connection.js';
 
 const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
 const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
@@ -863,58 +864,65 @@ async function getTargetsFromGroup(targetGroup: any) {
   try {
     // MySQL 동적 쿼리 실행하여 실제 대상자 조회
     if (targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.sql) {
-      // 🔥 Vercel 환경에서도 작동하는 baseURL 생성
-      const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://v0-kakao-beryl.vercel.app')
-        : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
-      
-      console.log(`🔍 대상자 조회 API 호출: ${baseUrl}/api/mysql/query`);
+      console.log(`🔍 대상자 조회 시작 - MySQL API 호출 사용`);
       console.log(`📋 쿼리: ${targetGroup.dynamicQuery.sql}`);
       
-      const response = await fetch(`${baseUrl}/api/mysql/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Vercel Protection Bypass 헤더 추가
-          'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
-          'x-vercel-set-bypass-cookie': 'true'
-        },
-        body: JSON.stringify({
-          query: targetGroup.dynamicQuery.sql
-        })
-      });
+      try {
+        // 🔥 미리보기 API와 동일한 방식: MySQL API 호출
+        const baseUrl = process.env.NODE_ENV === 'production' 
+          ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://v0-kakao-beryl.vercel.app')
+          : 'http://localhost:3000';
 
-      if (!response.ok) {
-        console.error(`❌ MySQL 쿼리 API 호출 실패: ${response.status}`);
-        const errorText = await response.text();
-        console.error(`❌ 오류 내용: ${errorText}`);
-        throw new Error(`MySQL 쿼리 실행 실패: ${response.status} - ${errorText}`);
+        const response = await fetch(`${baseUrl}/api/mysql/query`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
+            'x-vercel-set-bypass-cookie': 'true'
+          },
+          body: JSON.stringify({ 
+            query: targetGroup.dynamicQuery.sql,
+            limit: 10000 // 충분한 데이터 로드
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`MySQL API 호출 실패: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.length });
+
+        if (!result.success || !result.data || result.data.length === 0) {
+          console.warn(`⚠️ 대상자 조회 결과 없음`);
+          return [];
+        }
+
+        const contacts = result.data;
+        console.log(`✅ 대상자 조회 성공: ${contacts.length}명`);
+
+        // MySQL 결과를 대상자 형식으로 변환
+        return contacts.map((row: any, index: number) => {
+          // 연락처 필드 찾기 (contacts, phone, phoneNumber 등)
+          const phoneNumber = row.contacts || row.phone || row.phoneNumber || '01000000000';
+          const name = row.name || row.company || row.title || `대상자${index + 1}`;
+          const email = row.email || null;
+
+          console.log(`👤 대상자 ${index + 1}: ${name} (${phoneNumber})`);
+
+          return {
+            id: row.id || index + 1,
+            name: name,
+            phoneNumber: phoneNumber,
+            email: email,
+            rawData: row // 원본 데이터 보관 (변수 치환용)
+          };
+        });
+      } catch (apiError) {
+        console.error(`❌ MySQL API 호출 실패:`, apiError);
+        throw apiError;
       }
-
-      const result = await response.json();
-      
-      if (!result.success || !result.data) {
-        console.error(`❌ MySQL 쿼리 결과 없음:`, result);
-        throw new Error(`MySQL 쿼리 결과 없음: ${result.message}`);
-      }
-
-      console.log(`✅ 대상자 조회 성공: ${result.data.length}명`);
-
-      // MySQL 결과를 대상자 형식으로 변환
-      return result.data.map((row: any, index: number) => {
-        // 연락처 필드 찾기 (contacts, phone, phoneNumber 등)
-        const phoneNumber = row.contacts || row.phone || row.phoneNumber || '01000000000';
-        const name = row.name || row.company || row.title || `대상자${index + 1}`;
-        const email = row.email || null;
-
-        return {
-          id: row.id || index + 1,
-          name: name,
-          phoneNumber: phoneNumber,
-          email: email,
-          rawData: row // 원본 데이터 보관 (변수 치환용)
-        };
-      });
     }
   } catch (error) {
     console.error('❌ 대상자 조회 실패:', error);
