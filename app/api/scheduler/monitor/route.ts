@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const forceCleanup = searchParams.get('force_cleanup') === 'true';
     
     const client = getSupabase();
-    const now = getKoreaTime();
+    const now = new Date(); // 🔥 현재 UTC 시간 사용 (정확한 시간 처리)
     
     console.log(`📊 스케줄러 모니터링 시작: ${formatKoreaTime(now)}`);
     console.log(`🔧 강제 정리 모드: ${forceCleanup ? 'ON' : 'OFF'}`);

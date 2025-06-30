@@ -15,12 +15,12 @@ import {
 export async function GET(request: NextRequest) {
   try {
     const client = getSupabase();
-    const now = getKoreaTime();
+    const now = new Date(); // 🔥 현재 UTC 시간 사용 (정확한 시간 처리)
     
     // 1. 시스템 헬스체크 로그 기록
     const healthCheck = {
-      timestamp: koreaTimeToUTCString(now),
-      korea_time: formatKoreaTime(now),
+      timestamp: now.toISOString(), // 🔥 정확한 UTC 시간
+      korea_time: formatKoreaTime(now), // 🔥 UTC → KST 표시 변환
       check_type: 'scheduler_health',
       environment: process.env.NODE_ENV,
       aws_lambda_enabled: process.env.AWS_LAMBDA_ENABLED === 'true'
@@ -33,14 +33,14 @@ export async function GET(request: NextRequest) {
     const { data: recentJobs } = await client
       .from('scheduled_jobs')
       .select('*')
-      .gte('created_at', koreaTimeToUTCString(fiveMinutesAgo))
+      .gte('created_at', fiveMinutesAgo.toISOString()) // 🔥 정확한 UTC 시간 사용
       .order('created_at', { ascending: false });
     
     // 최근 실행된 스케줄 잡들  
     const { data: recentExecutions } = await client
       .from('scheduled_jobs')
       .select('*')
-      .gte('executed_at', koreaTimeToUTCString(fiveMinutesAgo))
+      .gte('executed_at', fiveMinutesAgo.toISOString()) // 🔥 정확한 UTC 시간 사용
       .order('executed_at', { ascending: false });
     
     // 현재 대기 중인 실행 가능한 작업들
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       .from('scheduled_jobs')
       .select('*')
       .eq('status', 'pending')
-      .lte('scheduled_time', koreaTimeToUTCString(now))
+      .lte('scheduled_time', now.toISOString()) // 🔥 정확한 UTC 시간 사용
       .order('scheduled_time', { ascending: true });
     
     // 3. AWS Lambda 실행 추론
