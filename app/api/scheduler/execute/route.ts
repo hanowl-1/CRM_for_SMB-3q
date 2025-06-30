@@ -37,6 +37,18 @@ function getBaseUrl(request: NextRequest): string {
 
 // 스케줄 작업 실행 API
 export async function GET(request: NextRequest) {
+  const startTime = new Date();
+  console.log(`\n🚀 === 스케줄러 실행 시작 (${startTime.toISOString()}) ===`);
+  console.log(`📋 환경: ${process.env.NODE_ENV}`);
+  console.log(`📋 User-Agent: ${request.headers.get('user-agent') || 'Unknown'}`);
+  console.log(`📋 호출 경로: ${request.url}`);
+  
+  // 🔥 AWS Lambda 호출인지 확인
+  const isAwsLambdaCall = request.headers.get('user-agent')?.includes('aws-lambda') || 
+                         request.headers.get('x-forwarded-for') || 
+                         request.headers.get('x-amzn-trace-id');
+  console.log(`📋 AWS Lambda 호출: ${isAwsLambdaCall ? 'YES' : 'NO'}`);
+  
   const debugInfo: any[] = [];
   let executedCount = 0;
   const results: any[] = [];
@@ -62,70 +74,176 @@ export async function GET(request: NextRequest) {
     /**
      * 🕐 시간대 처리 원칙:
      * - 저장: UTC로 DB 저장 (서버 환경 독립적)
-     * - 비교: 한국 시간 기준으로 실행 시간 판단
+     * - 비교: UTC 기준으로 실행 시간 판단 (정확한 비교)
      * - 표시: 사용자에게는 KST로 표시
      */
-    const now = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 현재 시간
-    const currentTimeString = formatKoreaTime(now);
+    const now = new Date(); // 🔥 현재 UTC 시간 사용 (정확한 비교를 위해)
+    const currentTimeString = formatKoreaTime(now); // 표시용은 한국시간으로
     
-    console.log(`\n🕐 === 스케줄 실행기 시작 ===`);
-    console.log(`현재 한국 시간: ${currentTimeString}`);
-    console.log(`환경: ${process.env.NODE_ENV}`);
-    console.log(`베이스 URL: ${getBaseUrl(request)}`);
+    console.log(`⏰ 현재 한국 시간: ${currentTimeString}`);
     
-    // 실행 대기 중인 작업들 조회 (UTC로 저장된 시간을 가져옴)
+    // 🔥 멈춘 작업 복구 로직 추가 (5분 이상 running 상태인 작업들)
+    console.log('\n🔧 === 멈춘 작업 복구 검사 시작 ===');
+    const { data: stuckJobs, error: stuckJobsError } = await supabase
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('status', 'running');
+      
+    if (stuckJobs && stuckJobs.length > 0) {
+      console.log(`📋 running 상태 작업 ${stuckJobs.length}개 발견`);
+      
+      for (const stuckJob of stuckJobs) {
+        console.log(`📋 작업 분석: ${stuckJob.id} (${stuckJob.workflow_data?.name})`);
+        console.log(`   - 상태: ${stuckJob.status}`);
+        console.log(`   - executed_at: ${stuckJob.executed_at}`);
+        console.log(`   - created_at: ${stuckJob.created_at}`);
+        
+        const executedAt = stuckJob.executed_at ? new Date(stuckJob.executed_at) : null;
+        
+        if (executedAt) {
+          const runningMinutes = (now.getTime() - executedAt.getTime()) / (1000 * 60);
+          console.log(`📋 작업 ${stuckJob.id}: ${runningMinutes.toFixed(1)}분 실행 중`);
+          
+          // 3분 이상 running 상태면 실패로 처리 (테스트용)
+          if (runningMinutes > 3) {
+            console.log(`⚠️ 작업 ${stuckJob.id} 복구 시작: ${runningMinutes.toFixed(1)}분 동안 멈춤`);
+            
+            const { error: updateError } = await supabase
+              .from('scheduled_jobs')
+              .update({
+                status: 'failed',
+                error_message: `실행 타임아웃: ${runningMinutes.toFixed(1)}분 동안 응답 없음`,
+                failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
+                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+              })
+              .eq('id', stuckJob.id);
+              
+            if (updateError) {
+              console.error(`❌ 작업 ${stuckJob.id} 복구 실패:`, updateError);
+            } else {
+              console.log(`✅ 작업 ${stuckJob.id} 복구 완료: failed 상태로 변경`);
+            }
+          }
+        } else {
+          // executed_at이 없는 running 작업은 즉시 복구
+          console.log(`⚠️ 작업 ${stuckJob.id}: executed_at 없는 running 상태 - 즉시 복구`);
+          
+          const { error: updateError } = await supabase
+            .from('scheduled_jobs')
+            .update({
+              status: 'failed',
+              error_message: 'executed_at 누락된 비정상 running 상태',
+              failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
+              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+            })
+            .eq('id', stuckJob.id);
+            
+          if (updateError) {
+            console.error(`❌ 작업 ${stuckJob.id} 복구 실패:`, updateError);
+          } else {
+            console.log(`✅ 작업 ${stuckJob.id} 복구 완료: failed 상태로 변경`);
+          }
+        }
+      }
+    } else {
+      console.log('📋 멈춘 running 작업 없음');
+    }
+    
+    // pending 상태인 스케줄 작업 조회
     const { data: jobs, error } = await supabase
       .from('scheduled_jobs')
       .select('*')
       .eq('status', 'pending')
       .order('scheduled_time', { ascending: true });
     
+    console.log(`📋 조회된 pending 작업 수: ${jobs?.length || 0}개`);
+    
     if (error) {
-      console.error('❌ 스케줄 작업 조회 실패:', error);
-      return NextResponse.json({
-        success: false,
-        message: '스케줄 작업 조회 실패: ' + error.message
-      }, { status: 500 });
+      console.error('❌ 작업 조회 실패:', error);
+      throw error;
     }
     
-    console.log(`📋 대기 중인 작업 수: ${jobs?.length || 0}개`);
+    if (!jobs || jobs.length === 0) {
+      console.log('📋 pending 상태인 작업이 없습니다.');
+      return NextResponse.json({
+        success: true,
+        data: {
+          executedCount: 0,
+          results: [],
+          debugInfo: [],
+          message: '실행할 작업이 없습니다.',
+          totalPendingJobs: 0,
+          environment: process.env.NODE_ENV,
+          baseUrl: getBaseUrl(request),
+          timestamp: currentTimeString,
+          awsLambdaCall: isAwsLambdaCall
+        }
+      });
+    }
     
     const jobsToExecute: any[] = [];
     
     // 각 작업에 대해 실행 시간 체크
     for (const job of jobs || []) {
-      // 🔥 단순화된 시간 해석: 기존 데이터는 스마트 감지, 새 데이터는 직접 해석
+      console.log(`\n--- 작업 분석: ${job.id} ---`);
+      console.log(`📋 워크플로우명: ${job.workflow_data?.name || 'Unknown'}`);
+      console.log(`📋 예정시간(원본): ${job.scheduled_time}`);
+      console.log(`📋 생성시간: ${job.created_at}`);
+      console.log(`📋 상태: ${job.status}`);
+      
+      // 🔥 스마트 시간 해석: UTC/KST 형식 자동 감지 (모니터링 API와 동일한 로직)
       let scheduledTimeKST: Date;
       
       try {
-        const storedTime = new Date(job.scheduled_time);
+        const storedTimeString = job.scheduled_time;
         
-        // 생성 시간이 최근(24시간 이내)이면 새 형식(KST 저장)으로 간주
-        const createdAt = new Date(job.created_at || job.scheduled_time);
-        const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
-        
-        if (isRecentData) {
-          // 새 데이터: 한국시간으로 저장됨
-          scheduledTimeKST = storedTime;
-          console.log(`⚡ 최근 데이터 - KST 직접 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+        // 타임존이 포함된 ISO 문자열인지 확인 (+09:00, Z 등)
+        if (storedTimeString.includes('+09:00') || storedTimeString.includes('+0900')) {
+          // 한국 타임존이 포함된 경우: 직접 Date 생성자로 파싱하여 정확한 UTC 시간 획득
+          scheduledTimeKST = new Date(storedTimeString);
+          console.log(`⚡ 타임존 포함 - 직접 파싱: ${storedTimeString} → UTC ${scheduledTimeKST.toISOString()}`);
+        } else if (storedTimeString.includes('Z')) {
+          // UTC 타임존이 포함된 경우: UTC로 해석하고 한국시간으로 변환
+          const storedTime = new Date(storedTimeString);
+          scheduledTimeKST = utcToKoreaTime(storedTime);
+          console.log(`⚡ UTC 타임존 - UTC→KST 변환: ${storedTimeString} → ${formatKoreaTime(scheduledTimeKST)}`);
         } else {
-          // 기존 데이터: UTC/KST 자동 감지
-          const utcInterpretation = utcToKoreaTime(storedTime);
-          const directInterpretation = storedTime;
+          // 타임존이 없는 경우: 기존 스마트 감지 로직 적용
+          const storedTime = new Date(storedTimeString);
           
-          const utcDiffHours = Math.abs(now.getTime() - utcInterpretation.getTime()) / (1000 * 60 * 60);
-          const directDiffHours = Math.abs(now.getTime() - directInterpretation.getTime()) / (1000 * 60 * 60);
+          // 생성 시간이 최근(24시간 이내)이면 새 형식(KST 저장)으로 간주
+          const createdAt = new Date(job.created_at || job.scheduled_time);
+          const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
           
-          if (utcDiffHours < directDiffHours && utcDiffHours < 24) {
-            scheduledTimeKST = utcInterpretation;
-            console.log(`⚡ 기존 데이터 - UTC 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+          console.log(`📋 데이터 생성일시: ${createdAt.toISOString()}`);
+          console.log(`📋 최근 데이터 여부 (24시간 이내): ${isRecentData}`);
+          
+          if (isRecentData) {
+            // 새 데이터: 한국시간으로 저장됨
+            scheduledTimeKST = storedTime;
+            console.log(`⚡ 최근 데이터 - KST 직접 해석: ${storedTimeString} → ${formatKoreaTime(scheduledTimeKST)}`);
           } else {
-            scheduledTimeKST = directInterpretation;
-            console.log(`⚡ 기존 데이터 - KST 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+            // 기존 데이터: UTC/KST 자동 감지
+            const utcInterpretation = utcToKoreaTime(storedTime);
+            const directInterpretation = storedTime;
+            
+            const utcDiffHours = Math.abs(now.getTime() - utcInterpretation.getTime()) / (1000 * 60 * 60);
+            const directDiffHours = Math.abs(now.getTime() - directInterpretation.getTime()) / (1000 * 60 * 60);
+            
+            console.log(`📋 UTC 해석 시간차: ${utcDiffHours.toFixed(2)}시간`);
+            console.log(`📋 직접 해석 시간차: ${directDiffHours.toFixed(2)}시간`);
+            
+            if (utcDiffHours < directDiffHours && utcDiffHours < 24) {
+              scheduledTimeKST = utcInterpretation;
+              console.log(`⚡ 기존 데이터 - UTC 해석: ${storedTimeString} → ${formatKoreaTime(scheduledTimeKST)}`);
+            } else {
+              scheduledTimeKST = directInterpretation;
+              console.log(`⚡ 기존 데이터 - KST 해석: ${storedTimeString} → ${formatKoreaTime(scheduledTimeKST)}`);
+            }
           }
         }
       } catch (error) {
-        console.error(`시간 파싱 오류 (${job.id}):`, error);
+        console.error(`❌ 시간 파싱 실패: ${job.scheduled_time}`, error);
         scheduledTimeKST = new Date(job.scheduled_time);
       }
       
@@ -136,6 +254,12 @@ export async function GET(request: NextRequest) {
       const TOLERANCE_MS = 10 * 60 * 1000; // 10분 = 600초
       const isTimeToExecute = now.getTime() >= (scheduledTimeKST.getTime() - TOLERANCE_MS);
       
+      console.log(`📊 시간 분석 결과:`);
+      console.log(`   - 현재시간: ${currentTimeString} (${now.getTime()})`);
+      console.log(`   - 예정시간: ${formatKoreaTime(scheduledTimeKST)} (${scheduledTimeKST.getTime()})`);
+      console.log(`   - 시간차이: ${timeDiffSeconds}초 (${(timeDiffSeconds/60).toFixed(1)}분)`);
+      console.log(`   - 실행가능: ${isTimeToExecute} (10분 허용오차 적용)`);
+
       debugInfo.push({
         id: job.id,
         workflow_name: job.workflow_data?.name || 'Unknown',
@@ -146,20 +270,21 @@ export async function GET(request: NextRequest) {
         isTimeToExecute
       });
       
-      console.log(`작업 ${job.id}: 예정시간=${formatKoreaTime(scheduledTimeKST)}, 현재시간=${currentTimeString}, 차이=${timeDiffSeconds}초, 실행가능=${isTimeToExecute}, 상태=${job.status}`);
-      
       if (isTimeToExecute) {
-        console.log(`✅ 실행 대상: ${job.workflow_data?.name} (${job.id})`);
+        console.log(`✅ 실행 대상 추가: ${job.workflow_data?.name} (${job.id})`);
         jobsToExecute.push(job);
       } else {
-        console.log(`⏸️ 대기: ${job.workflow_data?.name} (${timeDiffSeconds}초 남음)`);
+        const remainingSeconds = Math.abs(timeDiffSeconds);
+        const remainingMinutes = Math.floor(remainingSeconds / 60);
+        console.log(`⏸️ 대기: ${job.workflow_data?.name} (${remainingMinutes}분 ${remainingSeconds % 60}초 남음)`);
       }
     }
     
-    console.log(`🎯 실행할 작업 수: ${jobsToExecute.length}개`);
+    console.log(`\n🎯 최종 실행 대상: ${jobsToExecute.length}개`);
+    console.log(`📋 전체 pending 작업: ${jobs?.length || 0}개`);
     
     if (jobsToExecute.length === 0) {
-      console.log('⏸️ 실행할 작업이 없습니다.');
+      console.log('⏸️ 현재 실행할 작업이 없습니다.');
       return NextResponse.json({
         success: true,
         data: {
@@ -169,13 +294,15 @@ export async function GET(request: NextRequest) {
           message: '실행할 작업이 없습니다.',
           totalPendingJobs: jobs?.length || 0,
           environment: process.env.NODE_ENV,
-          baseUrl: getBaseUrl(request)
+          baseUrl: getBaseUrl(request),
+          timestamp: currentTimeString,
+          awsLambdaCall: isAwsLambdaCall
         }
       });
     }
     
     // 작업 실행
-    console.log(`\n🚀 === 작업 실행 시작 ===`);
+    console.log(`\n🚀 === 작업 실행 시작 (${jobsToExecute.length}개) ===`);
     
     for (const job of jobsToExecute) {
       try {
@@ -190,9 +317,9 @@ export async function GET(request: NextRequest) {
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            // 🔥 시간대 처리: 한국 시간 그대로 저장
-            executed_at: now.toISOString(),
-            updated_at: now.toISOString()
+            // 🔥 시간대 처리: 한국시간 문자열로 저장
+            executed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
+            updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
           })
           .eq('id', job.id);
         
@@ -213,7 +340,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: now.toISOString()
+              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
             })
             .eq('id', job.id);
           
@@ -296,7 +423,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: now.toISOString()
+              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
             })
             .eq('id', job.id);
           
@@ -336,7 +463,7 @@ export async function GET(request: NextRequest) {
             status: 'failed',
             error_message: error instanceof Error ? error.message : '알 수 없는 오류',
             retry_count: (job.retry_count || 0) + 1,
-            updated_at: now.toISOString()
+            updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
           })
           .eq('id', job.id);
         

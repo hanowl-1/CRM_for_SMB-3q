@@ -93,13 +93,14 @@ export async function POST(request) {
         recipient_email: data.recipientEmail,
         recipient_name: data.recipientName,
         template_id: data.templateId,
-        template_name: data.templateName,
         message_content: data.messageContent,
-        variables: data.variables || {},
+        variables_used: data.variables || {},
         status: data.status || 'pending',
         provider: data.provider,
         provider_message_id: data.providerMessageId,
-        sent_at: data.sentAt ? new Date(data.sentAt).toISOString() : null
+        cost: data.costAmount || 0,
+        sent_at: data.sentAt ? new Date(data.sentAt).toISOString() : null,
+        error_message: data.errorMessage || null
       };
 
       console.log('📝 단일 로그 생성 시도:', logData.workflow_name);
@@ -119,6 +120,70 @@ export async function POST(request) {
         success: true,
         data: result,
         message: '메시지 로그가 생성되었습니다.'
+      });
+    }
+
+    if (action === 'bulk_create') {
+      // 🔥 대량 메시지 로그 생성 (워크플로우 실행용)
+      const { logs } = data;
+      
+      if (!logs || !Array.isArray(logs) || logs.length === 0) {
+        console.warn('⚠️ 저장할 로그 데이터가 없습니다.');
+        return NextResponse.json({
+          success: true,
+          data: [],
+          message: '저장할 로그가 없습니다.'
+        });
+      }
+
+      console.log(`📝 대량 로그 생성 시도: ${logs.length}개`);
+      
+      // 로그 데이터 변환
+      const logDataArray = logs.map(log => ({
+        workflow_id: log.workflowId,
+        workflow_name: log.workflowName,
+        message_type: log.messageType,
+        recipient_phone: log.recipientPhone,
+        recipient_email: log.recipientEmail,
+        recipient_name: log.recipientName,
+        template_id: log.templateId,
+        message_content: log.messageContent,
+        variables_used: log.variables || {},
+        status: log.status || 'pending',
+        provider: log.provider,
+        provider_message_id: log.providerMessageId,
+        cost: log.costAmount || 0,
+        sent_at: log.sentAt ? new Date(log.sentAt).toISOString() : null,
+        error_message: log.errorMessage || null
+      }));
+
+      console.log('📋 변환된 로그 데이터 샘플:', {
+        count: logDataArray.length,
+        first: logDataArray[0] ? {
+          workflow_name: logDataArray[0].workflow_name,
+          recipient_phone: logDataArray[0].recipient_phone,
+          status: logDataArray[0].status,
+          provider: logDataArray[0].provider,
+          provider_message_id: logDataArray[0].provider_message_id,
+          cost_amount: logDataArray[0].cost_amount
+        } : 'none'
+      });
+
+      const { data: results, error } = await getSupabaseAdmin()
+        .from('message_logs')
+        .insert(logDataArray)
+        .select();
+
+      if (error) {
+        console.error('❌ 대량 로그 생성 실패:', error);
+        throw error;
+      }
+
+      console.log(`✅ 대량 로그 생성 성공: ${results.length}개`);
+      return NextResponse.json({
+        success: true,
+        data: results,
+        message: `${results.length}개의 메시지 로그가 생성되었습니다.`
       });
     }
 
@@ -153,68 +218,6 @@ export async function POST(request) {
         success: true,
         data: result,
         message: '메시지 로그가 업데이트되었습니다.'
-      });
-    }
-
-    if (action === 'bulk_create') {
-      // 대량 메시지 로그 생성
-      const { logs } = data;
-      console.log('📦 대량 로그 생성 시도:', logs.length, '개');
-      
-      // 간단한 테이블 생성 시도
-      try {
-        const { error: createError } = await getSupabaseAdmin().rpc('exec_sql', {
-          sql: `
-            CREATE TABLE IF NOT EXISTS message_logs (
-              id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-              workflow_id TEXT,
-              workflow_name TEXT,
-              message_type TEXT NOT NULL,
-              recipient_phone TEXT,
-              recipient_name TEXT,
-              message_content TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'pending',
-              created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            );
-          `
-        });
-        
-        if (createError) {
-          console.log('테이블 생성 시도 결과:', createError.message);
-        } else {
-          console.log('✅ 테이블 생성 또는 확인 완료');
-        }
-      } catch (tableError) {
-        console.log('테이블 생성 건너뛰기:', tableError.message);
-      }
-      
-      const logData = logs.map(log => ({
-        workflow_id: log.workflowId || null,
-        workflow_name: log.workflowName || null,
-        message_type: log.messageType,
-        recipient_phone: log.recipientPhone || null,
-        recipient_name: log.recipientName || null,
-        message_content: log.messageContent,
-        status: log.status || 'pending'
-      }));
-
-      console.log('📝 변환된 로그 데이터 샘플:', logData[0]);
-      const { data: result, error } = await getSupabaseAdmin()
-        .from('message_logs')
-        .insert(logData)
-        .select();
-
-      if (error) {
-        console.error('❌ 대량 로그 생성 실패:', error);
-        throw error;
-      }
-
-      console.log('✅ 대량 로그 생성 성공:', result.length, '개');
-      return NextResponse.json({
-        success: true,
-        data: result,
-        count: result.length,
-        message: `${result.length}개의 메시지 로그가 생성되었습니다.`
       });
     }
 

@@ -938,7 +938,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           recipientPhone: target.phoneNumber,
           recipientEmail: target.email || null,
           recipientName: target.name || null,
-          templateId: actualTemplateId,
+          templateId: null, // 🔥 template_id는 UUID 형식이어야 하므로 일단 null로 처리
           templateName: templateInfo.templateName || step.name,
           messageContent: processedContent, // 개인화된 콘텐츠 저장
           variables: personalizedVariables,
@@ -967,7 +967,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           recipientPhone: target.phoneNumber,
           recipientEmail: target.email || null,
           recipientName: target.name || null,
-          templateId: actualTemplateId,
+          templateId: null, // 🔥 template_id는 UUID 형식이어야 하므로 일단 null로 처리
           templateName: templateInfo.templateName || step.name,
           messageContent: templateInfo.content,
           variables: step.action.variables,

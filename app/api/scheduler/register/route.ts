@@ -87,35 +87,67 @@ export async function GET(request: NextRequest) {
       }
       
       if (scheduledTime) {
-        // 이미 등록된 작업이 있는지 확인 (같은 워크플로우의 pending 작업)
+        const isRecurringWorkflow = scheduleConfig?.type === 'recurring';
+        
+        // 기존 활성 작업들 조회 (pending + running)
         const { data: existingJobs } = await client
           .from('scheduled_jobs')
-          .select('id, scheduled_time')
+          .select('id, scheduled_time, status')
           .eq('workflow_id', workflow.id)
-          .eq('status', 'pending');
+          .in('status', ['pending', 'running']);
         
-        // 기존 작업이 있으면 정확히 같은 시간인 경우만 건너뛰기
         let shouldCreateNew = true;
-        if (existingJobs && existingJobs.length > 0) {
-          for (const existingJob of existingJobs) {
-            const existingTime = new Date(existingJob.scheduled_time);
+        
+        if (isRecurringWorkflow) {
+          // 🔥 반복 발송의 경우: 1개 워크플로우 = 1개 활성 스케줄 원칙 적용
+          if (existingJobs && existingJobs.length > 0) {
+            console.log(`🔄 반복 워크플로우 (${workflow.name}): 기존 ${existingJobs.length}개 활성 작업 정리`);
             
-            // 🔥 정확히 같은 시간(초 단위까지)인 경우만 같은 작업으로 간주
-            if (scheduledTime.getTime() === existingTime.getTime()) {
-              shouldCreateNew = false;
-              console.log(`⏭️ 기존 작업 유지 (정확히 같은 시간): ${workflow.name} → ${formatKoreaTime(existingTime)}`);
-              break;
-            }
+            // 모든 기존 활성 작업들을 취소
+            const { data: cancelledJobs } = await client
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'cancelled',
+                updated_at: now.toISOString(),
+                error_message: '새로운 스케줄 등록으로 인한 자동 취소'
+              })
+              .eq('workflow_id', workflow.id)
+              .in('status', ['pending', 'running'])
+              .select();
+            
+            const cancelledCount = cancelledJobs?.length || 0;
+            console.log(`✅ 기존 활성 작업 ${cancelledCount}개 취소 완료: ${workflow.name}`);
           }
           
-          // 새로운 시간으로 등록하는 경우 기존 작업들 삭제
-          if (shouldCreateNew) {
-            await client
-              .from('scheduled_jobs')
-              .delete()
-              .eq('workflow_id', workflow.id)
-              .eq('status', 'pending');
-            console.log(`🗑️ 기존 작업 삭제 (시간 변경됨): ${workflow.name}`);
+          // 반복 발송은 항상 새로운 작업 생성
+          shouldCreateNew = true;
+        } else {
+          // 🔥 일회성 실행의 경우: 정확히 같은 시간만 중복으로 간주
+          if (existingJobs && existingJobs.length > 0) {
+            for (const existingJob of existingJobs) {
+              const existingTime = new Date(existingJob.scheduled_time);
+              
+              // 정확히 같은 시간(초 단위까지)인 경우만 같은 작업으로 간주
+              if (scheduledTime.getTime() === existingTime.getTime()) {
+                shouldCreateNew = false;
+                console.log(`⏭️ 일회성 작업 중복 방지: ${workflow.name} → ${formatKoreaTime(existingTime)}`);
+                break;
+              }
+            }
+            
+            // 새로운 시간으로 등록하는 경우 기존 작업들 취소
+            if (shouldCreateNew) {
+              await client
+                .from('scheduled_jobs')
+                .update({ 
+                  status: 'cancelled',
+                  updated_at: now.toISOString(),
+                  error_message: '시간 변경으로 인한 자동 취소'
+                })
+                .eq('workflow_id', workflow.id)
+                .in('status', ['pending', 'running']);
+              console.log(`🗑️ 일회성 작업 기존 스케줄 취소 (시간 변경됨): ${workflow.name}`);
+            }
           }
         }
         
@@ -133,11 +165,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: scheduledTime.toISOString(), // 🔥 한국시간 그대로 저장
+              scheduled_time: formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 한국시간 문자열로 저장
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: now.toISOString() // 🔥 한국시간 그대로 저장
+              created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') // 🔥 한국시간 문자열로 저장
             })
             .select()
             .single();

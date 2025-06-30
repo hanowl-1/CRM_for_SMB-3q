@@ -210,79 +210,149 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { action, confirm } = await request.json();
-    
-    if (!confirm) {
-      return NextResponse.json({
-        success: false,
-        message: '정리 작업을 실행하려면 confirm: true를 전달해야 합니다.'
-      }, { status: 400 });
-    }
-    
-    const client = getSupabase();
     const now = getKoreaTime();
-    const results = [];
+    console.log(`\n🧹 === 시스템 정리 시작 (${formatKoreaTime(now)}) ===`);
     
-    switch (action) {
-      case 'cleanup_old_jobs':
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const { error: deleteError } = await client
-          .from('scheduled_jobs')
-          .delete()
-          .in('status', ['completed', 'failed'])
-          .lt('created_at', thirtyDaysAgo.toISOString());
-        
-        if (!deleteError) {
-          results.push({ action: 'cleanup_old_jobs', status: 'success', message: '오래된 스케줄 잡 정리 완료' });
-        } else {
-          results.push({ action: 'cleanup_old_jobs', status: 'failed', error: deleteError.message });
-        }
-        break;
-        
-      case 'cleanup_orphan_jobs':
-        // 비활성 워크플로우의 스케줄 잡 정리
-        const { data: inactiveWorkflows } = await client
-          .from('workflows')
-          .select('id')
-          .neq('status', 'active');
-        
-        if (inactiveWorkflows && inactiveWorkflows.length > 0) {
-          const inactiveIds = inactiveWorkflows.map(w => w.id);
-          const { error: orphanError } = await client
-            .from('scheduled_jobs')
-            .delete()
-            .in('workflow_id', inactiveIds)
-            .eq('status', 'pending');
-          
-          if (!orphanError) {
-            results.push({ action: 'cleanup_orphan_jobs', status: 'success', message: '비활성 워크플로우 스케줄 잡 정리 완료' });
-          } else {
-            results.push({ action: 'cleanup_orphan_jobs', status: 'failed', error: orphanError.message });
-          }
-        }
-        break;
-        
-      default:
-        return NextResponse.json({
-          success: false,
-          message: '지원하지 않는 정리 작업입니다.'
-        }, { status: 400 });
+    // 1. 5분 이상 running 상태인 작업들 조회
+    const { data: stuckJobs, error: queryError } = await getSupabase()
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('status', 'running');
+    
+    if (queryError) {
+      throw queryError;
     }
+    
+    console.log(`📋 running 상태 작업 ${stuckJobs?.length || 0}개 발견`);
+    
+    let recoveredCount = 0;
+    const recoveredJobs = [];
+    
+    if (stuckJobs && stuckJobs.length > 0) {
+      for (const job of stuckJobs) {
+        console.log(`\n--- 작업 분석: ${job.id} ---`);
+        console.log(`📋 워크플로우: ${job.workflow_data?.name || 'Unknown'}`);
+        console.log(`📋 예정시간: ${job.scheduled_time}`);
+        console.log(`📋 실행시간: ${job.executed_at || 'null'}`);
+        console.log(`📋 생성시간: ${job.created_at}`);
+        
+        const executedAt = job.executed_at ? new Date(job.executed_at) : null;
+        let shouldRecover = false;
+        let reason = '';
+        
+        if (executedAt) {
+          // 🔥 타임존 처리 강화: executed_at이 한국 시간인지 UTC인지 확인
+          let executedTimeKST: Date;
+          
+          if (job.executed_at.includes('+09:00') || job.executed_at.includes('+0900')) {
+            // 한국 타임존이 포함된 경우: 이미 한국 시간이므로 그대로 사용
+            executedTimeKST = new Date(job.executed_at);
+            console.log(`📅 한국 시간 executed_at: ${job.executed_at} → ${executedTimeKST.toISOString()}`);
+          } else {
+            // 타임존이 없거나 UTC인 경우: 한국 시간으로 변환
+            executedTimeKST = new Date(executedAt.getTime() + 9 * 60 * 60 * 1000);
+            console.log(`📅 UTC→KST 변환: ${job.executed_at} → ${executedTimeKST.toISOString()}`);
+          }
+          
+          const runningMinutes = (now.getTime() - executedTimeKST.getTime()) / (1000 * 60);
+          console.log(`📊 실행 시간 계산:`);
+          console.log(`   - 현재 시간: ${formatKoreaTime(now)} (${now.getTime()})`);
+          console.log(`   - 실행 시간: ${formatKoreaTime(executedTimeKST)} (${executedTimeKST.getTime()})`);
+          console.log(`   - 차이: ${runningMinutes.toFixed(1)}분`);
+          
+          if (runningMinutes > 2) { // 2분 이상 실행 중이면 복구
+            shouldRecover = true;
+            reason = `${runningMinutes.toFixed(1)}분 동안 실행 중 (타임아웃)`;
+          }
+        } else {
+          // executed_at이 없는 running 상태는 비정상
+          shouldRecover = true;
+          reason = 'executed_at 누락된 비정상 running 상태';
+        }
+        
+        if (shouldRecover) {
+          console.log(`🔧 복구 시작: ${reason}`);
+          
+          const { error: updateError } = await getSupabase()
+            .from('scheduled_jobs')
+            .update({
+              status: 'failed',
+              error_message: `시스템 정리로 복구: ${reason}`,
+              failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
+              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+            })
+            .eq('id', job.id);
+          
+          if (updateError) {
+            console.error(`❌ 작업 ${job.id} 복구 실패:`, updateError);
+          } else {
+            console.log(`✅ 작업 ${job.id} 복구 완료`);
+            recoveredCount++;
+            recoveredJobs.push({
+              id: job.id,
+              workflow_name: job.workflow_data?.name || 'Unknown',
+              reason: reason
+            });
+          }
+        } else {
+          console.log(`✅ 작업 ${job.id}: 정상 상태 (복구 불필요)`);
+        }
+      }
+    }
+    
+    // 2. 오래된 pending 작업들도 정리 (24시간 이상 된 것들)
+    console.log(`\n🧹 === 오래된 pending 작업 정리 ===`);
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    const { data: oldPendingJobs, error: oldPendingError } = await getSupabase()
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('status', 'pending')
+      .lt('created_at', dayAgo.toISOString());
+    
+    console.log(`📋 24시간 이상 된 pending 작업 ${oldPendingJobs?.length || 0}개 발견`);
+    
+    let cleanedOldCount = 0;
+    if (oldPendingJobs && oldPendingJobs.length > 0) {
+      const { error: cleanupError } = await getSupabase()
+        .from('scheduled_jobs')
+        .update({
+          status: 'failed',
+          error_message: '24시간 이상 된 오래된 pending 작업 자동 정리',
+          failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
+          updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+        })
+        .eq('status', 'pending')
+        .lt('created_at', dayAgo.toISOString());
+      
+      if (cleanupError) {
+        console.error('❌ 오래된 pending 작업 정리 실패:', cleanupError);
+      } else {
+        cleanedOldCount = oldPendingJobs.length;
+        console.log(`✅ 오래된 pending 작업 ${cleanedOldCount}개 정리 완료`);
+      }
+    }
+    
+    console.log(`\n🎯 정리 완료:`);
+    console.log(`   - 멈춘 작업 복구: ${recoveredCount}개`);
+    console.log(`   - 오래된 작업 정리: ${cleanedOldCount}개`);
     
     return NextResponse.json({
       success: true,
       data: {
-        cleanup_time: formatKoreaTime(now),
-        results
+        recovered_stuck_jobs: recoveredCount,
+        cleaned_old_jobs: cleanedOldCount,
+        recovered_jobs: recoveredJobs,
+        timestamp: formatKoreaTime(now)
       },
-      message: '정리 작업이 완료되었습니다.'
+      message: `시스템 정리 완료: ${recoveredCount}개 복구, ${cleanedOldCount}개 정리`
     });
     
   } catch (error) {
-    console.error('❌ 시스템 정리 실행 실패:', error);
+    console.error('❌ 시스템 정리 실패:', error);
     return NextResponse.json({
       success: false,
-      message: '시스템 정리 실행 실패: ' + (error instanceof Error ? error.message : String(error))
+      message: '시스템 정리 실패: ' + (error instanceof Error ? error.message : String(error))
     }, { status: 500 });
   }
 } 
