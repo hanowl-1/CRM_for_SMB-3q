@@ -1,5 +1,5 @@
-const moment = require('moment-timezone');
-const https = require('https');
+import moment from 'moment-timezone';
+import https from 'https';
 
 // 한국 시간대 상수
 const KOREA_TIMEZONE = 'Asia/Seoul';
@@ -51,7 +51,7 @@ function debugTimeInfo(label, date) {
  * - VERCEL_PROJECT_URL: Your Vercel project URL (e.g., your-project.vercel.app)
  * - CRON_SECRET_TOKEN: Secret token for authentication
  */
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
   const now = getKoreaTime();
   const utcNow = new Date();
   

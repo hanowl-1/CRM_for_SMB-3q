@@ -84,7 +84,7 @@ async function recordCronCallSignal(request: NextRequest, isAwsLambda: boolean) 
       }
     });
     
-    const currentTime = formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const currentTime = formatKoreaTime(new Date(), 'YYYY-MM-DD HH:mm:ss');
     
     console.log(`🔔 크론 호출 신호 기록: 출처=${source}, 시간=${currentTime}`);
     
