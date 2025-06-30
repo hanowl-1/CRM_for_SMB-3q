@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -104,7 +104,8 @@ interface ExecutionLogData {
   total_logs: number;
 }
 
-export default function SchedulerMonitorPage() {
+// 스케줄러 메인 컴포넌트 (Suspense 내부)
+function SchedulerMonitorComponent() {
   const searchParams = useSearchParams();
   const defaultTab = searchParams.get('tab') || 'overview';
   
@@ -1231,5 +1232,30 @@ export default function SchedulerMonitorPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// 로딩 컴포넌트
+function SchedulerLoading() {
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-500" />
+            <p className="text-gray-600">스케줄러 데이터를 로딩 중...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 메인 export 함수 (Suspense로 감싼 버전)
+export default function SchedulerMonitorPage() {
+  return (
+    <Suspense fallback={<SchedulerLoading />}>
+      <SchedulerMonitorComponent />
+    </Suspense>
   );
 } 
