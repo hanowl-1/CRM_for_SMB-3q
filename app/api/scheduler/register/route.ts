@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'cancelled',
-                updated_at: now.toISOString(),
+                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
                 error_message: '새로운 스케줄 등록으로 인한 자동 취소'
               })
               .eq('workflow_id', workflow.id)
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
                 .from('scheduled_jobs')
                 .update({ 
                   status: 'cancelled',
-                  updated_at: now.toISOString(),
+                  updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
                   error_message: '시간 변경으로 인한 자동 취소'
                 })
                 .eq('workflow_id', workflow.id)

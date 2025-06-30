@@ -428,8 +428,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: endTime.toISOString(),
-                updated_at: endTime.toISOString()
+                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
+                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 Vercel 환경에서도 한국시간으로 저장
               })
               .eq('id', currentJobId)
               .select();
@@ -475,8 +475,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: endTime.toISOString(),
-                updated_at: endTime.toISOString()
+                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
+                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 Vercel 환경에서도 한국시간으로 저장
               })
               .eq('id', jobId)
               .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
@@ -539,8 +539,8 @@ export async function POST(request: NextRequest) {
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              completed_at: endTime.toISOString(),
-              updated_at: endTime.toISOString()
+              completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
+              updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 Vercel 환경에서도 한국시간으로 저장
             })
             .eq('id', currentJobId);
           console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);
