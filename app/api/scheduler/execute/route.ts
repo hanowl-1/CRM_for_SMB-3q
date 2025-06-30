@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
   console.log(`📋 User-Agent: ${request.headers.get('user-agent') || 'Unknown'}`);
   console.log(`📋 호출 경로: ${request.url}`);
   
-  // �� AWS Lambda 호출인지 확인 (개선된 로직)
+  // 🔔 AWS Lambda 호출인지 확인 (개선된 로직)
   const userAgent = request.headers.get('user-agent') || '';
   const cronSecret = request.headers.get('x-cron-secret');
   const schedulerInternal = request.headers.get('x-scheduler-internal');
@@ -427,20 +427,23 @@ export async function GET(request: NextRequest) {
         console.log('예정 시간:', job.scheduled_time);
         console.log('상태:', job.status);
         
-        // 🔥 실행 상태로 변경
-        await supabase
+        // 🔥 실행 시작 상태로 업데이트
+        console.log(`🚀 실행 시작 상태 업데이트: ${job.id}`);
+        // 🔥 한국시간을 정확한 ISO 문자열로 변환
+        const kstExecutionTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        
+        await getSupabase()
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            // 🔥 시간대 처리: 한국시간 문자열로 저장
-            executed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
-            updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+            executed_at: kstExecutionTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+            updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
           })
           .eq('id', job.id);
         
         // 🔥 워크플로우 전체 정보 조회 (실행 API가 workflow 객체를 요구하므로)
         console.log('📋 워크플로우 정보 조회 중...');
-        const { data: workflowData, error: workflowError } = await supabase
+        const { data: workflowData, error: workflowError } = await getSupabase()
           .from('workflows')
           .select('*')
           .eq('id', job.workflow_id)
@@ -449,13 +452,13 @@ export async function GET(request: NextRequest) {
         if (workflowError || !workflowData) {
           console.error('워크플로우 조회 실패:', workflowError);
           
-          await supabase
+          await getSupabase()
             .from('scheduled_jobs')
             .update({ 
               status: 'failed',
               error_message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+              updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
             })
             .eq('id', job.id);
           
@@ -532,13 +535,13 @@ export async function GET(request: NextRequest) {
           console.error('워크플로우 실행 실패:', response.status, errorText);
           
           // 🔥 실행 실패시 상태를 failed로 변경
-          await supabase
+          await getSupabase()
             .from('scheduled_jobs')
             .update({ 
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+              updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
             })
             .eq('id', job.id);
           
@@ -568,19 +571,48 @@ export async function GET(request: NextRequest) {
           result
         });
         
-      } catch (error) {
-        console.error(`❌ 작업 ${job.id} 실행 중 오류:`, error);
+        // 🔥 성공 시 상태 업데이트
+        console.log(`✅ 실행 완료 상태 업데이트: ${job.id}`);
+        // 🔥 한국시간을 정확한 ISO 문자열로 변환
+        const kstCompletionTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
         
-        // 🔥 오류 발생 시 상태를 failed로 변경
-        await supabase
+        await getSupabase()
           .from('scheduled_jobs')
           .update({ 
-            status: 'failed',
-            error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-            retry_count: (job.retry_count || 0) + 1,
-            updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+            status: 'completed',
+            completed_at: kstCompletionTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+            updated_at: kstCompletionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
           })
           .eq('id', job.id);
+        
+      } catch (error) {
+        console.error(`❌ 작업 실행 실패: ${job.id}`, error);
+        // 🔥 한국시간을 정확한 ISO 문자열로 변환
+        const kstFailureTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        
+        if (job.retry_count < job.max_retries) {
+          console.log(`🔄 재시도 시도: ${job.retry_count + 1}/${job.max_retries}`);
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'pending', // 재시도를 위해 pending 상태로 변경
+              retry_count: job.retry_count + 1,
+              error_message: error instanceof Error ? error.message : '알 수 없는 오류',
+              updated_at: kstFailureTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+            })
+            .eq('id', job.id);
+        } else {
+          console.log(`💀 최대 재시도 횟수 초과, 실패 처리`);
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'failed',
+              error_message: error instanceof Error ? error.message : '알 수 없는 오류',
+              failed_at: kstFailureTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+              updated_at: kstFailureTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+            })
+            .eq('id', job.id);
+        }
         
         results.push({
           jobId: job.id,

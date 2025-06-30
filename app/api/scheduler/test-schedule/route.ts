@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
     // 입력받은 시간을 한국 시간으로 파싱
     const scheduledKoreaTime = new Date(scheduledTime);
     
+    // 🔥 한국시간을 정확한 ISO 문자열로 변환 (시간대 정보 포함)
+    const kstScheduledTime = new Date(formatKoreaTime(scheduledKoreaTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+    const kstNow = new Date();
+    
     // 테스트 작업을 scheduled_jobs 테이블에 직접 추가
     const { data: newJob, error } = await client
       .from('scheduled_jobs')
@@ -40,11 +44,11 @@ export async function POST(request: NextRequest) {
             ]
           }
         },
-        scheduled_time: formatKoreaTime(scheduledKoreaTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+        scheduled_time: kstScheduledTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
         status: 'pending',
         retry_count: 0,
         max_retries: 1,
-        created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+        created_at: kstNow.toISOString() // 🔥 현재 시간을 ISO 문자열로 저장
       })
       .select()
       .single();

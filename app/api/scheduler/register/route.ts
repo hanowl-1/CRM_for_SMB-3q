@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'cancelled',
-                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                updated_at: new Date().toISOString(), // 🔥 현재 시간을 ISO 문자열로 저장
                 error_message: '새로운 스케줄 등록으로 인한 자동 취소'
               })
               .eq('workflow_id', workflow.id)
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
                 .from('scheduled_jobs')
                 .update({ 
                   status: 'cancelled',
-                  updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                  updated_at: new Date().toISOString(), // 🔥 현재 시간을 ISO 문자열로 저장
                   error_message: '시간 변경으로 인한 자동 취소'
                 })
                 .eq('workflow_id', workflow.id)
@@ -152,6 +152,10 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
+          // 🔥 한국시간을 정확한 ISO 문자열로 변환 (시간대 정보 포함)
+          const kstScheduledTime = new Date(formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+          const kstNow = new Date();
+
           // 새 작업 등록 - 한국시간으로 저장 (기존 데이터와 일관성 유지)
           const { data: newJob, error: insertError } = await client
             .from('scheduled_jobs')
@@ -165,11 +169,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+              scheduled_time: kstScheduledTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+              created_at: kstNow.toISOString() // 🔥 현재 시간을 ISO 문자열로 저장
             })
             .select()
             .single();

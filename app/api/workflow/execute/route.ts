@@ -222,6 +222,9 @@ export async function POST(request: NextRequest) {
     if (!scheduledExecution) {
       console.log('📝 수동 실행을 스케줄 잡으로 기록 중...');
       try {
+        // 🔥 한국시간을 정확한 ISO 문자열로 변환
+        const kstStartTime = new Date(formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        
         const { data: newJob, error: insertError } = await getSupabase()
           .from('scheduled_jobs')
           .insert({
@@ -234,12 +237,12 @@ export async function POST(request: NextRequest) {
               target_config: workflow.target_config || (workflow as any).target_config,
               schedule_config: { type: 'immediate' }
             },
-            scheduled_time: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+            scheduled_time: kstStartTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
             status: 'running',
             retry_count: 0,
             max_retries: 1, // 수동 실행은 재시도 안 함
-            created_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
-            executed_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+            created_at: kstStartTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+            executed_at: kstStartTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
           })
           .select()
           .single();
@@ -422,14 +425,17 @@ export async function POST(request: NextRequest) {
         
         // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
         if (currentJobId) {
-          console.log(`🚨 수동 실행 스케줄 잡 완료 처리 시작: ${currentJobId} 🚨`);
+          console.log(`📝 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
           try {
+            // 🔥 한국시간을 정확한 ISO 문자열로 변환
+            const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+            
             const { data: manualUpdateResult, error: manualUpdateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
-                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+                updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
               })
               .eq('id', currentJobId)
               .select();
@@ -471,12 +477,15 @@ export async function POST(request: NextRequest) {
             
             // 실제 업데이트 수행
             console.log(`🚨 실제 스케줄 잡 업데이트 수행 중: ${jobId} 🚨`);
+            // 🔥 한국시간을 정확한 ISO 문자열로 변환
+            const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+            
             const { data: updateResult, error: updateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
-                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+                updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
               })
               .eq('id', jobId)
               .select();
@@ -534,13 +543,16 @@ export async function POST(request: NextRequest) {
       if (currentJobId) {
         try {
           console.log(`❌ 워크플로우 실행 실패, 스케줄 잡 상태 업데이트: ${currentJobId}`);
+          // 🔥 한국시간을 정확한 ISO 문자열로 변환
+          const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+          
           await getSupabase()
             .from('scheduled_jobs')
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
-              updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+              completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+              updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
             })
             .eq('id', currentJobId);
           console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);
