@@ -17,10 +17,22 @@ export const KOREA_TIMEZONE = 'Asia/Seoul';
 /**
  * 현재 한국 시간을 반환
  * 🔥 사용 목적: 현재 시간을 한국 시간 기준으로 가져올 때 사용
- * 🔥 시간대 처리: 서버 환경에 관계없이 항상 한국 시간 반환
+ * 🔥 시간대 처리: 서버 환경에 관계없이 항상 한국 시간 기준 Date 객체 반환
+ * 🔥 반환값: 한국 시간 기준 Date 객체 (저장 시 koreaTimeToUTCString 사용 필요)
  */
 export function getKoreaTime(): Date {
-  return moment.tz(KOREA_TIMEZONE).toDate();
+  const koreaMoment = moment.tz(KOREA_TIMEZONE);
+  
+  // 🔥 문서 원칙 적용: 한국 시간 값으로 Date 객체 생성
+  return new Date(
+    koreaMoment.year(),
+    koreaMoment.month(),
+    koreaMoment.date(),
+    koreaMoment.hour(),
+    koreaMoment.minute(),
+    koreaMoment.second(),
+    koreaMoment.millisecond()
+  );
 }
 
 /**
@@ -113,6 +125,7 @@ export function koreaTimeToUTCString(koreaTime: Date): string {
 /**
  * 스케줄 시간 계산 (반복 실행용)
  * 🔥 시간대 처리: 한국 시간 기준으로 다음 실행 시간을 정확히 계산
+ * 🔥 반환값: 한국 시간 기준 Date 객체 (저장 시 koreaTimeToUTCString 사용 필요)
  * @param timeString "HH:mm" 형식의 시간
  * @param frequency 반복 주기
  */
@@ -155,15 +168,24 @@ export function calculateNextKoreaScheduleTime(timeString: string, frequency: 'd
     console.log(`   ✅ 오늘 실행 예정`);
   }
   
-  // 🔥 중요: moment 객체를 한국 시간대 정보를 유지하면서 Date로 변환
-  const resultDate = nextRun.toDate();
+  // 🔥 문서 원칙 적용: 한국 시간 기준 Date 객체 반환 (시간 값을 한국 시간으로 해석)
+  // nextRun.toDate()는 UTC Date를 반환하므로, 한국 시간 값으로 새 Date 생성
+  const koreaTimeAsDate = new Date(
+    nextRun.year(),
+    nextRun.month(),
+    nextRun.date(),
+    nextRun.hour(),
+    nextRun.minute(),
+    nextRun.second(),
+    nextRun.millisecond()
+  );
   
   console.log(`🎯 최종 계산 결과:`);
   console.log(`   한국 시간: ${nextRun.format('YYYY-MM-DD HH:mm:ss')}`);
-  console.log(`   Date 객체: ${resultDate.toISOString()}`);
-  console.log(`   UTC 변환 확인: ${moment(resultDate).utc().format('YYYY-MM-DD HH:mm:ss')} UTC`);
+  console.log(`   반환 Date 객체: ${koreaTimeAsDate.toISOString()}`);
+  console.log(`   UTC 변환 예상: ${koreaTimeToUTC(koreaTimeAsDate).toISOString()}`);
   
-  return resultDate;
+  return koreaTimeAsDate;
 }
 
 /**

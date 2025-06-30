@@ -550,14 +550,12 @@ function DashboardContent() {
                     스케줄러 모니터링
                   </Button>
                 </Link>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start"
-                  onClick={() => window.open('/api/scheduler/health', '_blank')}
-                >
-                  <AlertCircle className="w-4 h-4 mr-2" />
-                  스케줄러 헬스체크
-                </Button>
+                <Link href="/scheduler?tab=health" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <AlertCircle className="w-4 h-4 mr-2" />
+                    스케줄러 헬스체크
+                  </Button>
+                </Link>
                 <Button 
                   variant="outline" 
                   className="w-full justify-start"

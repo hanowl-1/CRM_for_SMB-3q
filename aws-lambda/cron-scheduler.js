@@ -5,10 +5,22 @@ const https = require('https');
 const KOREA_TIMEZONE = 'Asia/Seoul';
 
 /**
- * 현재 한국 시간을 반환
+ * 현재 한국 시간을 반환 (Vercel 서버와 동일한 방식)
+ * 🔥 시간대 처리: 서버 환경에 관계없이 항상 한국 시간 기준 Date 객체 반환
  */
 function getKoreaTime() {
-  return moment.tz(KOREA_TIMEZONE).toDate();
+  const koreaMoment = moment.tz(KOREA_TIMEZONE);
+  
+  // 🔥 Vercel 서버와 동일한 방식: 한국 시간 값으로 Date 객체 생성
+  return new Date(
+    koreaMoment.year(),
+    koreaMoment.month(),
+    koreaMoment.date(),
+    koreaMoment.hour(),
+    koreaMoment.minute(),
+    koreaMoment.second(),
+    koreaMoment.millisecond()
+  );
 }
 
 /**
@@ -41,8 +53,14 @@ function debugTimeInfo(label, date) {
  */
 exports.handler = async (event, context) => {
   const now = getKoreaTime();
+  const utcNow = new Date();
   
   console.log(`🚀 AWS Lambda 스케줄러 실행: ${formatKoreaTime(now)}`);
+  console.log(`🕐 AWS Lambda 환경 시간 정보:`);
+  console.log(`   한국 시간 (계산): ${formatKoreaTime(now)}`);
+  console.log(`   UTC 시간 (서버): ${utcNow.toISOString()}`);
+  console.log(`   시간차 확인: ${(now.getTime() - utcNow.getTime()) / 1000 / 60 / 60}시간`);
+  
   debugTimeInfo('Lambda 실행 시간', now);
   
   const projectUrl = process.env.VERCEL_PROJECT_URL;
@@ -59,10 +77,10 @@ exports.handler = async (event, context) => {
 
   const options = {
     hostname: projectUrl,
-    path: '/api/scheduler/execute',
+    path: '/api/cron',
     method: 'GET',
     headers: {
-      'x-cron-secret': secretToken,
+      'Authorization': `Bearer ${secretToken}`,
       'Content-Type': 'application/json',
       'User-Agent': 'AWS-Lambda-Scheduler/1.0'
     },
@@ -70,7 +88,7 @@ exports.handler = async (event, context) => {
   };
 
   return new Promise((resolve, reject) => {
-    console.log(`📡 Calling Vercel API: https://${projectUrl}/api/scheduler/execute`);
+    console.log(`📡 Calling Vercel API: https://${projectUrl}/api/cron`);
     
     const req = https.request(options, (res) => {
       let data = '';

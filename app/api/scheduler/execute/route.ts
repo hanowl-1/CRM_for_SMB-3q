@@ -94,21 +94,53 @@ export async function GET(request: NextRequest) {
     
     // 각 작업에 대해 실행 시간 체크
     for (const job of jobs || []) {
-      // 🔥 시간대 처리: UTC로 저장된 시간을 한국 시간으로 변환하여 비교
-      const scheduledTimeKST = utcToKoreaTime(job.scheduled_time);
+      // 🔥 단순화된 시간 해석: 기존 데이터는 스마트 감지, 새 데이터는 직접 해석
+      let scheduledTimeKST: Date;
+      
+      try {
+        const storedTime = new Date(job.scheduled_time);
+        
+        // 생성 시간이 최근(24시간 이내)이면 새 형식(KST 저장)으로 간주
+        const createdAt = new Date(job.created_at || job.scheduled_time);
+        const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
+        
+        if (isRecentData) {
+          // 새 데이터: 한국시간으로 저장됨
+          scheduledTimeKST = storedTime;
+          console.log(`⚡ 최근 데이터 - KST 직접 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+        } else {
+          // 기존 데이터: UTC/KST 자동 감지
+          const utcInterpretation = utcToKoreaTime(storedTime);
+          const directInterpretation = storedTime;
+          
+          const utcDiffHours = Math.abs(now.getTime() - utcInterpretation.getTime()) / (1000 * 60 * 60);
+          const directDiffHours = Math.abs(now.getTime() - directInterpretation.getTime()) / (1000 * 60 * 60);
+          
+          if (utcDiffHours < directDiffHours && utcDiffHours < 24) {
+            scheduledTimeKST = utcInterpretation;
+            console.log(`⚡ 기존 데이터 - UTC 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+          } else {
+            scheduledTimeKST = directInterpretation;
+            console.log(`⚡ 기존 데이터 - KST 해석: ${job.scheduled_time} → ${formatKoreaTime(scheduledTimeKST)}`);
+          }
+        }
+      } catch (error) {
+        console.error(`시간 파싱 오류 (${job.id}):`, error);
+        scheduledTimeKST = new Date(job.scheduled_time);
+      }
       
       // 시간 차이 계산 (초 단위)
       const timeDiffSeconds = Math.floor((now.getTime() - scheduledTimeKST.getTime()) / 1000);
       
-      // 5분(300초) 허용 오차 적용 - 이전에 실행되지 않은 지연된 작업도 실행
-      const TOLERANCE_MS = 5 * 60 * 1000; // 5분 = 300초
+      // 10분(600초) 허용 오차 적용 - AWS Lambda 5분 간격을 고려한 안전 마진
+      const TOLERANCE_MS = 10 * 60 * 1000; // 10분 = 600초
       const isTimeToExecute = now.getTime() >= (scheduledTimeKST.getTime() - TOLERANCE_MS);
       
       debugInfo.push({
         id: job.id,
         workflow_name: job.workflow_data?.name || 'Unknown',
-        scheduled_time_utc: job.scheduled_time,
-        scheduled_time_kst: formatKoreaTime(scheduledTimeKST),
+        scheduled_time_stored: job.scheduled_time,
+        scheduled_time_interpreted: formatKoreaTime(scheduledTimeKST),
         status: job.status,
         timeDiffSeconds,
         isTimeToExecute
@@ -158,9 +190,9 @@ export async function GET(request: NextRequest) {
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            // 🔥 시간대 처리: 한국 시간을 UTC로 변환하여 DB 저장
-            executed_at: koreaTimeToUTCString(now),
-            updated_at: koreaTimeToUTCString(now)
+            // 🔥 시간대 처리: 한국 시간 그대로 저장
+            executed_at: now.toISOString(),
+            updated_at: now.toISOString()
           })
           .eq('id', job.id);
         
@@ -181,7 +213,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: koreaTimeToUTCString(now)
+              updated_at: now.toISOString()
             })
             .eq('id', job.id);
           
@@ -264,7 +296,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: koreaTimeToUTCString(now)
+              updated_at: now.toISOString()
             })
             .eq('id', job.id);
           
@@ -304,7 +336,7 @@ export async function GET(request: NextRequest) {
             status: 'failed',
             error_message: error instanceof Error ? error.message : '알 수 없는 오류',
             retry_count: (job.retry_count || 0) + 1,
-            updated_at: koreaTimeToUTCString(now)
+            updated_at: now.toISOString()
           })
           .eq('id', job.id);
         

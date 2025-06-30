@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 새 작업 등록 - UTC로 저장하되 조회 시 KST로 변환
+          // 새 작업 등록 - 한국시간으로 저장 (기존 데이터와 일관성 유지)
           const { data: newJob, error: insertError } = await client
             .from('scheduled_jobs')
             .insert({
@@ -133,11 +133,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: koreaTimeToUTCString(scheduledTime), // 🔥 UTC로 저장
+              scheduled_time: scheduledTime.toISOString(), // 🔥 한국시간 그대로 저장
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: koreaTimeToUTCString(now) // 🔥 UTC로 저장
+              created_at: now.toISOString() // 🔥 한국시간 그대로 저장
             })
             .select()
             .single();

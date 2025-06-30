@@ -234,12 +234,12 @@ export async function POST(request: NextRequest) {
               target_config: workflow.target_config || (workflow as any).target_config,
               schedule_config: { type: 'immediate' }
             },
-            scheduled_time: koreaTimeToUTCString(startTime), // 즉시 실행이므로 현재 시간
+            scheduled_time: startTime.toISOString(), // 🔥 한국시간 그대로 저장
             status: 'running',
             retry_count: 0,
             max_retries: 1, // 수동 실행은 재시도 안 함
-            created_at: koreaTimeToUTCString(startTime),
-            executed_at: koreaTimeToUTCString(startTime) // 즉시 실행 시작
+            created_at: startTime.toISOString(), // 🔥 한국시간 그대로 저장
+            executed_at: startTime.toISOString() // 🔥 한국시간 그대로 저장
           })
           .select()
           .single();
@@ -374,8 +374,8 @@ export async function POST(request: NextRequest) {
           totalCost: 0, // 비용 계산 로직 추가 필요
           executionTimeMs,
           // 🔥 시간대 처리: 한국 시간을 UTC로 변환하여 DB 저장
-          startedAt: koreaTimeToUTCString(startTime),
-          completedAt: koreaTimeToUTCString(endTime),
+          startedAt: startTime.toISOString(),
+          completedAt: endTime.toISOString(),
           logs: results
         });
         console.log(`✅ 워크플로우 실행 기록 저장 성공: ${runId}`);
@@ -428,8 +428,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: koreaTimeToUTCString(endTime),
-                updated_at: koreaTimeToUTCString(endTime)
+                completed_at: endTime.toISOString(),
+                updated_at: endTime.toISOString()
               })
               .eq('id', currentJobId)
               .select();
@@ -475,8 +475,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: koreaTimeToUTCString(endTime),
-                updated_at: koreaTimeToUTCString(endTime)
+                completed_at: endTime.toISOString(),
+                updated_at: endTime.toISOString()
               })
               .eq('id', jobId)
               .select(); // 🔥 업데이트 결과 확인을 위해 select 추가
@@ -539,8 +539,8 @@ export async function POST(request: NextRequest) {
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              completed_at: koreaTimeToUTCString(getKoreaTime()),
-              updated_at: koreaTimeToUTCString(getKoreaTime())
+              completed_at: endTime.toISOString(),
+              updated_at: endTime.toISOString()
             })
             .eq('id', currentJobId);
           console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);

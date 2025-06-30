@@ -40,11 +40,11 @@ export async function POST(request: NextRequest) {
             ]
           }
         },
-        scheduled_time: koreaTimeToUTC(scheduledKoreaTime), // 한국 시간을 UTC로 변환
+        scheduled_time: scheduledKoreaTime.toISOString(), // 🔥 한국시간 그대로 저장
         status: 'pending',
         retry_count: 0,
         max_retries: 1,
-        created_at: koreaTimeToUTC(now) // 한국 시간을 UTC로 변환
+        created_at: now.toISOString() // 🔥 한국시간 그대로 저장
       })
       .select()
       .single();
