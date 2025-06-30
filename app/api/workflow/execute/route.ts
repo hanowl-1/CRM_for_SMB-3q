@@ -234,12 +234,12 @@ export async function POST(request: NextRequest) {
               target_config: workflow.target_config || (workflow as any).target_config,
               schedule_config: { type: 'immediate' }
             },
-            scheduled_time: startTime.toISOString(), // 🔥 한국시간 그대로 저장
+            scheduled_time: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
             status: 'running',
             retry_count: 0,
             max_retries: 1, // 수동 실행은 재시도 안 함
-            created_at: startTime.toISOString(), // 🔥 한국시간 그대로 저장
-            executed_at: startTime.toISOString() // 🔥 한국시간 그대로 저장
+            created_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 Vercel 환경에서도 한국시간으로 저장
+            executed_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 Vercel 환경에서도 한국시간으로 저장
           })
           .select()
           .single();
