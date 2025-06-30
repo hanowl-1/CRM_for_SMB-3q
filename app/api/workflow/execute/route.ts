@@ -234,12 +234,12 @@ export async function POST(request: NextRequest) {
               target_config: workflow.target_config || (workflow as any).target_config,
               schedule_config: { type: 'immediate' }
             },
-            scheduled_time: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
+            scheduled_time: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
             status: 'running',
             retry_count: 0,
             max_retries: 1, // 수동 실행은 재시도 안 함
-            created_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
-            executed_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+            created_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+            executed_at: formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
           })
           .select()
           .single();
@@ -428,8 +428,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
-                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
               })
               .eq('id', currentJobId)
               .select();
@@ -475,8 +475,8 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
-                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+                completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+                updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
               })
               .eq('id', jobId)
               .select();
@@ -539,8 +539,8 @@ export async function POST(request: NextRequest) {
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
-              updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+              completed_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
+              updated_at: formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
             })
             .eq('id', currentJobId);
           console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);

@@ -40,11 +40,11 @@ export async function POST(request: NextRequest) {
             ]
           }
         },
-        scheduled_time: formatKoreaTime(scheduledKoreaTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
+        scheduled_time: formatKoreaTime(scheduledKoreaTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
         status: 'pending',
         retry_count: 0,
         max_retries: 1,
-        created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+        created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
       })
       .select()
       .single();

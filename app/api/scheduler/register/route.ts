@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'cancelled',
-                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
+                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
                 error_message: '새로운 스케줄 등록으로 인한 자동 취소'
               })
               .eq('workflow_id', workflow.id)
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
                 .from('scheduled_jobs')
                 .update({ 
                   status: 'cancelled',
-                  updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
+                  updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
                   error_message: '시간 변경으로 인한 자동 취소'
                 })
                 .eq('workflow_id', workflow.id)
@@ -165,11 +165,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00', // 🔥 cron 스케줄러 호환 형태로 저장
+              scheduled_time: formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss'), // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') + '+09:00' // 🔥 cron 스케줄러 호환 형태로 저장
+              created_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss') // 🔥 TEXT 컬럼에 순수 한국시간 문자열 저장
             })
             .select()
             .single();
