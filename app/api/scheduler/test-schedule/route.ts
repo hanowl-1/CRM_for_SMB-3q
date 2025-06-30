@@ -21,9 +21,17 @@ export async function POST(request: NextRequest) {
     // 입력받은 시간을 한국 시간으로 파싱
     const scheduledKoreaTime = new Date(scheduledTime);
     
-    // 🔥 한국시간을 정확한 ISO 문자열로 변환 (시간대 정보 포함)
-    const kstScheduledTime = new Date(formatKoreaTime(scheduledKoreaTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
-    const kstNow = new Date();
+    // 🔥 간단하게: 입력받은 시간을 그대로 한국시간대로 처리
+    const year = scheduledKoreaTime.getFullYear();
+    const month = String(scheduledKoreaTime.getMonth() + 1).padStart(2, '0');
+    const day = String(scheduledKoreaTime.getDate()).padStart(2, '0');
+    const hours = String(scheduledKoreaTime.getHours()).padStart(2, '0');
+    const minutes = String(scheduledKoreaTime.getMinutes()).padStart(2, '0');
+    const seconds = String(scheduledKoreaTime.getSeconds()).padStart(2, '0');
+    
+    // 한국시간대로 명시적으로 저장
+    const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+    const currentTime = new Date().toISOString();
     
     // 테스트 작업을 scheduled_jobs 테이블에 직접 추가
     const { data: newJob, error } = await client
@@ -44,11 +52,11 @@ export async function POST(request: NextRequest) {
             ]
           }
         },
-        scheduled_time: kstScheduledTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+        scheduled_time: kstTimeString, // 🔥 한국시간대를 명시한 문자열
         status: 'pending',
         retry_count: 0,
         max_retries: 1,
-        created_at: kstNow.toISOString() // 🔥 현재 시간을 ISO 문자열로 저장
+        created_at: currentTime // 🔥 현재 시간
       })
       .select()
       .single();

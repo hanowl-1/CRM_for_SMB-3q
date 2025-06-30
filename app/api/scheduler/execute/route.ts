@@ -429,15 +429,22 @@ export async function GET(request: NextRequest) {
         
         // 🔥 실행 시작 상태로 업데이트
         console.log(`🚀 실행 시작 상태 업데이트: ${job.id}`);
-        // 🔥 한국시간을 정확한 ISO 문자열로 변환
-        const kstExecutionTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        // 🔥 간단하게: 현재 시간을 한국시간대로 명시
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
         
         await getSupabase()
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            executed_at: kstExecutionTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-            updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+            executed_at: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+            updated_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
           })
           .eq('id', job.id);
         
@@ -458,7 +465,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+              updated_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
             })
             .eq('id', job.id);
           
@@ -541,7 +548,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: kstExecutionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+              updated_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
             })
             .eq('id', job.id);
           
@@ -573,22 +580,36 @@ export async function GET(request: NextRequest) {
         
         // 🔥 성공 시 상태 업데이트
         console.log(`✅ 실행 완료 상태 업데이트: ${job.id}`);
-        // 🔥 한국시간을 정확한 ISO 문자열로 변환
-        const kstCompletionTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        // 🔥 간단하게: 완료 시간을 한국시간대로 명시
+        const completionTime = new Date();
+        const cYear = completionTime.getFullYear();
+        const cMonth = String(completionTime.getMonth() + 1).padStart(2, '0');
+        const cDay = String(completionTime.getDate()).padStart(2, '0');
+        const cHours = String(completionTime.getHours()).padStart(2, '0');
+        const cMinutes = String(completionTime.getMinutes()).padStart(2, '0');
+        const cSeconds = String(completionTime.getSeconds()).padStart(2, '0');
+        const kstCompletionString = `${cYear}-${cMonth}-${cDay} ${cHours}:${cMinutes}:${cSeconds}+09:00`;
         
         await getSupabase()
           .from('scheduled_jobs')
           .update({ 
             status: 'completed',
-            completed_at: kstCompletionTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-            updated_at: kstCompletionTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+            completed_at: kstCompletionString, // 🔥 한국시간대를 명시한 문자열
+            updated_at: kstCompletionString // 🔥 한국시간대를 명시한 문자열
           })
           .eq('id', job.id);
         
       } catch (error) {
         console.error(`❌ 작업 실행 실패: ${job.id}`, error);
-        // 🔥 한국시간을 정확한 ISO 문자열로 변환
-        const kstFailureTime = new Date(formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        // 🔥 간단하게: 실패 시간을 한국시간대로 명시
+        const failureTime = new Date();
+        const fYear = failureTime.getFullYear();
+        const fMonth = String(failureTime.getMonth() + 1).padStart(2, '0');
+        const fDay = String(failureTime.getDate()).padStart(2, '0');
+        const fHours = String(failureTime.getHours()).padStart(2, '0');
+        const fMinutes = String(failureTime.getMinutes()).padStart(2, '0');
+        const fSeconds = String(failureTime.getSeconds()).padStart(2, '0');
+        const kstFailureString = `${fYear}-${fMonth}-${fDay} ${fHours}:${fMinutes}:${fSeconds}+09:00`;
         
         if (job.retry_count < job.max_retries) {
           console.log(`🔄 재시도 시도: ${job.retry_count + 1}/${job.max_retries}`);
@@ -598,7 +619,7 @@ export async function GET(request: NextRequest) {
               status: 'pending', // 재시도를 위해 pending 상태로 변경
               retry_count: job.retry_count + 1,
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              updated_at: kstFailureTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+              updated_at: kstFailureString // 🔥 한국시간대를 명시한 문자열
             })
             .eq('id', job.id);
         } else {
@@ -608,8 +629,8 @@ export async function GET(request: NextRequest) {
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              failed_at: kstFailureTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-              updated_at: kstFailureTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+              failed_at: kstFailureString, // 🔥 한국시간대를 명시한 문자열
+              updated_at: kstFailureString // 🔥 한국시간대를 명시한 문자열
             })
             .eq('id', job.id);
         }

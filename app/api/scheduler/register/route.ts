@@ -152,9 +152,18 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 🔥 한국시간을 정확한 ISO 문자열로 변환 (시간대 정보 포함)
-          const kstScheduledTime = new Date(formatKoreaTime(scheduledTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
-          const kstNow = new Date();
+          // 🔥 간단하게: 입력받은 시간을 그대로 한국시간대로 처리
+          // scheduledTime이 이미 올바른 한국시간이라고 가정하고 시간대만 명시
+          const year = scheduledTime.getFullYear();
+          const month = String(scheduledTime.getMonth() + 1).padStart(2, '0');
+          const day = String(scheduledTime.getDate()).padStart(2, '0');
+          const hours = String(scheduledTime.getHours()).padStart(2, '0');
+          const minutes = String(scheduledTime.getMinutes()).padStart(2, '0');
+          const seconds = String(scheduledTime.getSeconds()).padStart(2, '0');
+          
+          // 한국시간대로 명시적으로 저장
+          const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+          const currentTime = new Date().toISOString();
 
           // 새 작업 등록 - 한국시간으로 저장 (기존 데이터와 일관성 유지)
           const { data: newJob, error: insertError } = await client
@@ -169,11 +178,11 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: kstScheduledTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+              scheduled_time: kstTimeString, // 🔥 한국시간대를 명시한 문자열
               status: 'pending',
               retry_count: 0,
               max_retries: 3,
-              created_at: kstNow.toISOString() // 🔥 현재 시간을 ISO 문자열로 저장
+              created_at: currentTime // 🔥 현재 시간
             })
             .select()
             .single();

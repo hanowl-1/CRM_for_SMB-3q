@@ -222,8 +222,14 @@ export async function POST(request: NextRequest) {
     if (!scheduledExecution) {
       console.log('📝 수동 실행을 스케줄 잡으로 기록 중...');
       try {
-        // 🔥 한국시간을 정확한 ISO 문자열로 변환
-        const kstStartTime = new Date(formatKoreaTime(startTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+        // 🔥 간단하게: 현재 시간을 한국시간대로 명시
+        const year = startTime.getFullYear();
+        const month = String(startTime.getMonth() + 1).padStart(2, '0');
+        const day = String(startTime.getDate()).padStart(2, '0');
+        const hours = String(startTime.getHours()).padStart(2, '0');
+        const minutes = String(startTime.getMinutes()).padStart(2, '0');
+        const seconds = String(startTime.getSeconds()).padStart(2, '0');
+        const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
         
         const { data: newJob, error: insertError } = await getSupabase()
           .from('scheduled_jobs')
@@ -237,12 +243,12 @@ export async function POST(request: NextRequest) {
               target_config: workflow.target_config || (workflow as any).target_config,
               schedule_config: { type: 'immediate' }
             },
-            scheduled_time: kstStartTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
+            scheduled_time: kstTimeString, // 🔥 한국시간대를 명시한 문자열
             status: 'running',
             retry_count: 0,
             max_retries: 1, // 수동 실행은 재시도 안 함
-            created_at: kstStartTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-            executed_at: kstStartTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+            created_at: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+            executed_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
           })
           .select()
           .single();
@@ -427,15 +433,21 @@ export async function POST(request: NextRequest) {
         if (currentJobId) {
           console.log(`📝 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
           try {
-            // 🔥 한국시간을 정확한 ISO 문자열로 변환
-            const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+            // 🔥 간단하게: 종료 시간을 한국시간대로 명시
+            const year = endTime.getFullYear();
+            const month = String(endTime.getMonth() + 1).padStart(2, '0');
+            const day = String(endTime.getDate()).padStart(2, '0');
+            const hours = String(endTime.getHours()).padStart(2, '0');
+            const minutes = String(endTime.getMinutes()).padStart(2, '0');
+            const seconds = String(endTime.getSeconds()).padStart(2, '0');
+            const kstEndTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
             
             const { data: manualUpdateResult, error: manualUpdateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-                updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+                completed_at: kstEndTimeString, // 🔥 한국시간대를 명시한 문자열
+                updated_at: kstEndTimeString // 🔥 한국시간대를 명시한 문자열
               })
               .eq('id', currentJobId)
               .select();
@@ -477,15 +489,21 @@ export async function POST(request: NextRequest) {
             
             // 실제 업데이트 수행
             console.log(`🚨 실제 스케줄 잡 업데이트 수행 중: ${jobId} 🚨`);
-            // 🔥 한국시간을 정확한 ISO 문자열로 변환
-            const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+            // 🔥 간단하게: 종료 시간을 한국시간대로 명시
+            const year = endTime.getFullYear();
+            const month = String(endTime.getMonth() + 1).padStart(2, '0');
+            const day = String(endTime.getDate()).padStart(2, '0');
+            const hours = String(endTime.getHours()).padStart(2, '0');
+            const minutes = String(endTime.getMinutes()).padStart(2, '0');
+            const seconds = String(endTime.getSeconds()).padStart(2, '0');
+            const kstEndTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
             
             const { data: updateResult, error: updateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-                updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+                completed_at: kstEndTimeString, // 🔥 한국시간대를 명시한 문자열
+                updated_at: kstEndTimeString // 🔥 한국시간대를 명시한 문자열
               })
               .eq('id', jobId)
               .select();
@@ -543,16 +561,22 @@ export async function POST(request: NextRequest) {
       if (currentJobId) {
         try {
           console.log(`❌ 워크플로우 실행 실패, 스케줄 잡 상태 업데이트: ${currentJobId}`);
-          // 🔥 한국시간을 정확한 ISO 문자열로 변환
-          const kstEndTime = new Date(formatKoreaTime(endTime, 'yyyy-MM-dd HH:mm:ss') + '+09:00');
+          // 🔥 간단하게: 실패 시간을 한국시간대로 명시
+          const year = endTime.getFullYear();
+          const month = String(endTime.getMonth() + 1).padStart(2, '0');
+          const day = String(endTime.getDate()).padStart(2, '0');
+          const hours = String(endTime.getHours()).padStart(2, '0');
+          const minutes = String(endTime.getMinutes()).padStart(2, '0');
+          const seconds = String(endTime.getSeconds()).padStart(2, '0');
+          const kstFailTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
           
           await getSupabase()
             .from('scheduled_jobs')
             .update({ 
               status: 'failed',
               error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-              completed_at: kstEndTime.toISOString(), // 🔥 한국시간이 포함된 ISO 문자열
-              updated_at: kstEndTime.toISOString() // 🔥 한국시간이 포함된 ISO 문자열
+              completed_at: kstFailTimeString, // 🔥 한국시간대를 명시한 문자열
+              updated_at: kstFailTimeString // 🔥 한국시간대를 명시한 문자열
             })
             .eq('id', currentJobId);
           console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);
