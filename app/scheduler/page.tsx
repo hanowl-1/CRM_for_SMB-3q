@@ -58,11 +58,26 @@ interface HealthCheckData {
     environment: string;
     aws_lambda_enabled: boolean;
   };
+  cron_status: {
+    has_signals: boolean;
+    last_aws_signal: {
+      time: string;
+      executed_jobs: number;
+      duration_ms: number;
+      response_status: number;
+    } | null;
+    minutes_since_last_signal: number | null;
+    is_healthy: boolean;
+    recent_signals_count: number;
+    hourly_signals_count: number;
+    health_status: 'healthy' | 'warning' | 'critical' | 'unknown';
+  };
   lambda_status: {
     is_working: boolean;
     last_execution: string | null;
     pending_overdue_count: number;
     recent_execution_count: number;
+    cron_signal_health: string;
   };
   statistics: {
     total: number;
@@ -75,6 +90,7 @@ interface HealthCheckData {
     recent_jobs: any[];
     recent_executions: any[];
     pending_overdue: any[];
+    recent_cron_signals: any[];
   };
   recommendations: Array<{
     level: 'critical' | 'warning' | 'info';
@@ -586,6 +602,67 @@ function SchedulerMonitorComponent() {
                             {healthData.health_check.aws_lambda_enabled ? "ON" : "OFF"}
                           </Badge>
                         </div>
+                        
+                        {/* 🔔 크론 신호 상태 추가 */}
+                        <div className="border-t pt-2 mt-2">
+                          <div className="text-sm font-medium text-gray-700 mb-2">크론 신호 모니터링</div>
+                          <div className="flex justify-between">
+                            <span>신호 상태:</span>
+                            <Badge variant={
+                              healthData.cron_status.health_status === 'healthy' ? 'default' : 
+                              healthData.cron_status.health_status === 'warning' ? 'secondary' : 
+                              'destructive'
+                            }>
+                              {healthData.cron_status.health_status === 'healthy' ? '정상' :
+                               healthData.cron_status.health_status === 'warning' ? '경고' : 
+                               healthData.cron_status.health_status === 'critical' ? '위험' : '알 수 없음'}
+                            </Badge>
+                          </div>
+                          {healthData.cron_status.last_aws_signal ? (
+                            <>
+                              <div className="flex justify-between">
+                                <span>마지막 신호:</span>
+                                <span className="font-mono text-xs">
+                                  {healthData.cron_status.last_aws_signal.time}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>신호 간격:</span>
+                                <span className={`font-medium text-sm ${
+                                  (healthData.cron_status.minutes_since_last_signal || 0) <= 7 ? 'text-green-600' :
+                                  (healthData.cron_status.minutes_since_last_signal || 0) <= 15 ? 'text-yellow-600' : 'text-red-600'
+                                }`}>
+                                  {healthData.cron_status.minutes_since_last_signal}분 전
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>마지막 실행 작업:</span>
+                                <span className="font-medium text-sm text-blue-600">
+                                  {healthData.cron_status.last_aws_signal.executed_jobs}개
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>실행 시간:</span>
+                                <span className="font-mono text-xs text-gray-600">
+                                  {healthData.cron_status.last_aws_signal.duration_ms}ms
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-center text-sm text-red-600 py-2">
+                              {healthData.cron_status.has_signals ? '최근 AWS Lambda 신호 없음' : '크론 신호 기록 없음'}
+                            </div>
+                          )}
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>최근 10분:</span>
+                            <span>{healthData.cron_status.recent_signals_count}회</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>최근 1시간:</span>
+                            <span>{healthData.cron_status.hourly_signals_count}회</span>
+                          </div>
+                        </div>
+                        
                         <div className="flex justify-between">
                           <span>지연된 작업:</span>
                           <span className={`font-medium ${

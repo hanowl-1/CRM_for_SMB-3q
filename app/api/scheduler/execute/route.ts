@@ -35,6 +35,93 @@ function getBaseUrl(request: NextRequest): string {
   return 'http://localhost:3000';
 }
 
+// 크론 신호 기록 함수
+async function recordCronSignal(request: NextRequest, isAwsLambdaCall: boolean) {
+  try {
+    const supabase = getSupabase();
+    
+    // 요청 정보 수집
+    const userAgent = request.headers.get('user-agent') || '';
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const realIp = request.headers.get('x-real-ip');
+    const ipAddress = forwardedFor || realIp || null;
+    
+    // 신호 출처 판단
+    let source = 'manual';
+    if (isAwsLambdaCall) {
+      source = 'aws-lambda';
+    } else if (process.env.NODE_ENV === 'development') {
+      source = 'development';
+    }
+    
+    // 헤더 정보 수집 (민감 정보 제외)
+    const relevantHeaders: Record<string, string> = {};
+    ['user-agent', 'x-forwarded-for', 'x-real-ip', 'x-amzn-trace-id', 'x-cron-secret'].forEach(header => {
+      const value = request.headers.get(header);
+      if (value && header !== 'x-cron-secret') { // 시크릿은 기록하지 않음
+        relevantHeaders[header] = value;
+      } else if (header === 'x-cron-secret' && value) {
+        relevantHeaders[header] = value ? 'present' : 'absent';
+      }
+    });
+    
+    const currentTime = formatKoreaTime(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    
+    console.log(`🔔 크론 신호 기록: 출처=${source}, 시간=${currentTime}, IP=${ipAddress}`);
+    
+    const { data, error } = await supabase
+      .from('cron_signals')
+      .insert({
+        signal_time: currentTime,
+        source,
+        user_agent: userAgent,
+        ip_address: ipAddress,
+        request_headers: relevantHeaders,
+        response_status: null, // 실행 후 업데이트
+        executed_jobs_count: 0, // 실행 후 업데이트
+        execution_duration_ms: null, // 실행 후 업데이트
+        notes: `크론 신호 수신 - ${isAwsLambdaCall ? 'AWS Lambda' : '수동 호출'}`
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ 크론 신호 기록 실패:', error);
+      return null;
+    }
+    
+    console.log(`✅ 크론 신호 기록 완료: ID=${data.id}`);
+    return data.id;
+  } catch (error) {
+    console.error('❌ 크론 신호 기록 중 오류:', error);
+    return null;
+  }
+}
+
+// 크론 신호 업데이트 함수
+async function updateCronSignal(signalId: string, responseStatus: number, executedJobsCount: number, durationMs: number) {
+  try {
+    const supabase = getSupabase();
+    
+    const { error } = await supabase
+      .from('cron_signals')
+      .update({
+        response_status: responseStatus,
+        executed_jobs_count: executedJobsCount,
+        execution_duration_ms: durationMs
+      })
+      .eq('id', signalId);
+    
+    if (error) {
+      console.error('❌ 크론 신호 업데이트 실패:', error);
+    } else {
+      console.log(`✅ 크론 신호 업데이트 완료: ID=${signalId}, 실행작업수=${executedJobsCount}, 소요시간=${durationMs}ms`);
+    }
+  } catch (error) {
+    console.error('❌ 크론 신호 업데이트 중 오류:', error);
+  }
+}
+
 // 스케줄 작업 실행 API
 export async function GET(request: NextRequest) {
   const startTime = new Date();
@@ -43,11 +130,27 @@ export async function GET(request: NextRequest) {
   console.log(`📋 User-Agent: ${request.headers.get('user-agent') || 'Unknown'}`);
   console.log(`📋 호출 경로: ${request.url}`);
   
-  // 🔥 AWS Lambda 호출인지 확인
-  const isAwsLambdaCall = request.headers.get('user-agent')?.includes('aws-lambda') || 
-                         request.headers.get('x-forwarded-for') || 
-                         request.headers.get('x-amzn-trace-id');
-  console.log(`📋 AWS Lambda 호출: ${isAwsLambdaCall ? 'YES' : 'NO'}`);
+  // �� AWS Lambda 호출인지 확인 (개선된 로직)
+  const userAgent = request.headers.get('user-agent') || '';
+  const cronSecret = request.headers.get('x-cron-secret');
+  const schedulerInternal = request.headers.get('x-scheduler-internal');
+  
+  const isAwsLambdaCall = !!(
+    userAgent.includes('AWS-Lambda-Scheduler') ||           // AWS Lambda의 정확한 User-Agent
+    userAgent.includes('aws-lambda') ||                     // 일반적인 AWS Lambda 패턴
+    (cronSecret === process.env.CRON_SECRET_TOKEN &&        // 시크릿 토큰으로 AWS Lambda 확인
+     schedulerInternal === 'true') ||                       // 내부 호출이면서 시크릿이 맞는 경우
+    request.headers.get('x-amzn-trace-id')                  // AWS 트레이싱 헤더
+  );
+  
+  console.log(`📋 호출 정보:`);
+  console.log(`   User-Agent: ${userAgent}`);
+  console.log(`   x-cron-secret: ${cronSecret ? '설정됨' : '없음'}`);
+  console.log(`   x-scheduler-internal: ${schedulerInternal}`);
+  console.log(`   AWS Lambda 호출: ${isAwsLambdaCall ? 'YES' : 'NO'}`);
+  
+  // 🔔 크론 신호 기록
+  const cronSignalId = await recordCronSignal(request, isAwsLambdaCall);
   
   const debugInfo: any[] = [];
   let executedCount = 0;
@@ -165,6 +268,12 @@ export async function GET(request: NextRequest) {
     
     if (!jobs || jobs.length === 0) {
       console.log('📋 pending 상태인 작업이 없습니다.');
+      
+      // 🔔 크론 신호 업데이트
+      if (cronSignalId) {
+        await updateCronSignal(cronSignalId, 200, 0, (new Date().getTime() - startTime.getTime()));
+      }
+      
       return NextResponse.json({
         success: true,
         data: {
@@ -285,6 +394,12 @@ export async function GET(request: NextRequest) {
     
     if (jobsToExecute.length === 0) {
       console.log('⏸️ 현재 실행할 작업이 없습니다.');
+      
+      // 🔔 크론 신호 업데이트
+      if (cronSignalId) {
+        await updateCronSignal(cronSignalId, 200, 0, (new Date().getTime() - startTime.getTime()));
+      }
+      
       return NextResponse.json({
         success: true,
         data: {
@@ -477,6 +592,11 @@ export async function GET(request: NextRequest) {
     
     console.log(`\n🎯 스케줄 실행 완료: ${executedCount}개 실행, ${results.filter(r => !r.success).length}개 실패`);
     
+    // 🔔 크론 신호 업데이트
+    if (cronSignalId) {
+      await updateCronSignal(cronSignalId, 200, executedCount, (new Date().getTime() - startTime.getTime()));
+    }
+    
     return NextResponse.json({
       success: true,
       data: {
@@ -492,6 +612,12 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error('❌ 스케줄 실행기 오류:', error);
+    
+    // 🔔 크론 신호 업데이트 (에러 상태)
+    if (cronSignalId) {
+      await updateCronSignal(cronSignalId, 500, executedCount, (new Date().getTime() - startTime.getTime()));
+    }
+    
     return NextResponse.json({
       success: false,
       message: '스케줄 실행기 오류: ' + (error instanceof Error ? error.message : String(error)),

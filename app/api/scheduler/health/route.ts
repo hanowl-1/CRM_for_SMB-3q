@@ -9,6 +9,7 @@ import {
 /**
  * 스케줄러 헬스체크 API
  * - AWS Lambda가 정상적으로 5분마다 실행되는지 확인
+ * - 크론 신호 모니터링을 통한 정확한 상태 파악
  * - 마지막 실행 시간과 현재 시간 비교
  * - 스케줄 잡 생성/실행 통계 제공
  */
@@ -26,7 +27,68 @@ export async function GET(request: NextRequest) {
       aws_lambda_enabled: process.env.AWS_LAMBDA_ENABLED === 'true'
     };
     
-    // 2. 최근 5분 내 스케줄러 실행 기록 확인
+    // 2. 🔔 크론 신호 상태 확인 (새로 추가)
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    // 최근 크론 신호 조회
+    const { data: cronSignals } = await client
+      .from('cron_signals')
+      .select('*')
+      .order('signal_time', { ascending: false })
+      .limit(20);
+    
+    // AWS Lambda 신호만 필터링 (두 가지 타입 모두 포함)
+    const awsLambdaSignals = cronSignals?.filter(s => 
+      s.source === 'aws-lambda' || s.source === 'aws-lambda-cron'
+    ) || [];
+    const lastAwsLambdaSignal = awsLambdaSignals[0];
+    
+    // 크론 신호 통계 (AWS Lambda만)
+    const recentAwsSignals = awsLambdaSignals.filter(s => new Date(s.signal_time) >= tenMinutesAgo);
+    const hourlyAwsSignals = awsLambdaSignals.filter(s => new Date(s.signal_time) >= oneHourAgo);
+    
+    // 전체 크론 신호 통계
+    const recentCronSignals = cronSignals?.filter(s => new Date(s.signal_time) >= tenMinutesAgo) || [];
+    const hourlyCronSignals = cronSignals?.filter(s => new Date(s.signal_time) >= oneHourAgo) || [];
+    
+    let cronStatus = {
+      has_signals: cronSignals && cronSignals.length > 0,
+      last_aws_signal: null as any,
+      minutes_since_last_signal: null as number | null,
+      is_healthy: false,
+      recent_signals_count: recentCronSignals.length, // 전체 신호
+      hourly_signals_count: hourlyCronSignals.length, // 전체 신호
+      recent_aws_signals_count: recentAwsSignals.length, // AWS Lambda 신호만
+      hourly_aws_signals_count: hourlyAwsSignals.length, // AWS Lambda 신호만
+      health_status: 'unknown' as 'healthy' | 'warning' | 'critical' | 'unknown'
+    };
+    
+    if (lastAwsLambdaSignal) {
+      const lastSignalTime = new Date(lastAwsLambdaSignal.signal_time);
+      const minutesSinceLastSignal = Math.floor((now.getTime() - lastSignalTime.getTime()) / (1000 * 60));
+      
+      cronStatus.last_aws_signal = {
+        time: formatKoreaTime(lastSignalTime),
+        source: lastAwsLambdaSignal.source, // 'aws-lambda' 또는 'aws-lambda-cron'
+        executed_jobs: lastAwsLambdaSignal.executed_jobs_count || 0,
+        duration_ms: lastAwsLambdaSignal.execution_duration_ms || 0,
+        response_status: lastAwsLambdaSignal.response_status || 0
+      };
+      cronStatus.minutes_since_last_signal = minutesSinceLastSignal;
+      
+      // 건강성 판단
+      if (minutesSinceLastSignal <= 7) {
+        cronStatus.is_healthy = true;
+        cronStatus.health_status = 'healthy';
+      } else if (minutesSinceLastSignal <= 15) {
+        cronStatus.health_status = 'warning';
+      } else {
+        cronStatus.health_status = 'critical';
+      }
+    }
+    
+    // 3. 최근 5분 내 스케줄러 실행 기록 확인
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
     
     // 최근 생성된 스케줄 잡들
@@ -51,19 +113,20 @@ export async function GET(request: NextRequest) {
       .lte('scheduled_time', now.toISOString()) // 🔥 정확한 UTC 시간 사용
       .order('scheduled_time', { ascending: true });
     
-    // 3. AWS Lambda 실행 추론
+    // 4. AWS Lambda 실행 추론 (크론 신호 정보 포함)
     const hasRecentExecutions = recentExecutions && recentExecutions.length > 0;
     const hasPendingOverdueJobs = pendingJobs && pendingJobs.length > 0;
     
-    // AWS Lambda가 정상 작동 중인지 판단
+    // AWS Lambda가 정상 작동 중인지 판단 (크론 신호 기반)
     const lambdaStatus = {
-      is_working: hasRecentExecutions || !hasPendingOverdueJobs,
+      is_working: cronStatus.is_healthy && (hasRecentExecutions || !hasPendingOverdueJobs),
       last_execution: recentExecutions?.[0]?.executed_at || null,
       pending_overdue_count: pendingJobs?.length || 0,
-      recent_execution_count: recentExecutions?.length || 0
+      recent_execution_count: recentExecutions?.length || 0,
+      cron_signal_health: cronStatus.health_status
     };
     
-    // 4. 전체 스케줄러 통계
+    // 5. 전체 스케줄러 통계
     const { data: allJobs } = await client
       .from('scheduled_jobs')
       .select('status, created_at, scheduled_time, executed_at')
@@ -78,14 +141,35 @@ export async function GET(request: NextRequest) {
       failed: allJobs?.filter(j => j.status === 'failed').length || 0
     };
     
-    // 5. 권장 조치사항
+    // 6. 권장 조치사항 (크론 신호 기반 개선)
     const recommendations = [];
     
-    if (hasPendingOverdueJobs && !hasRecentExecutions) {
+    // 크론 신호 기반 권장사항
+    if (!cronStatus.has_signals) {
       recommendations.push({
         level: 'critical',
-        message: 'AWS Lambda 스케줄러가 5분 이상 실행되지 않았습니다. Lambda 설정을 확인하세요.',
+        message: '크론 신호 기록이 없습니다. 스케줄러가 한 번도 실행되지 않았습니다.',
+        action: 'check_initial_setup'
+      });
+    } else if (cronStatus.health_status === 'critical') {
+      recommendations.push({
+        level: 'critical',
+        message: `AWS Lambda가 ${cronStatus.minutes_since_last_signal}분 동안 신호를 보내지 않았습니다. Lambda 설정을 확인하세요.`,
         action: 'check_aws_lambda'
+      });
+    } else if (cronStatus.health_status === 'warning') {
+      recommendations.push({
+        level: 'warning',
+        message: `AWS Lambda 신호가 ${cronStatus.minutes_since_last_signal}분 전에 마지막으로 수신되었습니다. 지연이 발생하고 있습니다.`,
+        action: 'monitor_lambda_delay'
+      });
+    }
+    
+    if (hasPendingOverdueJobs && cronStatus.is_healthy) {
+      recommendations.push({
+        level: 'warning',
+        message: '크론 신호는 정상이지만 지연된 작업이 있습니다. 워크플로우 처리 성능을 확인하세요.',
+        action: 'check_workflow_performance'
       });
     }
     
@@ -109,12 +193,14 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         health_check: healthCheck,
+        cron_status: cronStatus, // 🔔 새로 추가된 크론 신호 상태
         lambda_status: lambdaStatus,
         statistics: stats,
         recent_activity: {
           recent_jobs: recentJobs?.slice(0, 5) || [],
           recent_executions: recentExecutions?.slice(0, 5) || [],
-          pending_overdue: pendingJobs?.slice(0, 5) || []
+          pending_overdue: pendingJobs?.slice(0, 5) || [],
+          recent_cron_signals: cronSignals?.slice(0, 5) || [] // 🔔 최근 크론 신호
         },
         recommendations
       },
