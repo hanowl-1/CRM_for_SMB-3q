@@ -21,16 +21,28 @@ export async function POST(request: NextRequest) {
     // 입력받은 시간을 한국 시간으로 파싱
     const scheduledKoreaTime = new Date(scheduledTime);
     
-    // 🔥 간단하게: 입력받은 시간을 그대로 한국시간대로 처리
-    const year = scheduledKoreaTime.getFullYear();
-    const month = String(scheduledKoreaTime.getMonth() + 1).padStart(2, '0');
-    const day = String(scheduledKoreaTime.getDate()).padStart(2, '0');
-    const hours = String(scheduledKoreaTime.getHours()).padStart(2, '0');
-    const minutes = String(scheduledKoreaTime.getMinutes()).padStart(2, '0');
-    const seconds = String(scheduledKoreaTime.getSeconds()).padStart(2, '0');
+    // 🔥 UI에서 한국시간대가 포함된 문자열을 받음 (예: "2025-06-30T17:30+09:00")
+    // 이를 PostgreSQL TIMESTAMPTZ 형태로 변환 (예: "2025-06-30 17:30:00+09:00")
+    let kstTimeString: string;
     
-    // 한국시간대로 명시적으로 저장
-    const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+    // 명시적 타입 체크로 TypeScript 오류 해결
+    const scheduledTimeStr = String(scheduledTime);
+    if (scheduledTimeStr.includes('+09:00')) {
+      // 이미 한국시간대가 포함된 문자열인 경우
+      kstTimeString = scheduledTimeStr.replace('T', ' ');
+      console.log('✅ 한국시간대 포함 문자열 직접 사용:', kstTimeString);
+    } else {
+      // Date 객체이거나 시간대 정보가 없는 경우 (기존 로직)
+      const year = scheduledKoreaTime.getFullYear();
+      const month = String(scheduledKoreaTime.getMonth() + 1).padStart(2, '0');
+      const day = String(scheduledKoreaTime.getDate()).padStart(2, '0');
+      const hours = String(scheduledKoreaTime.getHours()).padStart(2, '0');
+      const minutes = String(scheduledKoreaTime.getMinutes()).padStart(2, '0');
+      const seconds = String(scheduledKoreaTime.getSeconds()).padStart(2, '0');
+      kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+      console.log('⚠️ Date 객체로부터 한국시간대 추가:', kstTimeString);
+    }
+    
     const currentTime = new Date().toISOString();
     
     // 테스트 작업을 scheduled_jobs 테이블에 직접 추가

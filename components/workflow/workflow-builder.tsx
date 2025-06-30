@@ -1190,11 +1190,25 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                   <label className="text-sm font-medium mb-2 block">예약 일시 (한국시간 KST)</label>
                   <Input
                     type="datetime-local"
-                    value={scheduleSettings.scheduledTime || ''}
-                    onChange={(e) => setScheduleSettings({
-                      ...scheduleSettings, 
-                      scheduledTime: e.target.value
-                    })}
+                    value={
+                      // 🔥 datetime-local input은 "YYYY-MM-DDTHH:mm" 형태만 인식하므로 시간대 정보 제거
+                      scheduleSettings.scheduledTime 
+                        ? scheduleSettings.scheduledTime.replace(/\+\d{2}:\d{2}$/, '') 
+                        : ''
+                    }
+                    onChange={(e) => {
+                      // 🔥 한국시간대를 명시하여 저장
+                      const localTimeValue = e.target.value; // "2025-06-30T17:30"
+                      const kstTimeValue = localTimeValue ? `${localTimeValue}+09:00` : ''; // "2025-06-30T17:30+09:00"
+                      console.log('⏰ 스케줄 시간 입력:', { 
+                        원본입력: localTimeValue, 
+                        한국시간대명시: kstTimeValue 
+                      });
+                      setScheduleSettings({
+                        ...scheduleSettings, 
+                        scheduledTime: kstTimeValue
+                      });
+                    }}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     설정된 시간은 한국시간(KST) 기준으로 실행됩니다

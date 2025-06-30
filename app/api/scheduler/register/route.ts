@@ -152,17 +152,29 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 🔥 간단하게: 입력받은 시간을 그대로 한국시간대로 처리
-          // scheduledTime이 이미 올바른 한국시간이라고 가정하고 시간대만 명시
-          const year = scheduledTime.getFullYear();
-          const month = String(scheduledTime.getMonth() + 1).padStart(2, '0');
-          const day = String(scheduledTime.getDate()).padStart(2, '0');
-          const hours = String(scheduledTime.getHours()).padStart(2, '0');
-          const minutes = String(scheduledTime.getMinutes()).padStart(2, '0');
-          const seconds = String(scheduledTime.getSeconds()).padStart(2, '0');
+          // 🔥 UI에서 한국시간대가 포함된 문자열을 받음 (예: "2025-06-30T17:30+09:00")
+          // 이를 PostgreSQL TIMESTAMPTZ 형태로 변환 (예: "2025-06-30 17:30:00+09:00")
+          let kstTimeString: string;
           
-          // 한국시간대로 명시적으로 저장
-          const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+          // 명시적 타입 체크로 TypeScript 오류 해결
+          const scheduledTimeStr = String(scheduledTime);
+          if (scheduledTimeStr.includes('+09:00')) {
+            // 이미 한국시간대가 포함된 문자열인 경우
+            kstTimeString = scheduledTimeStr.replace('T', ' ');
+            console.log('✅ 한국시간대 포함 문자열 직접 사용:', kstTimeString);
+          } else {
+            // Date 객체이거나 시간대 정보가 없는 경우 (기존 로직)
+            const dateObj = new Date(scheduledTime);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const hours = String(dateObj.getHours()).padStart(2, '0');
+            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+            const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+            kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+            console.log('⚠️ Date 객체로부터 한국시간대 추가:', kstTimeString);
+          }
+          
           const currentTime = new Date().toISOString();
 
           // 새 작업 등록 - 한국시간으로 저장 (기존 데이터와 일관성 유지)
