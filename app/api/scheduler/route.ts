@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/database/supabase-client';
-
-// 한국시간 헬퍼 함수
-function getKoreaTime(): Date {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const koreaTime = new Date(utc + (9 * 3600000)); // UTC+9
-  return koreaTime;
-}
+import { getKoreaTime, formatKoreaTime, utcToKoreaTime } from '@/lib/utils/timezone';
 
 // 스케줄러 상태 조회
 export async function GET(request: NextRequest) {
@@ -18,7 +11,7 @@ export async function GET(request: NextRequest) {
     // scheduled_jobs 테이블에서 상태별 작업 수 조회
     const { data: jobs, error } = await client
       .from('scheduled_jobs')
-      .select('status, scheduled_time, workflow_data')
+      .select('id, status, scheduled_time, workflow_data, created_at')
       .order('scheduled_time', { ascending: true });
 
     if (error) {
@@ -44,10 +37,40 @@ export async function GET(request: NextRequest) {
     jobs?.forEach(job => {
       statusCounts[job.status as keyof typeof statusCounts]++;
       
-      const scheduledTime = new Date(job.scheduled_time);
+      // 🔥 스마트 시간 해석: UTC/KST 형식 자동 감지 (실행 API와 동일한 로직)
+      let scheduledTimeKST: Date;
+      
+      try {
+        const storedTime = new Date(job.scheduled_time);
+        
+        // 생성 시간이 최근(24시간 이내)이면 새 형식(KST 저장)으로 간주
+        const createdAt = new Date(job.created_at || job.scheduled_time);
+        const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
+        
+        if (isRecentData) {
+          // 새 데이터: 한국시간으로 저장됨
+          scheduledTimeKST = storedTime;
+        } else {
+          // 기존 데이터: UTC/KST 자동 감지
+          const utcInterpretation = utcToKoreaTime(storedTime);
+          const directInterpretation = storedTime;
+          
+          const utcDiffHours = Math.abs(now.getTime() - utcInterpretation.getTime()) / (1000 * 60 * 60);
+          const directDiffHours = Math.abs(now.getTime() - directInterpretation.getTime()) / (1000 * 60 * 60);
+          
+          if (utcDiffHours < directDiffHours && utcDiffHours < 24) {
+            scheduledTimeKST = utcInterpretation;
+          } else {
+            scheduledTimeKST = directInterpretation;
+          }
+        }
+      } catch (error) {
+        console.error(`시간 파싱 오류 (${job.id}):`, error);
+        scheduledTimeKST = new Date(job.scheduled_time);
+      }
       
       if (job.status === 'pending') {
-        const timeDiff = scheduledTime.getTime() - now.getTime();
+        const timeDiff = scheduledTimeKST.getTime() - now.getTime();
         const isOverdue = timeDiff < 0;
         
         upcomingJobs.push({
