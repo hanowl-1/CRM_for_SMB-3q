@@ -152,27 +152,45 @@ export async function GET(request: NextRequest) {
         }
         
         if (shouldCreateNew) {
-          // 🔥 UI에서 한국시간대가 포함된 문자열을 받음 (예: "2025-06-30T17:30+09:00")
-          // 이를 PostgreSQL TIMESTAMPTZ 형태로 변환 (예: "2025-06-30 17:30:00+09:00")
+          // 🔥 한국시간대 문자열을 직접 처리하여 시간대 변환 문제 해결
           let kstTimeString: string;
           
-          // 명시적 타입 체크로 TypeScript 오류 해결
+          // scheduledTime을 문자열로 변환하여 타입 안전성 확보
           const scheduledTimeStr = String(scheduledTime);
+          
           if (scheduledTimeStr.includes('+09:00')) {
-            // 이미 한국시간대가 포함된 문자열인 경우
+            // UI에서 한국시간대 포함 문자열을 받은 경우 (예: "2025-06-30T17:30+09:00")
+            // PostgreSQL TIMESTAMPTZ 형태로 변환 (예: "2025-06-30 17:30:00+09:00")
             kstTimeString = scheduledTimeStr.replace('T', ' ');
-            console.log('✅ 한국시간대 포함 문자열 직접 사용:', kstTimeString);
+            
+            // 초 부분이 없으면 추가
+            if (kstTimeString.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\+09:00$/)) {
+              kstTimeString = kstTimeString.replace('+09:00', ':00+09:00');
+            }
+            
+            console.log('✅ 한국시간대 포함 문자열 직접 변환:', {
+              원본: scheduledTime,
+              변환후: kstTimeString
+            });
           } else {
-            // Date 객체이거나 시간대 정보가 없는 경우 (기존 로직)
-            const dateObj = new Date(scheduledTime);
-            const year = dateObj.getFullYear();
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const hours = String(dateObj.getHours()).padStart(2, '0');
-            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
-            const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+            // Date 객체이거나 시간대 정보가 없는 경우 (반복 스케줄 등)
+            // 🔥 중요: Date 객체를 한국시간 기준으로 변환하되 시간대 변환 방지
+            const dateObj = scheduledTime instanceof Date ? scheduledTime : new Date(scheduledTime);
+            
+            // 🔥 한국시간대로 포맷팅 (시간대 변환 없이)
+            const kstDate = new Date(dateObj.getTime() + (9 * 60 * 60 * 1000)); // UTC + 9시간
+            const year = kstDate.getUTCFullYear();
+            const month = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(kstDate.getUTCDate()).padStart(2, '0');
+            const hours = String(kstDate.getUTCHours()).padStart(2, '0');
+            const minutes = String(kstDate.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(kstDate.getUTCSeconds()).padStart(2, '0');
             kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
-            console.log('⚠️ Date 객체로부터 한국시간대 추가:', kstTimeString);
+            
+            console.log('⚠️ Date 객체로부터 한국시간대 생성:', {
+              원본Date: dateObj.toISOString(),
+              한국시간변환: kstTimeString
+            });
           }
           
           const currentTime = new Date().toISOString();

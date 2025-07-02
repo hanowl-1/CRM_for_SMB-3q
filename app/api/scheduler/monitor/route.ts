@@ -114,9 +114,8 @@ export async function GET(request: NextRequest) {
       console.log(`🎯 정리 완료: ${cleanupResults.length}개 작업`);
     }
     
-    // UTC로 저장된 시간을 한국 시간으로 변환하여 표시
+    // 🔥 간단한 시간 표시 로직: +09:00 제거하고 순수 한국시간만 표시
     const jobsWithKoreaTime = (jobs || []).map(job => {
-      // 🔥 스마트 시간 해석: UTC/KST 형식 자동 감지 (스케줄러 실행 API와 동일한 로직)
       let scheduledTimeKST: Date;
       let createdTimeKST: Date | null = null;
       let startedTimeKST: Date | null = null;
@@ -124,71 +123,19 @@ export async function GET(request: NextRequest) {
       let failedTimeKST: Date | null = null;
       
       try {
-        const storedTimeString = job.scheduled_time;
+        // 🔥 단순화: 저장된 시간을 그대로 Date 객체로 변환
+        scheduledTimeKST = new Date(job.scheduled_time);
         
-        // 타임존이 포함된 ISO 문자열인지 확인 (+09:00, Z 등)
-        if (storedTimeString.includes('+09:00') || storedTimeString.includes('+0900')) {
-          // 한국 타임존이 포함된 경우: 한국 시간 값으로 Date 객체 생성
-          const timeMatch = storedTimeString.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
-          if (timeMatch) {
-            const [, year, month, day, hour, minute, second] = timeMatch;
-            scheduledTimeKST = new Date(
-              parseInt(year),
-              parseInt(month) - 1,
-              parseInt(day),
-              parseInt(hour),
-              parseInt(minute),
-              parseInt(second)
-            );
-          } else {
-            scheduledTimeKST = new Date(storedTimeString);
-          }
-          console.log(`⚡ 타임존 포함 - 한국시간값으로 변환: ${storedTimeString} → ${scheduledTimeKST.toISOString()}`);
-        } else if (storedTimeString.includes('Z')) {
-          // UTC 타임존이 포함된 경우: UTC로 해석하고 한국시간으로 변환
-          const storedTime = new Date(storedTimeString);
-          scheduledTimeKST = utcToKoreaTime(storedTime);
-          console.log(`⚡ UTC 타임존 - UTC→KST 변환: ${storedTimeString} → ${scheduledTimeKST.toISOString()}`);
-        } else {
-          // 타임존이 없는 경우: 기존 스마트 감지 로직 적용
-          const storedTime = new Date(storedTimeString);
-          
-          // 생성 시간이 최근(24시간 이내)이면 새 형식(KST 저장)으로 간주
-          const createdAt = new Date(job.created_at || job.scheduled_time);
-          const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
-          
-          if (isRecentData) {
-            // 새 데이터: 한국시간으로 저장됨
-            scheduledTimeKST = storedTime;
-            console.log(`⚡ 최근 데이터 - KST 직접 해석: ${storedTimeString} → ${scheduledTimeKST.toISOString()}`);
-          } else {
-            // 기존 데이터: UTC/KST 자동 감지
-            const utcInterpretation = utcToKoreaTime(storedTime);
-            const directInterpretation = storedTime;
-            
-            const utcDiffHours = Math.abs(now.getTime() - utcInterpretation.getTime()) / (1000 * 60 * 60);
-            const directDiffHours = Math.abs(now.getTime() - directInterpretation.getTime()) / (1000 * 60 * 60);
-            
-            if (utcDiffHours < directDiffHours && utcDiffHours < 24) {
-              scheduledTimeKST = utcInterpretation;
-              console.log(`⚡ 기존 데이터 - UTC 해석: ${storedTimeString} → ${scheduledTimeKST.toISOString()}`);
-            } else {
-              scheduledTimeKST = directInterpretation;
-              console.log(`⚡ 기존 데이터 - KST 해석: ${storedTimeString} → ${scheduledTimeKST.toISOString()}`);
-            }
-          }
-        }
+        console.log(`⚡ 시간 변환: ${job.scheduled_time} → ${scheduledTimeKST.toISOString()}`);
       } catch (error) {
         console.error(`❌ 시간 파싱 실패: ${job.scheduled_time}`, error);
         scheduledTimeKST = new Date(job.scheduled_time);
       }
       
-      // 다른 시간들도 동일한 로직 적용
+      // 다른 시간들도 동일하게 처리
       if (job.created_at) {
         try {
-          const createdAt = new Date(job.created_at);
-          const isRecentData = (now.getTime() - createdAt.getTime()) < (24 * 60 * 60 * 1000);
-          createdTimeKST = isRecentData ? createdAt : utcToKoreaTime(createdAt);
+          createdTimeKST = new Date(job.created_at);
         } catch {
           createdTimeKST = new Date(job.created_at);
         }
@@ -196,8 +143,7 @@ export async function GET(request: NextRequest) {
       
       if (job.started_at) {
         try {
-          const startedAt = new Date(job.started_at);
-          startedTimeKST = utcToKoreaTime(startedAt); // 실행 시간은 항상 UTC로 저장
+          startedTimeKST = new Date(job.started_at);
         } catch {
           startedTimeKST = new Date(job.started_at);
         }
@@ -205,8 +151,7 @@ export async function GET(request: NextRequest) {
       
       if (job.completed_at) {
         try {
-          const completedAt = new Date(job.completed_at);
-          completedTimeKST = utcToKoreaTime(completedAt); // 완료 시간은 항상 UTC로 저장
+          completedTimeKST = new Date(job.completed_at);
         } catch {
           completedTimeKST = new Date(job.completed_at);
         }
@@ -214,8 +159,7 @@ export async function GET(request: NextRequest) {
       
       if (job.failed_at) {
         try {
-          const failedAt = new Date(job.failed_at);
-          failedTimeKST = utcToKoreaTime(failedAt); // 실패 시간은 항상 UTC로 저장
+          failedTimeKST = new Date(job.failed_at);
         } catch {
           failedTimeKST = new Date(job.failed_at);
         }
@@ -266,14 +210,28 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      // 🔥 간단한 한국시간 포맷팅: YYYY-MM-DD HH:mm:ss 형태로 표시
+      const formatSimpleKoreaTime = (date: Date) => {
+        return date.toLocaleString('ko-KR', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).replace(/\. /g, '-').replace(/\./g, '').replace(', ', ' ');
+      };
+      
       return {
         ...job,
-        // 한국 시간으로 변환된 시간들
-        scheduled_time_kst: formatKoreaTime(scheduledTimeKST),
-        created_at_kst: createdTimeKST ? formatKoreaTime(createdTimeKST) : null,
-        started_at_kst: startedTimeKST ? formatKoreaTime(startedTimeKST) : null,
-        completed_at_kst: completedTimeKST ? formatKoreaTime(completedTimeKST) : null,
-        failed_at_kst: failedTimeKST ? formatKoreaTime(failedTimeKST) : null,
+        // 🔥 단순화된 한국 시간으로 변환 (YYYY-MM-DD HH:mm:ss 형태)
+        scheduled_time_kst: formatSimpleKoreaTime(scheduledTimeKST),
+        created_at_kst: createdTimeKST ? formatSimpleKoreaTime(createdTimeKST) : null,
+        started_at_kst: startedTimeKST ? formatSimpleKoreaTime(startedTimeKST) : null,
+        completed_at_kst: completedTimeKST ? formatSimpleKoreaTime(completedTimeKST) : null,
+        failed_at_kst: failedTimeKST ? formatSimpleKoreaTime(failedTimeKST) : null,
         // 추가 정보
         time_status: timeStatus,
         minutes_diff: minutesDiff,
