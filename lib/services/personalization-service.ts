@@ -2,10 +2,10 @@ import type { PersonalizationSettings, VariableMapping, PersonalizationTarget } 
 
 export class PersonalizationService {
   /**
-   * 템플릿에서 변수를 추출합니다 (#변수명 형태)
+   * 템플릿에서 변수를 추출합니다 (#{변수명} 형태)
    */
   extractTemplateVariables(templateContent: string): string[] {
-    const variableRegex = /#([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    const variableRegex = /#{([^}]+)}/g;
     const variables: string[] = [];
     let match;
     
