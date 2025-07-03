@@ -442,22 +442,104 @@ export async function POST(request: NextRequest) {
             const seconds = String(endTime.getSeconds()).padStart(2, '0');
             const kstEndTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
             
-            const { data: manualUpdateResult, error: manualUpdateError } = await getSupabase()
+            // 🔥 반복 스케줄 처리: 스케줄 잡 완료 전에 다음 실행 시간 계산
+            console.log(`🔄 반복 스케줄 처리 시작: ${jobId}`);
+            let nextScheduleCreated = false;
+            
+            // 워크플로우 스케줄 설정 확인
+            const scheduleConfig = workflow.schedule_config || workflow.scheduleSettings;
+            console.log(`📋 스케줄 설정 확인:`, scheduleConfig);
+            
+            if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
+              console.log(`🔄 반복 스케줄 감지됨: ${workflow.name}`);
+              
+              try {
+                // 다음 실행 시간 계산
+                const { frequency, time } = scheduleConfig.recurringPattern;
+                console.log(`⏰ 반복 패턴: ${frequency}, 시간: ${time}`);
+                
+                if (time) {
+                  // calculateNextKoreaScheduleTime 함수 import 필요
+                  const { calculateNextKoreaScheduleTime } = require('@/lib/utils/timezone');
+                  const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency);
+                  
+                  console.log(`📅 다음 실행 시간 계산 완료: ${nextScheduledTime.toISOString()}`);
+                  
+                  // 🔥 다음 실행 시간을 한국시간대 문자열로 변환
+                  const nextYear = nextScheduledTime.getFullYear();
+                  const nextMonth = String(nextScheduledTime.getMonth() + 1).padStart(2, '0');
+                  const nextDay = String(nextScheduledTime.getDate()).padStart(2, '0');
+                  const nextHours = String(nextScheduledTime.getHours()).padStart(2, '0');
+                  const nextMinutes = String(nextScheduledTime.getMinutes()).padStart(2, '0');
+                  const nextSeconds = String(nextScheduledTime.getSeconds()).padStart(2, '0');
+                  const nextKstTimeString = `${nextYear}-${nextMonth}-${nextDay} ${nextHours}:${nextMinutes}:${nextSeconds}+09:00`;
+                  
+                  console.log(`🔄 다음 스케줄 등록 시작: ${nextKstTimeString}`);
+                  
+                  // 새로운 스케줄 작업 등록
+                  const { data: newScheduleJob, error: scheduleError } = await getSupabase()
+                    .from('scheduled_jobs')
+                    .insert({
+                      workflow_id: workflow.id,
+                      workflow_data: {
+                        ...workflow,
+                        schedule_config: scheduleConfig // 스케줄 설정 유지
+                      },
+                      scheduled_time: nextKstTimeString,
+                      status: 'pending',
+                      retry_count: 0,
+                      max_retries: 3,
+                      created_at: kstEndTimeString,
+                      updated_at: kstEndTimeString
+                    })
+                    .select()
+                    .single();
+                    
+                  if (scheduleError) {
+                    console.error(`❌ 다음 스케줄 등록 실패: ${workflow.name}`, scheduleError);
+                  } else if (newScheduleJob) {
+                    console.log(`✅ 다음 스케줄 등록 성공: ${workflow.name}`, {
+                      newJobId: newScheduleJob.id,
+                      nextScheduledTime: nextKstTimeString,
+                      frequency: frequency
+                    });
+                    nextScheduleCreated = true;
+                  }
+                } else {
+                  console.warn(`⚠️ 반복 스케줄에 시간 정보가 없음: ${workflow.name}`);
+                }
+              } catch (recurringError) {
+                console.error(`❌ 반복 스케줄 처리 중 오류 발생: ${workflow.name}`, recurringError);
+              }
+            } else {
+              console.log(`📋 일회성 스케줄 또는 반복 설정 없음: ${workflow.name}`);
+            }
+            
+            // 🔥 현재 스케줄 잡 완료 처리 (반복 스케줄 등록 후)
+            console.log(`🏁 현재 스케줄 잡 완료 처리: ${jobId}`);
+            const { data: updateResult, error: updateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: kstEndTimeString, // 🔥 한국시간대를 명시한 문자열
-                updated_at: kstEndTimeString // 🔥 한국시간대를 명시한 문자열
+                completed_at: kstEndTimeString,
+                updated_at: kstEndTimeString
               })
-              .eq('id', currentJobId)
+              .eq('id', jobId)
               .select();
               
-            if (manualUpdateError) {
-              console.error(`❌ 수동 실행 스케줄 잡 완료 처리 실패: ${currentJobId}`, manualUpdateError);
-            } else if (manualUpdateResult && manualUpdateResult.length > 0) {
-              console.log(`✅ 수동 실행 스케줄 잡 완료 처리 성공: ${currentJobId}`, manualUpdateResult[0]);
+            if (updateError) {
+              console.error(`❌🚨 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+            } else if (updateResult && updateResult.length > 0) {
+              console.log(`✅🚨 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+              
+              // 반복 스케줄 등록 결과 로그
+              if (nextScheduleCreated) {
+                console.log(`🔄✅ 반복 스케줄 처리 완료: ${workflow.name} - 다음 실행 시간 등록됨`);
+              } else {
+                console.log(`📋 일회성 스케줄 완료: ${workflow.name}`);
+              }
             } else {
-              console.warn(`⚠️ 수동 실행 스케줄 잡을 찾을 수 없음: ${currentJobId}`);
+              console.warn(`⚠️🚨 스케줄 잡을 찾을 수 없음: ${jobId}`);
             }
           } catch (updateError) {
             console.error(`❌ 수동 실행 스케줄 잡 완료 처리 예외: ${currentJobId}`, updateError);
@@ -498,22 +580,104 @@ export async function POST(request: NextRequest) {
             const seconds = String(endTime.getSeconds()).padStart(2, '0');
             const kstEndTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
             
+            // 🔥 반복 스케줄 처리: 스케줄 잡 완료 전에 다음 실행 시간 계산
+            console.log(`🔄 반복 스케줄 처리 시작: ${jobId}`);
+            let nextScheduleCreated = false;
+            
+            // 워크플로우 스케줄 설정 확인
+            const scheduleConfig = workflow.schedule_config || workflow.scheduleSettings;
+            console.log(`📋 스케줄 설정 확인:`, scheduleConfig);
+            
+            if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
+              console.log(`🔄 반복 스케줄 감지됨: ${workflow.name}`);
+              
+              try {
+                // 다음 실행 시간 계산
+                const { frequency, time } = scheduleConfig.recurringPattern;
+                console.log(`⏰ 반복 패턴: ${frequency}, 시간: ${time}`);
+                
+                if (time) {
+                  // calculateNextKoreaScheduleTime 함수 import 필요
+                  const { calculateNextKoreaScheduleTime } = require('@/lib/utils/timezone');
+                  const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency);
+                  
+                  console.log(`📅 다음 실행 시간 계산 완료: ${nextScheduledTime.toISOString()}`);
+                  
+                  // 🔥 다음 실행 시간을 한국시간대 문자열로 변환
+                  const nextYear = nextScheduledTime.getFullYear();
+                  const nextMonth = String(nextScheduledTime.getMonth() + 1).padStart(2, '0');
+                  const nextDay = String(nextScheduledTime.getDate()).padStart(2, '0');
+                  const nextHours = String(nextScheduledTime.getHours()).padStart(2, '0');
+                  const nextMinutes = String(nextScheduledTime.getMinutes()).padStart(2, '0');
+                  const nextSeconds = String(nextScheduledTime.getSeconds()).padStart(2, '0');
+                  const nextKstTimeString = `${nextYear}-${nextMonth}-${nextDay} ${nextHours}:${nextMinutes}:${nextSeconds}+09:00`;
+                  
+                  console.log(`🔄 다음 스케줄 등록 시작: ${nextKstTimeString}`);
+                  
+                  // 새로운 스케줄 작업 등록
+                  const { data: newScheduleJob, error: scheduleError } = await getSupabase()
+                    .from('scheduled_jobs')
+                    .insert({
+                      workflow_id: workflow.id,
+                      workflow_data: {
+                        ...workflow,
+                        schedule_config: scheduleConfig // 스케줄 설정 유지
+                      },
+                      scheduled_time: nextKstTimeString,
+                      status: 'pending',
+                      retry_count: 0,
+                      max_retries: 3,
+                      created_at: kstEndTimeString,
+                      updated_at: kstEndTimeString
+                    })
+                    .select()
+                    .single();
+                    
+                  if (scheduleError) {
+                    console.error(`❌ 다음 스케줄 등록 실패: ${workflow.name}`, scheduleError);
+                  } else if (newScheduleJob) {
+                    console.log(`✅ 다음 스케줄 등록 성공: ${workflow.name}`, {
+                      newJobId: newScheduleJob.id,
+                      nextScheduledTime: nextKstTimeString,
+                      frequency: frequency
+                    });
+                    nextScheduleCreated = true;
+                  }
+                } else {
+                  console.warn(`⚠️ 반복 스케줄에 시간 정보가 없음: ${workflow.name}`);
+                }
+              } catch (recurringError) {
+                console.error(`❌ 반복 스케줄 처리 중 오류 발생: ${workflow.name}`, recurringError);
+              }
+            } else {
+              console.log(`📋 일회성 스케줄 또는 반복 설정 없음: ${workflow.name}`);
+            }
+            
+            // 🔥 현재 스케줄 잡 완료 처리 (반복 스케줄 등록 후)
+            console.log(`🏁 현재 스케줄 잡 완료 처리: ${jobId}`);
             const { data: updateResult, error: updateError } = await getSupabase()
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: kstEndTimeString, // 🔥 한국시간대를 명시한 문자열
-                updated_at: kstEndTimeString // 🔥 한국시간대를 명시한 문자열
+                completed_at: kstEndTimeString,
+                updated_at: kstEndTimeString
               })
               .eq('id', jobId)
               .select();
-            
+              
             if (updateError) {
-              console.error(`❌🚨🚨🚨 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+              console.error(`❌🚨 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
             } else if (updateResult && updateResult.length > 0) {
-              console.log(`✅🚨🚨🚨 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+              console.log(`✅🚨 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+              
+              // 반복 스케줄 등록 결과 로그
+              if (nextScheduleCreated) {
+                console.log(`🔄✅ 반복 스케줄 처리 완료: ${workflow.name} - 다음 실행 시간 등록됨`);
+              } else {
+                console.log(`📋 일회성 스케줄 완료: ${workflow.name}`);
+              }
             } else {
-              console.warn(`⚠️🚨🚨🚨 스케줄 잡 업데이트 결과 없음: ${jobId}`);
+              console.warn(`⚠️🚨 스케줄 잡을 찾을 수 없음: ${jobId}`);
             }
           }
         } else {
