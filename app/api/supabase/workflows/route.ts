@@ -226,6 +226,33 @@ export async function POST(request: NextRequest) {
 
       console.log('✅ 워크플로우 상태 변경 완료:', { id, status });
 
+      // 🔥 워크플로우를 일시정지/보관할 때 관련 스케줄 작업 취소
+      if (status === 'paused' || status === 'archived') {
+        console.log(`🗑️ 워크플로우 비활성화로 인한 스케줄 작업 취소 시작: ${id}`);
+        
+        try {
+          const { data: cancelledJobs, error: cancelError } = await supabase
+            .from('scheduled_jobs')
+            .update({
+              status: 'cancelled',
+              error_message: `워크플로우가 ${status} 상태로 변경되어 자동 취소됨`,
+              updated_at: koreaTimeToUTCString(getKoreaTime())
+            })
+            .eq('workflow_id', id)
+            .in('status', ['pending', 'running'])
+            .select();
+            
+          if (cancelError) {
+            console.error(`❌ 스케줄 작업 취소 실패: ${id}`, cancelError);
+          } else {
+            const cancelledCount = cancelledJobs?.length || 0;
+            console.log(`✅ 스케줄 작업 ${cancelledCount}개 취소 완료: ${id}`);
+          }
+        } catch (cancelException) {
+          console.error(`❌ 스케줄 작업 취소 중 예외 발생: ${id}`, cancelException);
+        }
+      }
+
       return NextResponse.json({
         success: true,
         data: data,

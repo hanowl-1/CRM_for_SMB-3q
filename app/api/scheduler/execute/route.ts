@@ -479,6 +479,30 @@ export async function GET(request: NextRequest) {
         
         console.log('✅ 워크플로우 정보 조회 완료:', workflowData.name);
         
+        // 🔥 워크플로우 상태 확인: paused 또는 archived 상태면 실행하지 않음
+        if (workflowData.status !== 'active') {
+          console.log(`⏸️ 워크플로우가 비활성 상태여서 실행 건너뜀: ${workflowData.name} (상태: ${workflowData.status})`);
+          
+          // 스케줄 작업을 cancelled 상태로 변경
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'cancelled',
+              error_message: `워크플로우가 ${workflowData.status} 상태로 변경되어 실행 취소됨`,
+              updated_at: kstTimeString
+            })
+            .eq('id', job.id);
+          
+          results.push({
+            jobId: job.id,
+            success: false,
+            error: `워크플로우가 ${workflowData.status} 상태로 실행 취소됨`
+          });
+          continue;
+        }
+        
+        console.log(`✅ 워크플로우 활성 상태 확인됨: ${workflowData.name} (${workflowData.status})`);
+        
         // 🔥 Supabase 워크플로우 데이터를 표준 Workflow 객체로 변환
         const workflow = {
           id: workflowData.id,
