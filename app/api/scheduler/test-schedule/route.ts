@@ -114,22 +114,21 @@ export async function POST(request: NextRequest) {
       });
     } else {
       // Date 객체이거나 시간대 정보가 없는 경우 (반복 스케줄 등)
-      // 🔥 중요: Date 객체를 한국시간 기준으로 변환하되 시간대 변환 방지
       const dateObj = scheduledTime instanceof Date ? scheduledTime : new Date(scheduledTime);
       
-      // 🔥 한국시간대로 포맷팅 (시간대 변환 없이)
-      const kstDate = new Date(dateObj.getTime() + (9 * 60 * 60 * 1000)); // UTC + 9시간
-      const year = kstDate.getUTCFullYear();
-      const month = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(kstDate.getUTCDate()).padStart(2, '0');
-      const hours = String(kstDate.getUTCHours()).padStart(2, '0');
-      const minutes = String(kstDate.getUTCMinutes()).padStart(2, '0');
-      const seconds = String(kstDate.getUTCSeconds()).padStart(2, '0');
+      // 🔥 calculateNextKoreaScheduleTime 함수가 반환한 Date 객체는 이미 한국시간 값이므로
+      // 추가로 9시간을 더할 필요가 없음. 그대로 포맷팅만 수행
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hours = String(dateObj.getHours()).padStart(2, '0');
+      const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+      const seconds = String(dateObj.getSeconds()).padStart(2, '0');
       kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
       
-      console.log('⚠️ Date 객체로부터 한국시간대 생성:', {
+      console.log('✅ 한국시간 Date 객체 직접 포맷팅:', {
         원본Date: dateObj.toISOString(),
-        한국시간변환: kstTimeString
+        한국시간문자열: kstTimeString
       });
     }
     
