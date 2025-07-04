@@ -290,8 +290,9 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    const jobsToExecute: any[] = [];
-    
+    // 실행할 작업 목록
+    let jobsToExecute: typeof jobs = [];
+
     // 각 작업에 대해 실행 시간 체크
     for (const job of jobs || []) {
       console.log(`\n--- 작업 분석: ${job.id} ---`);
@@ -359,15 +360,15 @@ export async function GET(request: NextRequest) {
       // 시간 차이 계산 (초 단위)
       const timeDiffSeconds = Math.floor((now.getTime() - scheduledTimeKST.getTime()) / 1000);
       
-      // 10분(600초) 허용 오차 적용 - AWS Lambda 5분 간격을 고려한 안전 마진
-      const TOLERANCE_MS = 10 * 60 * 1000; // 10분 = 600초
+      // 🔥 허용 오차를 1분으로 축소 - 정확한 실행 시간 보장 및 중복 실행 방지
+      const TOLERANCE_MS = 1 * 60 * 1000; // 1분 = 60초 (기존 10분에서 축소)
       const isTimeToExecute = now.getTime() >= (scheduledTimeKST.getTime() - TOLERANCE_MS);
       
       console.log(`📊 시간 분석 결과:`);
       console.log(`   - 현재시간: ${currentTimeString} (${now.getTime()})`);
       console.log(`   - 예정시간: ${formatKoreaTime(scheduledTimeKST)} (${scheduledTimeKST.getTime()})`);
       console.log(`   - 시간차이: ${timeDiffSeconds}초 (${(timeDiffSeconds/60).toFixed(1)}분)`);
-      console.log(`   - 실행가능: ${isTimeToExecute} (10분 허용오차 적용)`);
+      console.log(`   - 실행가능: ${isTimeToExecute} (1분 허용오차 적용) 🔥 중복방지 강화`);
 
       debugInfo.push({
         id: job.id,
@@ -391,7 +392,47 @@ export async function GET(request: NextRequest) {
     
     console.log(`\n🎯 최종 실행 대상: ${jobsToExecute.length}개`);
     console.log(`📋 전체 pending 작업: ${jobs?.length || 0}개`);
+
+    // 🔥 중복 실행 방지: 실행 대상 작업들을 즉시 running 상태로 변경
+    if (jobsToExecute.length > 0) {
+      console.log(`🔒 중복 실행 방지: ${jobsToExecute.length}개 작업을 running 상태로 변경`);
+      
+      const jobIdsToExecute = jobsToExecute.map(job => job.id);
+      const currentKstTime = formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss');
+      
+      const { data: updatedJobs, error: updateError } = await supabase
+        .from('scheduled_jobs')
+        .update({
+          status: 'running',
+          executed_at: `${currentKstTime}+09:00`,
+          updated_at: `${currentKstTime}+09:00`
+        })
+        .in('id', jobIdsToExecute)
+        .eq('status', 'pending') // 🔥 pending 상태인 것만 업데이트 (다른 프로세스에서 이미 처리 중일 수 있음)
+        .select();
+        
+      if (updateError) {
+        console.error('❌ 작업 상태 업데이트 실패:', updateError);
+        return NextResponse.json({
+          success: false,
+          message: '작업 상태 업데이트 실패: ' + updateError.message,
+          error: updateError
+        }, { status: 500 });
+      }
+      
+      const actuallyUpdated = updatedJobs?.length || 0;
+      console.log(`✅ ${actuallyUpdated}/${jobsToExecute.length}개 작업 상태 업데이트 완료`);
+      
+      // 🔥 실제로 업데이트된 작업만 실행 (다른 프로세스에서 이미 처리한 것 제외)
+      const validJobsToExecute = jobsToExecute.filter(job => 
+        updatedJobs?.some(updated => updated.id === job.id)
+      );
+      
+      console.log(`🎯 실제 실행할 작업: ${validJobsToExecute.length}개`);
+      jobsToExecute = validJobsToExecute; // 🔥 실행 목록 업데이트
+    }
     
+    // 🔥 실행할 작업이 없는 경우 조기 종료
     if (jobsToExecute.length === 0) {
       console.log('⏸️ 현재 실행할 작업이 없습니다.');
       
