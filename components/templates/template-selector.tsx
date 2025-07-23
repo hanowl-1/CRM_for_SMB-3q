@@ -44,29 +44,45 @@ export function TemplateSelector({ channel, onSelect, selectedTemplateId }: Temp
     setError(null)
     
     try {
-      const url = channel 
-        ? `/api/templates/sync?channel=${channel}`
-        : '/api/templates/sync'
-        
-      const response = await fetch(url)
-      const result = await response.json()
+      console.log('🔄 CoolSMS 템플릿 조회 시작...')
+      // 하드코딩된 템플릿 데이터 가져오기
+      const response = await fetch('/api/templates/coolsms/real')
+      console.log('📡 API 응답 상태:', response.status)
       
-      if (result.success) {
-        setTemplates(result.data)
+      const result = await response.json()
+      console.log('📦 API 응답 데이터:', result)
+      
+      if (result.success && result.data) {
+        // API 응답 데이터를 UI 형식으로 변환
+        const formattedTemplates = result.data.map((t: any) => ({
+          id: t.templateId,
+          template_id: t.templateId,
+          template_name: t.templateName,
+          content: t.content,
+          channel: t.channel,
+          variables: t.variables,
+          inspection_status: t.inspectionStatus
+        }))
+        
+        console.log(`✅ ${formattedTemplates.length}개 템플릿 로드 완료`)
+        setTemplates(formattedTemplates)
         
         // 선택된 템플릿이 있으면 자동 선택
         if (selectedTemplateId) {
-          const template = result.data.find((t: Template) => t.template_id === selectedTemplateId)
+          const template = formattedTemplates.find((t: Template) => t.template_id === selectedTemplateId)
           if (template) {
             setSelectedTemplate(template)
           }
         }
       } else {
-        setError(result.error || '템플릿을 불러오는데 실패했습니다.')
+        const errorMsg = result.error || '템플릿을 불러오는데 실패했습니다.'
+        console.error('❌ 템플릿 로드 실패:', errorMsg)
+        setError(errorMsg)
       }
     } catch (error) {
-      setError('템플릿을 불러오는 중 오류가 발생했습니다.')
-      console.error('Error fetching templates:', error)
+      const errorMsg = '템플릿을 불러오는 중 오류가 발생했습니다.'
+      setError(errorMsg)
+      console.error('❌ Error fetching templates:', error)
     } finally {
       setLoading(false)
     }
@@ -78,19 +94,10 @@ export function TemplateSelector({ channel, onSelect, selectedTemplateId }: Temp
     setError(null)
     
     try {
-      const response = await fetch('/api/templates/sync', {
-        method: 'POST'
-      })
-      const result = await response.json()
-      
-      if (result.success) {
-        setLastSyncTime(new Date())
-        await fetchTemplates() // 동기화 후 목록 다시 불러오기
-      } else {
-        setError(result.error || '템플릿 동기화에 실패했습니다.')
-      }
+      // CoolSMS API에서 직접 템플릿 가져오기
+      await fetchTemplates()
+      setLastSyncTime(new Date())
     } catch (error) {
-      setError('템플릿 동기화 중 오류가 발생했습니다.')
       console.error('Error syncing templates:', error)
     } finally {
       setSyncing(false)
@@ -140,27 +147,43 @@ export function TemplateSelector({ channel, onSelect, selectedTemplateId }: Temp
       )}
 
       {/* 템플릿 선택 드롭다운 */}
-      <Select
-        value={selectedTemplate?.template_id}
-        onValueChange={handleTemplateSelect}
-        disabled={loading || templates.length === 0}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder={loading ? "불러오는 중..." : "템플릿을 선택하세요"} />
-        </SelectTrigger>
-        <SelectContent>
-          {templates.map((template) => (
-            <SelectItem key={template.template_id} value={template.template_id}>
-              <div className="flex items-center gap-2">
-                <span>{template.template_name}</span>
-                <Badge variant="outline" className="text-xs">
-                  {template.channel}
-                </Badge>
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {templates.length === 0 && !loading ? (
+        <div className="p-8 text-center border-2 border-dashed rounded-lg">
+          <p className="text-sm text-muted-foreground mb-3">
+            템플릿이 없습니다. 동기화 버튼을 클릭해주세요.
+          </p>
+          <Button onClick={syncTemplates} disabled={syncing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            템플릿 동기화
+          </Button>
+        </div>
+      ) : (
+        <Select
+          value={selectedTemplate?.template_id}
+          onValueChange={handleTemplateSelect}
+          disabled={loading || templates.length === 0}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={
+              loading ? "불러오는 중..." : 
+              templates.length === 0 ? "템플릿이 없습니다" : 
+              "템플릿을 선택하세요"
+            } />
+          </SelectTrigger>
+          <SelectContent>
+            {templates.map((template) => (
+              <SelectItem key={template.template_id} value={template.template_id}>
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-sm">{template.template_name}</span>
+                  <Badge variant="outline" className="text-xs ml-2">
+                    {template.channel}
+                  </Badge>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {/* 선택된 템플릿 미리보기 */}
       {selectedTemplate && (
@@ -183,8 +206,8 @@ export function TemplateSelector({ channel, onSelect, selectedTemplateId }: Temp
               <div>
                 <h4 className="text-sm font-medium mb-1">필수 변수</h4>
                 <div className="flex flex-wrap gap-2">
-                  {selectedTemplate.variables.map((variable) => (
-                    <Badge key={variable} variant="secondary">
+                  {selectedTemplate.variables.map((variable, index) => (
+                    <Badge key={`${selectedTemplate.template_id}-var-${index}`} variant="secondary">
                       {variable}
                     </Badge>
                   ))}

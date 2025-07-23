@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import axios from 'axios'
 
 // CoolSMS API 인증을 위한 HMAC 서명 생성
 function generateSignature(method: string, uri: string, apiKey: string, apiSecret: string, salt: string, date: string) {
@@ -22,14 +21,19 @@ export async function GET(
     const uri = `/kakao/v1/templates/${templateId}`
     const signature = generateSignature('GET', uri, apiKey, apiSecret, salt, date)
     
-    const response = await axios.get(`https://api.coolsms.co.kr${uri}`, {
+    const response = await fetch(`https://api.coolsms.co.kr${uri}`, {
+      method: 'GET',
       headers: {
         'Authorization': `HMAC-SHA256 apiKey=${apiKey}, date=${date}, salt=${salt}, signature=${signature}`,
         'Content-Type': 'application/json'
       }
     })
     
-    const template = response.data
+    if (!response.ok) {
+      throw new Error(`CoolSMS API error: ${response.status}`)
+    }
+    
+    const template = await response.json()
     
     // 변수 추출 및 정리
     const variables = extractVariables(template.content)

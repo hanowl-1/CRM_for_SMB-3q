@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Workflow, WorkflowTrigger, WorkflowStep, WorkflowTestSettings, WorkflowCondition, TargetGroup, ScheduleSettings, PersonalizationSettings, TargetTemplateMapping as TargetTemplateMappingType } from '@/lib/types/workflow';
 import { KakaoTemplate } from '@/lib/types/template';
 import { TemplateBrowser } from '@/components/templates/template-browser';
+import { TemplateSelector } from '@/components/templates/template-selector';
 import { VariableSettings } from '@/components/workflow/variable-settings';
 import { VariableMapping } from '@/components/workflow/variable-mapping';
 import { TargetSelection } from './target-selection';
@@ -94,6 +95,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
   });
   
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [showCoolSMSSelector, setShowCoolSMSSelector] = useState(false);
   const [showVariableSettings, setShowVariableSettings] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState<number | null>(null);
   const [currentTemplate, setCurrentTemplate] = useState<KakaoTemplate | null>(null);
@@ -875,10 +877,16 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                     이 워크플로우에서 발송할 알림톡 템플릿을 선택하세요
                   </p>
                 </div>
-                <Button onClick={() => setShowTemplateSelector(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  템플릿 추가
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={() => setShowTemplateSelector(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    템플릿 추가
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowCoolSMSSelector(true)}>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    CoolSMS 템플릿
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1913,6 +1921,35 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             onSelect={handleTemplateSelect}
             showSelectButton={true}
             isDialogMode={true}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* CoolSMS 템플릿 선택 다이얼로그 */}
+      <Dialog open={showCoolSMSSelector} onOpenChange={setShowCoolSMSSelector}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>CoolSMS 알림톡 템플릿 선택</DialogTitle>
+          </DialogHeader>
+          <TemplateSelector
+            onSelect={(template) => {
+              // CoolSMS 템플릿을 KakaoTemplate 형식으로 변환
+              const kakaoTemplate: KakaoTemplate = {
+                id: template.template_id,
+                templateId: template.template_id,
+                templateCode: template.template_id,
+                templateName: template.template_name,
+                templateContent: template.content,
+                templateParams: template.variables,
+                channel: template.channel as 'CEO' | 'BLOGGER',
+                channelId: '',
+                servicePlatform: 'MEMBERS' as const,
+                templateNumber: 0,
+                templateTitle: template.template_name
+              };
+              handleTemplateSelect(kakaoTemplate);
+              setShowCoolSMSSelector(false);
+            }}
           />
         </DialogContent>
       </Dialog>

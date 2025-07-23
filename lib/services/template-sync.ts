@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/database/supabase'
+import { getSupabase } from '@/lib/database/supabase-client'
 
 export interface CoolSMSTemplate {
   templateId: string
@@ -19,7 +19,9 @@ export class TemplateSyncService {
   // CoolSMS에서 템플릿 목록 가져오기
   static async fetchTemplatesFromCoolSMS(): Promise<CoolSMSTemplate[]> {
     try {
-      const response = await fetch('/api/templates/coolsms/sync')
+      // 클라이언트 사이드에서 절대 경로로 API 호출
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+      const response = await fetch(`${baseUrl}/api/templates/coolsms/sync`)
       const result = await response.json()
       
       if (!result.success) {
@@ -35,6 +37,8 @@ export class TemplateSyncService {
   
   // Supabase에 템플릿 동기화
   static async syncTemplatesToDatabase(templates: CoolSMSTemplate[]) {
+    const supabase = getSupabase()
+    
     const { error: deleteError } = await supabase
       .from('kakao_templates')
       .delete()
@@ -110,6 +114,8 @@ export class TemplateSyncService {
   
   // 데이터베이스에서 템플릿 조회
   static async getTemplatesFromDatabase(channel?: string) {
+    const supabase = getSupabase()
+    
     let query = supabase
       .from('kakao_templates')
       .select('*')
@@ -131,6 +137,8 @@ export class TemplateSyncService {
   
   // 특정 템플릿 조회
   static async getTemplateById(templateId: string) {
+    const supabase = getSupabase()
+    
     const { data, error } = await supabase
       .from('kakao_templates')
       .select('*')
