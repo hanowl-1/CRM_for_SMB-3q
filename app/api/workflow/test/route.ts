@@ -215,11 +215,27 @@ export async function POST(request: NextRequest) {
       console.log(`단계 ${i + 1} 실행:`, step.name);
 
       if (step.action.type === 'send_alimtalk') {
-        // 알림톡 발송
-        const template = mockTemplates.find(t => t.id === step.action.templateId);
-        if (!template) {
-          throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
+        // 알림톡 발송 - 실제 카카오 템플릿 사용
+        console.log('🔍 알림톡 템플릿 검색:', {
+          templateId: step.action.templateId,
+          templateCode: step.action.templateCode,
+          templateName: step.action.templateName
+        });
+
+        // 실제 카카오 템플릿에서 찾기
+        const realTemplate = KakaoAlimtalkTemplateById[step.action.templateId as keyof typeof KakaoAlimtalkTemplateById];
+        
+        if (!realTemplate) {
+          throw new Error(`카카오 알림톡 템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
         }
+
+        // 템플릿 정보 구성
+        const template = {
+          id: step.action.templateId,
+          name: realTemplate.templateName,
+          templateCode: step.action.templateCode || `MEMBERS_${realTemplate.templateNumber}`,
+          templateContent: realTemplate.content
+        };
 
         // 실제 타겟 그룹 사용 시 각 연락처에 개별 발송
         if (useRealTargets && targetContacts.length > 0) {
