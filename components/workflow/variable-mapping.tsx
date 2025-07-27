@@ -790,20 +790,40 @@ export function VariableMapping({
                             <div>
                               <label className="text-sm font-medium mb-2 block">🔵 매핑할 키 컬럼 선택 (대상자 데이터와 연결)</label>
                               <Select
-                                value={variableMappings[index]?.mappingKeyField || queryTestResults[index].columns![0]}
+                                value={variableMappings[index]?.mappingKeyField || queryTestResults[index]?.columns?.[0] || ''}
                                 onValueChange={(value) => updateMapping(index, { mappingKeyField: value })}
                               >
                                 <SelectTrigger className="w-full">
                                   <SelectValue placeholder="매핑할 키 컬럼 선택" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {queryTestResults[index].columns!.map(column => (
+                                  {(queryTestResults[index]?.columns || []).map(column => (
                                     <SelectItem key={column} value={column}>
                                       <div className="flex items-center justify-between w-full">
                                         <span>{column}</span>
                                         <span className="text-xs text-muted-foreground ml-2">
-                                          {queryTestResults[index].data?.[0]?.[column]}
+                                          {queryTestResults[index]?.data?.[0]?.[column]}
                                         </span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                  {/* 저장된 매핑 키 필드가 있지만 쿼리 결과에 없는 경우 */}
+                                  {variableMappings[index]?.mappingKeyField && 
+                                   !queryTestResults[index]?.columns?.includes(variableMappings[index].mappingKeyField) && (
+                                    <SelectItem key={variableMappings[index].mappingKeyField} value={variableMappings[index].mappingKeyField}>
+                                      <div className="flex items-center justify-between w-full">
+                                        <span>{variableMappings[index].mappingKeyField}</span>
+                                        <span className="text-xs text-blue-600 ml-2">(저장됨)</span>
+                                      </div>
+                                    </SelectItem>
+                                  )}
+                                  {/* 쿼리 결과가 없는 경우 기본 키 옵션들 제공 */}
+                                  {(!queryTestResults[index]?.columns || queryTestResults[index].columns.length === 0) && 
+                                   ['id', 'user', 'userId', 'adId', 'companyId', 'uid'].map(defaultKey => (
+                                    <SelectItem key={defaultKey} value={defaultKey}>
+                                      <div className="flex items-center justify-between w-full">
+                                        <span>{defaultKey}</span>
+                                        <span className="text-xs text-gray-500 ml-2">(기본옵션)</span>
                                       </div>
                                     </SelectItem>
                                   ))}
