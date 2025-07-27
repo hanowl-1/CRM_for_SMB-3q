@@ -285,20 +285,73 @@ export default function VariableQuerySelector({
   const extractKeyColumns = (query: string): string[] => {
     const keyColumns: string[] = [];
     
-    // FROM 절에서 테이블 별칭 추출
-    const fromMatch = query.match(/FROM\s+(\w+)\s+(\w+)/i);
-    if (fromMatch) {
-      const tableAlias = fromMatch[2];
+    try {
+      // 쿼리를 정규화 (개행문자 제거, 공백 정리)
+      const normalizedQuery = query.replace(/\s+/g, ' ').trim();
       
-      // SELECT 절에서 해당 별칭의 id 컬럼 찾기 (멀티라인 지원)
-      const selectMatch = query.replace(/\n/g, ' ').match(/SELECT\s+(.*?)\s+FROM/i);
-      if (selectMatch) {
-        const selectClause = selectMatch[1];
-        const idMatches = selectClause.match(new RegExp(`${tableAlias}\\.\\w*id\\w*`, 'gi'));
-        if (idMatches) {
-          keyColumns.push(...idMatches);
+      // 1. FROM 절에서 테이블과 별칭 추출 (다양한 패턴 지원)
+      const fromPatterns = [
+        /FROM\s+(\w+)\s+(?:AS\s+)?(\w+)/i,  // FROM table AS alias 또는 FROM table alias
+        /FROM\s+(\w+)(?:\s+(\w+))?/i        // FROM table 또는 FROM table alias
+      ];
+      
+      let tableAlias = '';
+      let tableName = '';
+      
+      for (const pattern of fromPatterns) {
+        const fromMatch = normalizedQuery.match(pattern);
+        if (fromMatch) {
+          tableName = fromMatch[1];
+          tableAlias = fromMatch[2] || fromMatch[1]; // 별칭이 없으면 테이블명 사용
+          break;
         }
       }
+      
+      if (tableName) {
+        // 2. SELECT 절에서 ID 관련 컬럼 찾기
+        const selectMatch = normalizedQuery.match(/SELECT\s+(.*?)\s+FROM/i);
+        if (selectMatch) {
+          const selectClause = selectMatch[1];
+          
+          // 다양한 ID 패턴 검색
+          const idPatterns = [
+            new RegExp(`${tableAlias}\\.(\\w*id\\w*)`, 'gi'),      // alias.id, alias.userId 등
+            new RegExp(`${tableName}\\.(\\w*id\\w*)`, 'gi'),       // table.id, table.userId 등
+            /\b(\w*id\w*)\b/gi,                                    // 단순 id, userId 등
+            /\b(id)\b/gi                                           // 단순 id
+          ];
+          
+          for (const pattern of idPatterns) {
+            let match;
+            while ((match = pattern.exec(selectClause)) !== null) {
+              const columnName = match[1] || match[0];
+              // 중복 제거 및 기본 키워드 필터링
+              if (!keyColumns.includes(columnName) && 
+                  !['SELECT', 'FROM', 'WHERE', 'AS'].includes(columnName.toUpperCase())) {
+                keyColumns.push(columnName);
+              }
+            }
+          }
+          
+          // 3. 첫 번째 컬럼을 키로 사용 (다른 ID가 없는 경우)
+          if (keyColumns.length === 0) {
+            const firstColumnMatch = selectClause.match(/^\s*(\w+(?:\.\w+)?)/);
+            if (firstColumnMatch) {
+              keyColumns.push(firstColumnMatch[1]);
+            }
+          }
+        }
+      }
+      
+      console.log('🔍 키 컬럼 추출 결과:', {
+        query: normalizedQuery,
+        tableName,
+        tableAlias,
+        keyColumns
+      });
+      
+    } catch (error) {
+      console.error('키 컬럼 추출 중 오류:', error);
     }
     
     return keyColumns;
@@ -330,7 +383,7 @@ export default function VariableQuerySelector({
     try {
       // 키 컬럼 자동 추출
       const keyColumns = extractKeyColumns(currentQuery);
-      const keyColumn = keyColumns.length > 0 ? keyColumns[0] : '';
+      const keyColumn = keyColumns.length > 0 ? keyColumns[0] : 'id';
       
       console.log('🔑 추출된 키 컬럼:', keyColumn);
       console.log('📊 선택된 출력 컬럼:', currentSelectedColumn);
@@ -390,7 +443,8 @@ export default function VariableQuerySelector({
       
       if (result.success) {
         const action = checkResult.success && checkResult.data ? '업데이트' : '저장';
-        alert(`쿼리 템플릿이 ${action}되었습니다!\n출력 컬럼: ${currentSelectedColumn || '미선택'}\n키 컬럼: ${keyColumn || '자동 추출 실패'}`);
+        const keyColumnDisplay = keyColumn ? keyColumn : '자동 추출 실패 (첫 번째 컬럼 사용됨)';
+        alert(`쿼리 템플릿이 ${action}되었습니다!\n출력 컬럼: ${currentSelectedColumn || '미선택'}\n키 컬럼: ${keyColumnDisplay}`);
         onSave?.(result.data);
         setShowSaveForm(false);
         
