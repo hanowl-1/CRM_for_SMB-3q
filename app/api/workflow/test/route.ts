@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
     
     // 워크플로우의 테스트 설정 사용
     const testSettings = workflow.testSettings;
-    const enableRealSending = testSettings?.enableRealSending ?? false;
+    // 테스트 모드에서는 실제 API 호출하되 테스트 번호로만 발송
+    const enableRealSending = testSettings?.enableRealSending ?? true; // 테스트에서는 실제 API 호출
     const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
     // 스케줄 설정 확인
@@ -79,16 +80,10 @@ export async function POST(request: NextRequest) {
     let phoneNumber: string | undefined;
     let useRealTargets = false;
 
-    if (isSchedulerExecution && enableRealSending) {
-      // 스케줄러 실행 시에는 실제 타겟 그룹 사용
-      console.log('🎯 스케줄러 실행 모드: 실제 타겟 그룹 연락처 사용');
-      useRealTargets = true;
-      phoneNumber = 'TARGET_GROUP'; // 특수 값으로 표시
-    } else {
-      // 테스트 모드에서는 테스트 번호 사용
-      phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
-      console.log('🧪 테스트 모드: 테스트 번호 사용 -', phoneNumber);
-    }
+    // 워크플로우 테스트 API에서는 항상 테스트 번호만 사용
+    phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
+    useRealTargets = false; // 테스트에서는 실제 타겟 그룹 사용 안 함
+    console.log('🧪 워크플로우 테스트 모드: 테스트 번호 사용 -', phoneNumber);
 
     // 환경변수 설정 상태 확인
     const envStatus = {
@@ -280,6 +275,7 @@ export async function POST(request: NextRequest) {
               console.log(`📤 ${contact.name} (${contact.phone})에게 발송 중...`);
 
               const result = await sendAlimtalk({
+                templateId: template.id,
                 templateCode: template.templateCode,
                 templateContent: template.templateContent,
                 phoneNumber: contact.phone,
@@ -352,6 +348,7 @@ export async function POST(request: NextRequest) {
           console.log('🔧 최종 사용할 변수:', variables);
 
           const result = await sendAlimtalk({
+            templateId: template.id,
             templateCode: template.templateCode,
             templateContent: template.templateContent,
             phoneNumber: phoneNumber!,
@@ -476,6 +473,7 @@ export async function POST(request: NextRequest) {
 
 // 알림톡 발송 함수
 async function sendAlimtalk({
+  templateId,
   templateCode,
   templateContent,
   phoneNumber,
@@ -483,6 +481,7 @@ async function sendAlimtalk({
   enableRealSending,
   fallbackToSMS
 }: {
+  templateId?: string;
   templateCode: string;
   templateContent: string;
   phoneNumber: string;
@@ -490,16 +489,17 @@ async function sendAlimtalk({
   enableRealSending: boolean;
   fallbackToSMS: boolean;
 }) {
-  // 템플릿 코드에서 실제 템플릿 ID 찾기
-  const templateId = findTemplateIdByCode(templateCode);
-  if (!templateId) {
-    throw new Error(`템플릿 코드 ${templateCode}에 해당하는 템플릿 ID를 찾을 수 없습니다.`);
+  // 템플릿 ID가 직접 전달된 경우 사용, 없으면 코드로 찾기
+  let finalTemplateId = templateId;
+  
+  if (!finalTemplateId) {
+    finalTemplateId = findTemplateIdByCode(templateCode);
+    if (!finalTemplateId) {
+      throw new Error(`템플릿 코드 ${templateCode}에 해당하는 템플릿 ID를 찾을 수 없습니다.`);
+    }
   }
-
-  // 디버깅: 다른 템플릿으로 테스트
-  const testTemplateId = "KA01TP250407033755052c3I28hVjXSH"; // 템플릿 108번
-  console.log('🔧 디버깅: 원래 템플릿 ID:', templateId);
-  console.log('🔧 디버깅: 테스트 템플릿 ID:', testTemplateId);
+  
+  console.log('🔍 사용할 템플릿 ID:', finalTemplateId);
 
   // 변수 치환
   let processedContent = templateContent;
@@ -509,7 +509,7 @@ async function sendAlimtalk({
 
   console.log('🔔 알림톡 발송 시도');
   console.log('템플릿 코드:', templateCode);
-  console.log('템플릿 ID:', templateId);
+  console.log('템플릿 ID:', finalTemplateId);
   console.log('수신번호:', phoneNumber);
   console.log('사용자 변수:', variables);
   console.log('처리된 메시지:', processedContent);
@@ -541,8 +541,8 @@ async function sendAlimtalk({
       from: SMS_SENDER_NUMBER,
       type: 'ATA', // 알림톡
       kakaoOptions: {
-        pfId: getPfIdForTemplate(templateId),
-        templateId: templateId, // 실제 템플릿 ID 사용
+        pfId: getPfIdForTemplate(finalTemplateId),
+        templateId: finalTemplateId, // 실제 템플릿 ID 사용
         // CoolSMS API는 variables 속성에서 #{변수명} 형식 사용
         variables: Object.entries(variables).reduce((acc, [key, value]) => {
           acc[`#{${key}}`] = value;
@@ -555,8 +555,8 @@ async function sendAlimtalk({
       to: phoneNumber,
       from: SMS_SENDER_NUMBER,
       type: 'ATA',
-      pfId: getPfIdForTemplate(templateId),
-      templateId: templateId,
+      pfId: getPfIdForTemplate(finalTemplateId),
+      templateId: finalTemplateId,
       variables: baseMessageOptions.kakaoOptions.variables
     });
     
