@@ -243,39 +243,47 @@ export async function POST(request: NextRequest) {
           
           for (const contact of targetContacts) {
             try {
-              // 사용자 정의 변수 사용 (없으면 기본값)
-              const defaultVariables = {
-                'total_reviews': '1,234',
-                'monthly_review_count': '156',
-                'top_5p_reviewers_count': '23',
-                'total_post_views': '45,678',
-                'naver_place_rank': '3',
-                'blog_post_rank': '7',
-                '고객명': contact.name,
-                '회사명': contact.company || '회사명 없음',
-                '취소일': '2024-01-20',
-                '구독상태': '취소됨',
-                '실패사유': '카드 한도 초과',
-                '다음결제일': '2024-01-25',
-                '블로그제목': '새로운 비즈니스 전략',
-                '콘텐츠제목': '마케팅 가이드',
-                '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
-              };
+              // PersonalizationService를 사용하여 개인화 수행
+              let variables: Record<string, string> = {};
               
-              // 연락처 데이터에서 변수 매핑
-              const contactVariables: Record<string, string> = { ...defaultVariables };
-              if (contact.data) {
-                Object.entries(contact.data).forEach(([key, value]) => {
-                  if (value !== null && value !== undefined) {
-                    contactVariables[key] = String(value);
+              if (step.action.personalization?.enabled) {
+                console.log(`🎯 ${contact.name} 개인화 처리 중...`);
+                
+                try {
+                  const { personalizationService } = await import('@/lib/services/personalization-service');
+                  
+                  // 개인화된 메시지 생성
+                  const personalizedMessages = await personalizationService.generatePersonalizedMessages(
+                    [{ contact: contact.phone, data: contact.data }],
+                    template.templateContent,
+                    step.action.personalization
+                  );
+                  
+                  if (personalizedMessages.length > 0 && !personalizedMessages[0].error) {
+                    // 개인화된 메시지에서 변수 추출
+                    variables = extractVariablesFromPersonalization(
+                      template.templateContent,
+                      personalizedMessages[0].personalizedContent,
+                      contact.data
+                    );
+                    console.log(`✅ ${contact.name} 개인화 완료:`, variables);
+                  } else {
+                    console.warn(`⚠️ ${contact.name} 개인화 실패, 기본값 사용`);
+                    variables = getContactVariables(contact);
                   }
-                });
+                } catch (personalizationError) {
+                  console.error(`❌ ${contact.name} 개인화 처리 실패:`, personalizationError);
+                  variables = getContactVariables(contact);
+                }
+              } else {
+                console.log(`🔧 ${contact.name} 개인화 비활성화 - 기본 변수 사용`);
+                variables = getContactVariables(contact);
               }
               
               // 설정된 변수로 덮어쓰기
-              const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
-                ? { ...contactVariables, ...step.action.variables }
-                : contactVariables;
+              if (step.action.variables && Object.keys(step.action.variables).length > 0) {
+                variables = { ...variables, ...step.action.variables };
+              }
                 
               console.log(`📤 ${contact.name} (${contact.phone})에게 발송 중...`);
 
@@ -325,30 +333,56 @@ export async function POST(request: NextRequest) {
           // 테스트 모드: 단일 번호로 발송
           console.log(`🧪 테스트 모드: ${phoneNumber}로 발송`);
           
-          // 사용자 정의 변수 사용 (없으면 기본값)
-          console.log('🔍 step.action.variables:', step.action.variables);
+          // PersonalizationService를 사용하여 실제 개인화 수행
+          let variables: Record<string, string> = {};
           
-          const defaultVariables = {
-            'total_reviews': '1,234',
-            'monthly_review_count': '156',
-            'top_5p_reviewers_count': '23',
-            'total_post_views': '45,678',
-            'naver_place_rank': '3',
-            'blog_post_rank': '7',
-            '고객명': '테스트 고객',
-            '회사명': '테스트 회사',
-            '취소일': '2024-01-20',
-            '구독상태': '취소됨',
-            '실패사유': '카드 한도 초과',
-            '다음결제일': '2024-01-25',
-            '블로그제목': '새로운 비즈니스 전략',
-            '콘텐츠제목': '마케팅 가이드',
-            '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
-          };
-          
-          const variables = step.action.variables && Object.keys(step.action.variables).length > 0 
-            ? step.action.variables 
-            : defaultVariables;
+          if (step.action.personalization?.enabled && workflow.targetGroups?.length > 0) {
+            console.log('🎯 개인화 활성화됨 - PersonalizationService 사용');
+            
+            try {
+              // 타겟 그룹에서 테스트용 데이터 샘플 1개 추출
+              const sampleTargets = await getContactsFromTargetGroups(workflow.targetGroups);
+              
+              if (sampleTargets.length > 0) {
+                const sampleTarget = sampleTargets[0];
+                console.log('📊 샘플 타겟 데이터:', sampleTarget);
+                
+                // PersonalizationService import 추가 필요
+                const { personalizationService } = await import('@/lib/services/personalization-service');
+                
+                // 개인화된 메시지 생성
+                const personalizedMessages = await personalizationService.generatePersonalizedMessages(
+                  [{ contact: sampleTarget.phone, data: sampleTarget.data }],
+                  template.templateContent,
+                  step.action.personalization
+                );
+                
+                if (personalizedMessages.length > 0 && !personalizedMessages[0].error) {
+                  // 개인화된 메시지에서 변수 추출
+                  variables = extractVariablesFromPersonalization(
+                    template.templateContent,
+                    personalizedMessages[0].personalizedContent,
+                    sampleTarget.data
+                  );
+                  console.log('✅ 개인화된 변수 생성:', variables);
+                } else {
+                  console.warn('⚠️ 개인화 실패, 기본값 사용');
+                  variables = getDefaultVariables();
+                }
+              } else {
+                console.warn('⚠️ 타겟 그룹에서 샘플 데이터 없음, 기본값 사용');
+                variables = getDefaultVariables();
+              }
+            } catch (personalizationError) {
+              console.error('❌ 개인화 처리 실패:', personalizationError);
+              variables = getDefaultVariables();
+            }
+          } else {
+            console.log('🔧 개인화 비활성화 - 설정된 변수 또는 기본값 사용');
+            variables = step.action.variables && Object.keys(step.action.variables).length > 0 
+              ? step.action.variables 
+              : getDefaultVariables();
+          }
             
           console.log('🔧 최종 사용할 변수:', variables);
 
@@ -749,6 +783,78 @@ async function sendSMS({
     };
   }
 }
+// 연락처별 기본 변수값 반환 함수
+function getContactVariables(contact: any): Record<string, string> {
+  const defaultVars = getDefaultVariables();
+  const contactVariables: Record<string, string> = {
+    ...defaultVars,
+    '고객명': contact.name || defaultVars['고객명'],
+    '회사명': contact.company || defaultVars['회사명']
+  };
+  
+  // 연락처 데이터에서 변수 매핑
+  if (contact.data) {
+    Object.entries(contact.data).forEach(([key, value]) => {
+      if (value !== null && value !== undefined) {
+        contactVariables[key] = String(value);
+      }
+    });
+  }
+  
+  return contactVariables;
+}
+
+// 기본 변수값 반환 함수
+function getDefaultVariables(): Record<string, string> {
+  return {
+    'total_reviews': '1,234',
+    'monthly_review_count': '156',
+    'top_5p_reviewers_count': '23',
+    'total_post_views': '45,678',
+    'naver_place_rank': '3',
+    'blog_post_rank': '7',
+    '고객명': '테스트 고객',
+    '회사명': '테스트 회사',
+    '취소일': '2024-01-20',
+    '구독상태': '취소됨',
+    '실패사유': '카드 한도 초과',
+    '다음결제일': '2024-01-25',
+    '블로그제목': '새로운 비즈니스 전략',
+    '콘텐츠제목': '마케팅 가이드',
+    '콘텐츠설명': '효과적인 마케팅 전략을 알아보세요'
+  };
+}
+
+// 개인화된 메시지에서 변수 추출 함수
+function extractVariablesFromPersonalization(
+  originalTemplate: string,
+  personalizedContent: string,
+  targetData: any
+): Record<string, string> {
+  const variables: Record<string, string> = {};
+  
+  // 템플릿에서 변수 패턴 찾기 (#{변수명})
+  const variablePattern = /#{([^}]+)}/g;
+  let match;
+  
+  while ((match = variablePattern.exec(originalTemplate)) !== null) {
+    const variableName = match[1];
+    
+    // 타겟 데이터에서 해당 변수값 찾기
+    let value = targetData[variableName];
+    
+    if (value !== undefined && value !== null) {
+      variables[variableName] = String(value);
+    } else {
+      // 기본값 설정
+      const defaultVars = getDefaultVariables();
+      variables[variableName] = defaultVars[variableName] || `[${variableName}]`;
+    }
+  }
+  
+  return variables;
+}
+
 // 실제 타겟 그룹에서 연락처 조회
 async function getContactsFromTargetGroups(targetGroups: any[]): Promise<Array<{
   name: string;

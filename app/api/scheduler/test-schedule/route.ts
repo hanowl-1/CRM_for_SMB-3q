@@ -9,7 +9,7 @@ import {
 
 // 다음 실행 시간 계산 함수
 function calculateNextRecurringTime(recurringPattern: any): Date {
-  const { frequency, time } = recurringPattern;
+  const { frequency, time, daysOfWeek } = recurringPattern;
   
   console.log(`🕐 현재 한국 시간: ${formatKoreaTime(getKoreaTime())}`);
   
@@ -20,8 +20,13 @@ function calculateNextRecurringTime(recurringPattern: any): Date {
   
   console.log(`⏰ 설정된 시간: ${time}`);
   
-  // 전문적인 한국 시간 스케줄 계산
-  const nextRun = calculateNextKoreaScheduleTime(time, frequency);
+  // 주간 반복이고 요일이 지정된 경우 로그
+  if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+    console.log(`📅 지정된 요일: ${daysOfWeek.map((d: number) => ['일', '월', '화', '수', '목', '금', '토'][d]).join(', ')}`);
+  }
+  
+  // 전문적인 한국 시간 스케줄 계산 (daysOfWeek 파라미터 추가)
+  const nextRun = calculateNextKoreaScheduleTime(time, frequency, daysOfWeek);
   
   console.log(`📅 계산된 다음 실행 시간: ${formatKoreaTime(nextRun)}`);
   debugTimeInfo('스케줄 계산 결과', nextRun);

@@ -128,8 +128,13 @@ export function koreaTimeToUTCString(koreaTime: Date): string {
  * 🔥 반환값: 한국 시간 기준 Date 객체 (저장 시 koreaTimeToUTCString 사용 필요)
  * @param timeString "HH:mm" 형식의 시간
  * @param frequency 반복 주기
+ * @param daysOfWeek 주간 반복 시 특정 요일들 (0=일요일, 1=월요일, ...)
  */
-export function calculateNextKoreaScheduleTime(timeString: string, frequency: 'daily' | 'weekly' | 'monthly' = 'daily'): Date {
+export function calculateNextKoreaScheduleTime(
+  timeString: string, 
+  frequency: 'daily' | 'weekly' | 'monthly' = 'daily',
+  daysOfWeek?: number[]
+): Date {
   const now = getKoreaMoment();
   const [hours, minutes] = timeString.split(':').map(Number);
   
@@ -149,23 +154,66 @@ export function calculateNextKoreaScheduleTime(timeString: string, frequency: 'd
   
   console.log(`   오늘 설정 시간: ${nextRun.format('YYYY-MM-DD HH:mm:ss')}`);
   
-  // 현재 시간이 설정 시간을 지났으면 다음 주기로 설정
-  if (nextRun.isSameOrBefore(now)) {
-    console.log(`   ⏰ 설정 시간이 지났음, 다음 주기로 이동`);
-    switch (frequency) {
-      case 'daily':
-        nextRun = nextRun.add(1, 'day');
+  // 주간 반복이고 특정 요일이 지정된 경우 특별 처리
+  if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+    console.log(`   📅 주간 반복 - 지정된 요일: ${daysOfWeek.map(d => ['일', '월', '화', '수', '목', '금', '토'][d]).join(', ')}`);
+    
+    const currentDayOfWeek = now.day(); // 0=일요일, 1=월요일, ...
+    console.log(`   현재 요일: ${['일', '월', '화', '수', '목', '금', '토'][currentDayOfWeek]}요일`);
+    
+    // 정렬된 요일 배열
+    const sortedDays = [...daysOfWeek].sort((a, b) => a - b);
+    
+    // 오늘 이후로 가장 가까운 요일 찾기
+    let targetDay = null;
+    let daysToAdd = 0;
+    
+    // 1. 이번 주에서 가능한 요일 찾기
+    for (const day of sortedDays) {
+      if (day > currentDayOfWeek) {
+        targetDay = day;
+        daysToAdd = day - currentDayOfWeek;
         break;
-      case 'weekly':
-        nextRun = nextRun.add(1, 'week');
-        break;
-      case 'monthly':
-        nextRun = nextRun.add(1, 'month');
-        break;
+      } else if (day === currentDayOfWeek) {
+        // 오늘이 지정된 요일인 경우, 시간 확인
+        if (nextRun.isAfter(now)) {
+          targetDay = day;
+          daysToAdd = 0;
+          break;
+        }
+      }
     }
-    console.log(`   다음 실행 시간: ${nextRun.format('YYYY-MM-DD HH:mm:ss')}`);
+    
+    // 2. 이번 주에 없으면 다음 주 첫 번째 요일로
+    if (targetDay === null) {
+      targetDay = sortedDays[0];
+      daysToAdd = 7 - currentDayOfWeek + targetDay;
+      console.log(`   이번 주 실행 시간이 지나서 다음 주 ${['일', '월', '화', '수', '목', '금', '토'][targetDay]}요일로 설정`);
+    }
+    
+    // 날짜 조정
+    nextRun = nextRun.add(daysToAdd, 'days');
+    console.log(`   계산된 다음 실행 시간: ${nextRun.format('YYYY-MM-DD HH:mm:ss')} (${['일', '월', '화', '수', '목', '금', '토'][targetDay]}요일)`);
+    
   } else {
-    console.log(`   ✅ 오늘 실행 예정`);
+    // 기존 로직: 현재 시간이 설정 시간을 지났으면 다음 주기로 설정
+    if (nextRun.isSameOrBefore(now)) {
+      console.log(`   ⏰ 설정 시간이 지났음, 다음 주기로 이동`);
+      switch (frequency) {
+        case 'daily':
+          nextRun = nextRun.add(1, 'day');
+          break;
+        case 'weekly':
+          nextRun = nextRun.add(1, 'week');
+          break;
+        case 'monthly':
+          nextRun = nextRun.add(1, 'month');
+          break;
+      }
+      console.log(`   다음 실행 시간: ${nextRun.format('YYYY-MM-DD HH:mm:ss')}`);
+    } else {
+      console.log(`   ✅ 오늘 실행 예정`);
+    }
   }
   
   // 🔥 문서 원칙 적용: 한국 시간 기준 Date 객체 반환 (시간 값을 한국 시간으로 해석)
@@ -209,15 +257,25 @@ export function getUTCCronTime(koreaTimeString: string): { hour: number; minute:
  * 크론 표현식 생성 (UTC 기준)
  * @param koreaTimeString "HH:mm" 형식의 한국 시간
  * @param frequency 반복 주기
+ * @param daysOfWeek 주간 반복 시 특정 요일들 (0=일요일, 1=월요일, ...)
  */
-export function createCronExpression(koreaTimeString: string, frequency: 'daily' | 'weekly' | 'monthly' = 'daily'): string {
+export function createCronExpression(
+  koreaTimeString: string, 
+  frequency: 'daily' | 'weekly' | 'monthly' = 'daily',
+  daysOfWeek?: number[]
+): string {
   const { hour, minute } = getUTCCronTime(koreaTimeString);
   
   switch (frequency) {
     case 'daily':
       return `${minute} ${hour} * * *`;
     case 'weekly':
-      return `${minute} ${hour} * * 0`; // 매주 일요일
+      if (daysOfWeek && daysOfWeek.length > 0) {
+        // 특정 요일들이 지정된 경우 (크론에서 0=일요일, 6=토요일)
+        const cronDays = daysOfWeek.join(',');
+        return `${minute} ${hour} * * ${cronDays}`;
+      }
+      return `${minute} ${hour} * * 0`; // 기본값: 매주 일요일
     case 'monthly':
       return `${minute} ${hour} 1 * *`; // 매월 1일
     default:

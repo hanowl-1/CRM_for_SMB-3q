@@ -484,6 +484,85 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
     setActiveTab(newTab);
   }, [activeTab, name, description, saveWorkflow]);
 
+  // 테스트용 워크플로우 객체 생성 함수
+  const buildWorkflowForTest = (): Workflow => {
+    const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
+      id: `step_${template.id}_${Date.now()}`,
+      name: `${template.templateName} 발송`,
+      action: {
+        id: `action_${template.id}_${Date.now()}`,
+        type: 'send_alimtalk',
+        templateId: template.id,
+        templateCode: template.templateCode,
+        templateName: template.templateName,
+        variables: templateVariables[template.id] || {},
+        // 스케줄 테스트 모드가 활성화된 경우 스케줄 설정 사용, 아니면 즉시 발송
+        scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
+          ? scheduleSettings 
+          : { type: 'immediate', timezone: 'Asia/Seoul' },
+        personalization: templatePersonalizations[template.id]
+      },
+      position: { x: 100, y: index * 150 + 100 }
+    }));
+
+    const getTriggerInfoForTest = () => {
+      const effectiveScheduleSettings = testSettings.testMode && scheduleSettings.type !== 'immediate' 
+        ? scheduleSettings 
+        : { type: 'immediate' as const, timezone: 'Asia/Seoul' };
+
+      if (effectiveScheduleSettings.type === 'immediate') {
+        return {
+          type: 'manual' as const,
+          name: '수동 실행 (테스트)',
+          description: '테스트용 수동 실행'
+        };
+      } else {
+        const delay = 'delay' in effectiveScheduleSettings ? effectiveScheduleSettings.delay : 0;
+        return {
+          type: 'schedule' as const,
+          name: effectiveScheduleSettings.type === 'delay' ? `지연 테스트 (${delay}분 후)` :
+                effectiveScheduleSettings.type === 'scheduled' ? '예약 테스트' :
+                effectiveScheduleSettings.type === 'recurring' ? '반복 테스트' : '스케줄 테스트',
+          description: effectiveScheduleSettings.type === 'delay' ? `${delay}분 후 테스트 실행` :
+                      effectiveScheduleSettings.type === 'scheduled' ? '예약된 시간에 테스트 실행' :
+                      effectiveScheduleSettings.type === 'recurring' ? '반복 일정에 따라 테스트 실행' :
+                      '스케줄에 따라 테스트 실행'
+        };
+      }
+    };
+
+    const testTriggerInfo = getTriggerInfoForTest();
+    const defaultTrigger: WorkflowTrigger = {
+      id: 'trigger_test',
+      type: testTriggerInfo.type,
+      name: testTriggerInfo.name,
+      description: testTriggerInfo.description,
+      conditions: [],
+      conditionLogic: 'AND'
+    };
+
+    return {
+      id: workflow?.id || `workflow_test_${Date.now()}`,
+      name: `${name} (테스트)`,
+      description: `${description} - 테스트 실행`,
+      status: 'draft',
+      trigger: defaultTrigger,
+      targetGroups,
+      steps: templateSteps,
+      testSettings,
+      // 스케줄 테스트 모드에 따라 스케줄 설정 적용
+      scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
+        ? scheduleSettings 
+        : { type: 'immediate', timezone: 'Asia/Seoul' },
+      createdAt: workflow?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      stats: {
+        totalRuns: 0,
+        successRate: 0
+      }
+    };
+  };
+
   const handleTest = () => {
     if (onTest) {
       // 스케줄 테스트 모드가 활성화되어 있고, 즉시 발송이 아닌 경우
@@ -500,81 +579,7 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
         }
       }
 
-      const templateSteps: WorkflowStep[] = selectedTemplates.map((template, index) => ({
-        id: `step_${template.id}_${Date.now()}`,
-        name: `${template.templateName} 발송`,
-        action: {
-          id: `action_${template.id}_${Date.now()}`,
-          type: 'send_alimtalk',
-          templateId: template.id,
-          templateCode: template.templateCode,
-          templateName: template.templateName,
-          variables: templateVariables[template.id] || {},
-          // 스케줄 테스트 모드가 활성화된 경우 스케줄 설정 사용, 아니면 즉시 발송
-          scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
-            ? scheduleSettings 
-            : { type: 'immediate', timezone: 'Asia/Seoul' },
-          personalization: templatePersonalizations[template.id]
-        },
-        position: { x: 100, y: index * 150 + 100 }
-      }));
-
-      const getTriggerInfoForTest = () => {
-        const effectiveScheduleSettings = testSettings.testMode && scheduleSettings.type !== 'immediate' 
-          ? scheduleSettings 
-          : { type: 'immediate' as const, timezone: 'Asia/Seoul' };
-
-        if (effectiveScheduleSettings.type === 'immediate') {
-          return {
-            type: 'manual' as const,
-            name: '수동 실행 (테스트)',
-            description: '테스트용 수동 실행'
-          };
-        } else {
-          const delay = 'delay' in effectiveScheduleSettings ? effectiveScheduleSettings.delay : 0;
-          return {
-            type: 'schedule' as const,
-            name: effectiveScheduleSettings.type === 'delay' ? `지연 테스트 (${delay}분 후)` :
-                  effectiveScheduleSettings.type === 'scheduled' ? '예약 테스트' :
-                  effectiveScheduleSettings.type === 'recurring' ? '반복 테스트' : '스케줄 테스트',
-            description: effectiveScheduleSettings.type === 'delay' ? `${delay}분 후 테스트 실행` :
-                        effectiveScheduleSettings.type === 'scheduled' ? '예약된 시간에 테스트 실행' :
-                        effectiveScheduleSettings.type === 'recurring' ? '반복 일정에 따라 테스트 실행' :
-                        '스케줄에 따라 테스트 실행'
-          };
-        }
-      };
-
-      const testTriggerInfo = getTriggerInfoForTest();
-      const defaultTrigger: WorkflowTrigger = {
-        id: 'trigger_test',
-        type: testTriggerInfo.type,
-        name: testTriggerInfo.name,
-        description: testTriggerInfo.description,
-        conditions: [],
-        conditionLogic: 'AND'
-      };
-
-      const workflowData: Workflow = {
-        id: workflow?.id || `workflow_test_${Date.now()}`,
-        name: `${name} (테스트)`,
-        description: `${description} - 테스트 실행`,
-        status: 'draft',
-        trigger: defaultTrigger,
-        targetGroups,
-        steps: templateSteps,
-        testSettings,
-        // 스케줄 테스트 모드에 따라 스케줄 설정 적용
-        scheduleSettings: testSettings.testMode && scheduleSettings.type !== 'immediate' 
-          ? scheduleSettings 
-          : { type: 'immediate', timezone: 'Asia/Seoul' },
-        createdAt: workflow?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          totalRuns: 0,
-          successRate: 0
-        }
-      };
+      const workflowData = buildWorkflowForTest();
       onTest(workflowData);
     }
   };
@@ -1844,12 +1849,45 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
             </Button>
             <div className="flex gap-3">
               {onTest && (
-                <Button onClick={handleTest} variant="outline">
-                  <Play className="w-4 h-4 mr-2" />
-                  {testSettings.testMode && scheduleSettings.type !== 'immediate' 
-                    ? '스케줄 테스트 실행' 
-                    : '즉시 테스트 실행'}
-                </Button>
+                <>
+                  <Button 
+                    onClick={() => {
+                      // 테스트 번호로 실행 (enableRealSending: false)
+                      const testWorkflow = {
+                        ...buildWorkflowForTest(),
+                        testSettings: {
+                          ...testSettings,
+                          enableRealSending: false,
+                          testPhoneNumber: testSettings.testPhoneNumber
+                        }
+                      };
+                      onTest(testWorkflow);
+                    }} 
+                    variant="outline"
+                    className="bg-blue-50 border-blue-200 hover:bg-blue-100"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    테스트 번호로 실행
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      // 실제 데이터로 실행 (enableRealSending: true)
+                      const realWorkflow = {
+                        ...buildWorkflowForTest(),
+                        testSettings: {
+                          ...testSettings,
+                          enableRealSending: true
+                        }
+                      };
+                      onTest(realWorkflow);
+                    }} 
+                    variant="outline"
+                    className="bg-orange-50 border-orange-200 hover:bg-orange-100"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    즉시 실행
+                  </Button>
+                </>
               )}
               <Button onClick={() => {
                 try {

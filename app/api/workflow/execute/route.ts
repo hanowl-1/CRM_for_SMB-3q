@@ -470,13 +470,17 @@ export async function POST(request: NextRequest) {
                 
                 try {
                   // 다음 실행 시간 계산
-                  const { frequency, time } = scheduleConfig.recurringPattern;
+                  const { frequency, time, daysOfWeek } = scheduleConfig.recurringPattern;
                   console.log(`⏰ 반복 패턴: ${frequency}, 시간: ${time}`);
+                  
+                  if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+                    console.log(`📅 지정된 요일: ${daysOfWeek.map((d: number) => ['일', '월', '화', '수', '목', '금', '토'][d]).join(', ')}`);
+                  }
                   
                   if (time) {
                     // calculateNextKoreaScheduleTime 함수 import 필요
                     const { calculateNextKoreaScheduleTime } = require('@/lib/utils/timezone');
-                    const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency);
+                    const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency, daysOfWeek);
                     
                     console.log(`📅 다음 실행 시간 계산 완료: ${nextScheduledTime.toISOString()}`);
                     
@@ -624,13 +628,17 @@ export async function POST(request: NextRequest) {
                 
                 try {
                   // 다음 실행 시간 계산
-                  const { frequency, time } = scheduleConfig.recurringPattern;
+                  const { frequency, time, daysOfWeek } = scheduleConfig.recurringPattern;
                   console.log(`⏰ 반복 패턴: ${frequency}, 시간: ${time}`);
+                  
+                  if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+                    console.log(`📅 지정된 요일: ${daysOfWeek.map((d: number) => ['일', '월', '화', '수', '목', '금', '토'][d]).join(', ')}`);
+                  }
                   
                   if (time) {
                     // calculateNextKoreaScheduleTime 함수 import 필요
                     const { calculateNextKoreaScheduleTime } = require('@/lib/utils/timezone');
-                    const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency);
+                    const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency, daysOfWeek);
                     
                     console.log(`📅 다음 실행 시간 계산 완료: ${nextScheduledTime.toISOString()}`);
                     
