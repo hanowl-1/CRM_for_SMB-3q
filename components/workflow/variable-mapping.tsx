@@ -149,7 +149,29 @@ export function VariableMapping({
     setVariableMappings(newMappings);
     setPersonalizationEnabled(isPersonalizationEnabled);
     setPreviewContent(selectedTemplate.content);
-    setQueryTestResults({});
+    
+    // 기존 설정이 있는 경우 queryTestResults도 복원
+    const restoredTestResults: Record<number, any> = {};
+    newMappings.forEach((mapping, index) => {
+      if (mapping.sourceType === 'query' && (mapping.selectedColumn || mapping.mappingKeyField)) {
+        const columns = [];
+        if (mapping.mappingKeyField) columns.push(mapping.mappingKeyField);
+        if (mapping.selectedColumn && mapping.selectedColumn !== mapping.mappingKeyField) {
+          columns.push(mapping.selectedColumn);
+        }
+        
+        restoredTestResults[index] = {
+          success: true,
+          selectedColumn: mapping.selectedColumn,
+          columns: columns,
+          data: [{
+            [mapping.mappingKeyField || 'key']: '저장된 키',
+            [mapping.selectedColumn || 'value']: '저장된 값'
+          }]
+        };
+      }
+    });
+    setQueryTestResults(restoredTestResults);
     
     // 초기화 완료 후 부모에게 알림 (기존 설정이 있는 경우에만)
     setTimeout(() => {
@@ -684,6 +706,7 @@ export function VariableMapping({
                           queryTestResults[index]?.columns?.[0] || 
                           ''
                         }
+                        currentMappingKeyColumn={mapping.mappingKeyField || ''}
                         onSelect={(query: string, selectedColumn: string) => {
                           updateMapping(index, { 
                             sourceField: query,
@@ -765,8 +788,11 @@ export function VariableMapping({
                             <div>
                               <label className="text-sm font-medium mb-2 block">🟠 출력할 컬럼 선택 (변수값으로 사용)</label>
                               <Select
-                                value={queryTestResults[index].selectedColumn || queryTestResults[index].columns![0]}
-                                onValueChange={(value) => updateSelectedColumn(index, value)}
+                                value={variableMappings[index]?.selectedColumn || queryTestResults[index]?.selectedColumn || queryTestResults[index]?.columns?.[0] || ''}
+                                onValueChange={(value) => {
+                                  updateSelectedColumn(index, value);
+                                  updateMapping(index, { selectedColumn: value });
+                                }}
                               >
                                 <SelectTrigger className="w-full">
                                   <SelectValue />
@@ -809,7 +835,7 @@ export function VariableMapping({
                                   ))}
                                   {/* 저장된 매핑 키 필드가 있지만 쿼리 결과에 없는 경우 */}
                                   {variableMappings[index]?.mappingKeyField && 
-                                   !queryTestResults[index]?.columns?.includes(variableMappings[index].mappingKeyField) && (
+                                   !(queryTestResults[index]?.columns || []).includes(variableMappings[index].mappingKeyField) && (
                                     <SelectItem key={variableMappings[index].mappingKeyField} value={variableMappings[index].mappingKeyField}>
                                       <div className="flex items-center justify-between w-full">
                                         <span>{variableMappings[index].mappingKeyField}</span>

@@ -67,6 +67,7 @@ interface VariableQuerySelectorProps {
   variableName: string;
   currentQuery?: string;
   currentSelectedColumn?: string;
+  currentMappingKeyColumn?: string;
   onSelect?: (query: string, selectedColumn: string) => void;
   onSave?: (template: VariableQueryTemplate) => void;
 }
@@ -75,6 +76,7 @@ export default function VariableQuerySelector({
   variableName,
   currentQuery = '',
   currentSelectedColumn = '',
+  currentMappingKeyColumn = '',
   onSelect,
   onSave
 }: VariableQuerySelectorProps) {
@@ -381,11 +383,11 @@ export default function VariableQuerySelector({
     }
 
     try {
-      // 키 컬럼 자동 추출
-      const keyColumns = extractKeyColumns(currentQuery);
-      const keyColumn = keyColumns.length > 0 ? keyColumns[0] : 'id';
+      // 사용자가 UI에서 선택한 매핑 키 컬럼 사용 (기본값 없이 실제 선택값만 사용)
+      const keyColumn = currentMappingKeyColumn;
       
-      console.log('🔑 추출된 키 컬럼:', keyColumn);
+      console.log('🔑 UI에서 선택된 키 컬럼:', currentMappingKeyColumn);
+      console.log('🔑 최종 키 컬럼:', keyColumn);
       console.log('📊 선택된 출력 컬럼:', currentSelectedColumn);
 
       // 먼저 기존 레코드가 있는지 확인
@@ -443,7 +445,7 @@ export default function VariableQuerySelector({
       
       if (result.success) {
         const action = checkResult.success && checkResult.data ? '업데이트' : '저장';
-        const keyColumnDisplay = keyColumn ? keyColumn : '자동 추출 실패 (첫 번째 컬럼 사용됨)';
+        const keyColumnDisplay = keyColumn || '미선택';
         alert(`쿼리 템플릿이 ${action}되었습니다!\n출력 컬럼: ${currentSelectedColumn || '미선택'}\n키 컬럼: ${keyColumnDisplay}`);
         onSave?.(result.data);
         setShowSaveForm(false);
