@@ -56,8 +56,7 @@ export async function POST(request: NextRequest) {
     
     // 워크플로우의 테스트 설정 사용
     const testSettings = workflow.testSettings;
-    // 테스트 모드에서는 실제 API 호출하되 테스트 번호로만 발송
-    const enableRealSending = testSettings?.enableRealSending ?? true; // 테스트에서는 실제 API 호출
+    const enableRealSending = testSettings?.enableRealSending ?? false;
     const fallbackToSMS = testSettings?.fallbackToSMS ?? true;
 
     // 스케줄 설정 확인
@@ -80,10 +79,16 @@ export async function POST(request: NextRequest) {
     let phoneNumber: string | undefined;
     let useRealTargets = false;
 
-    // 워크플로우 테스트 API에서는 항상 테스트 번호만 사용
-    phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
-    useRealTargets = false; // 테스트에서는 실제 타겟 그룹 사용 안 함
-    console.log('🧪 워크플로우 테스트 모드: 테스트 번호 사용 -', phoneNumber);
+    if (isSchedulerExecution && enableRealSending) {
+      // 스케줄러 실행 시에는 실제 타겟 그룹 사용
+      console.log('🎯 스케줄러 실행 모드: 실제 타겟 그룹 연락처 사용');
+      useRealTargets = true;
+      phoneNumber = 'TARGET_GROUP'; // 특수 값으로 표시
+    } else {
+      // 테스트 모드에서는 테스트 번호 사용
+      phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
+      console.log('🧪 테스트 모드: 테스트 번호 사용 -', phoneNumber);
+    }
 
     // 환경변수 설정 상태 확인
     const envStatus = {
