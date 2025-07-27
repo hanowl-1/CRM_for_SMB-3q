@@ -1893,9 +1893,21 @@ export function WorkflowBuilder({ workflow, onSave, onTest }: WorkflowBuilderPro
                       totalRuns: 0,
                       successRate: 0
                     },
-                    targetTemplateMappings: targetTemplateMappings
+                    targetTemplateMappings: targetTemplateMappings,
+                    templatePersonalizations: templatePersonalizations,
+                    selectedTemplates: selectedTemplates
                   };
 
+                  console.log("🚀 워크플로우 저장 데이터:", {
+                    name: workflowData.name,
+                    templatePersonalizations: workflowData.templatePersonalizations,
+                    stepsWithPersonalization: workflowData.steps.map(step => ({
+                      templateId: step.action.templateId,
+                      hasPersonalization: !!step.action.personalization,
+                      personalization: step.action.personalization
+                    }))
+                  });
+                  
                   onSave(workflowData);
                   console.log("✅ 워크플로우 저장 완료");
                 } catch (error) {

@@ -26,6 +26,38 @@ export default function NewWorkflowPage() {
     setIsSaving(true)
     try {
       console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
+      console.log("워크플로우 데이터:", workflow);
+      console.log("🔍 개인화 설정 확인:", workflow.templatePersonalizations);
+      console.log("🔍 스텝별 개인화 설정:", workflow.steps?.map(step => ({
+        templateId: step.action.templateId,
+        personalization: step.action.personalization
+      })));
+      
+      // API가 기대하는 형식으로 데이터 구성
+      const requestData = {
+        action: 'create',
+        name: workflow.name,
+        description: workflow.description,
+        selectedTemplates: workflow.selectedTemplates || workflow.steps.map(step => ({
+          id: step.action.templateId,
+          templateCode: step.action.templateCode,
+          templateName: step.action.templateName,
+          personalization: step.action.personalization
+        })),
+        targetGroups: workflow.targetGroups || [],
+        templatePersonalizations: workflow.templatePersonalizations || workflow.steps.reduce((acc, step) => {
+          if (step.action.personalization) {
+            acc[step.action.templateId] = step.action.personalization;
+          }
+          return acc;
+        }, {} as any),
+        targetTemplateMappings: workflow.targetTemplateMappings || [],
+        scheduleSettings: workflow.scheduleSettings || workflow.schedule_config || {},
+        testSettings: workflow.testSettings || {},
+        steps: workflow.steps || []
+      };
+      
+      console.log("API 요청 데이터:", requestData);
       
       // Supabase에 워크플로우 저장
       const response = await fetch("/api/supabase/workflows", {
@@ -33,7 +65,7 @@ export default function NewWorkflowPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(workflow),
+        body: JSON.stringify(requestData),
       })
 
       if (response.ok) {
