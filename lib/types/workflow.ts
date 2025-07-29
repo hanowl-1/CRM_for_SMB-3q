@@ -1,6 +1,6 @@
 export interface WorkflowTrigger {
   id: string;
-  type: 'signup' | 'cancel' | 'payment_failed' | 'renewal' | 'manual' | 'schedule' | 'cart_abandon' | 'birthday' | 'purchase';
+  type: 'signup' | 'cancel' | 'payment_failed' | 'renewal' | 'manual' | 'schedule' | 'cart_abandon' | 'birthday' | 'purchase' | 'lead_created' | 'webhook';
   name: string;
   description: string;
   conditions?: WorkflowCondition[];

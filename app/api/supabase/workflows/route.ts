@@ -77,45 +77,75 @@ export async function POST(request: NextRequest) {
         templatePersonalizations,
         targetTemplateMappings,
         scheduleSettings,
+        schedule_config,  // 🔥 추가: DB 필드명과 일치
         testSettings,
         steps,
-        createdBy = 'user'
+        createdBy = 'user',
+        trigger_type = 'manual',
+        trigger_config = {},
+        status = 'draft'
       } = body;
 
       console.log('🔥 워크플로우 생성 요청:', {
         name,
+        trigger_type,
         targetGroupsCount: targetGroups?.length || 0,
         templatesCount: selectedTemplates?.length || 0,
         stepsCount: steps?.length || 0,
         mappingsCount: targetTemplateMappings?.length || 0
       });
 
-      const { data, error } = await supabase
-        .from('workflows')
-        .insert({
-          name,
-          description,
-          trigger_type: 'manual',
-          trigger_config: scheduleSettings || {},
+      // 🎯 워크플로우 타입별 필드 최적화
+      const baseWorkflowData = {
+        name,
+        description,
+        trigger_type,
+        status,
+        created_by: createdBy,
+        message_config: {
+          steps: steps || [],
+          selectedTemplates: selectedTemplates || []
+        }
+      };
+
+      let workflowData;
+      
+      if (trigger_type === 'webhook') {
+        // 🔥 웹훅 워크플로우: trigger_config만 저장, target_config 제외
+        console.log('📡 웹훅 워크플로우 생성 - target_config 제외');
+        workflowData = {
+          ...baseWorkflowData,
+          trigger_config,
+          schedule_config: schedule_config || scheduleSettings || {},
+          variables: {
+            templatePersonalizations: templatePersonalizations || {},
+            testSettings: testSettings || {}
+          }
+        };
+      } else {
+        // 🎯 Manual/Schedule 워크플로우: target_config 포함, trigger_config는 기본값
+        console.log(`🎯 ${trigger_type} 워크플로우 생성 - target_config 포함`);
+        workflowData = {
+          ...baseWorkflowData,
+          trigger_config: trigger_config || {},
           target_config: {
             targetGroups: targetGroups || [],
             targetTemplateMappings: targetTemplateMappings || []
-          },
-          message_config: {
-            steps: steps || [],
-            selectedTemplates: selectedTemplates || []
           },
           variables: {
             templatePersonalizations: templatePersonalizations || {},
             testSettings: testSettings || {}
           },
-          schedule_config: scheduleSettings || {},
+          schedule_config: schedule_config || scheduleSettings || {},
           mapping_config: {
             targetTemplateMappings: targetTemplateMappings || []
-          },
-          created_by: createdBy,
-          status: 'draft'
-        })
+          }
+        };
+      }
+
+      const { data, error } = await supabase
+        .from('workflows')
+        .insert(workflowData)
         .select()
         .single();
 
@@ -145,42 +175,73 @@ export async function POST(request: NextRequest) {
         targetTemplateMappings,
         scheduleSettings,
         testSettings,
-        steps
+        steps,
+        trigger_type,
+        trigger_config
       } = body;
 
       console.log('🔥 워크플로우 업데이트 요청:', {
         id,
         name,
+        trigger_type,
         targetGroupsCount: targetGroups?.length || 0,
         templatesCount: selectedTemplates?.length || 0,
         stepsCount: steps?.length || 0,
         mappingsCount: targetTemplateMappings?.length || 0
       });
 
-      const { data, error } = await supabase
+      // 🎯 기존 워크플로우 정보 조회 (타입 확인용)
+      const { data: existingWorkflow } = await supabase
         .from('workflows')
-        .update({
-          name,
-          description,
-          trigger_config: scheduleSettings || {},
+        .select('trigger_type')
+        .eq('id', id)
+        .single();
+
+      const workflowType = trigger_type || existingWorkflow?.trigger_type || 'manual';
+
+      // 🎯 워크플로우 타입별 업데이트 필드 최적화
+      const baseUpdateData = {
+        name,
+        description,
+        message_config: {
+          steps: steps || [],
+          selectedTemplates: selectedTemplates || []
+        },
+        variables: {
+          templatePersonalizations: templatePersonalizations || {},
+          testSettings: testSettings || {}
+        },
+        schedule_config: scheduleSettings || {},
+        updated_at: koreaTimeToUTCString(getKoreaTime())
+      };
+
+      let updateData;
+
+      if (workflowType === 'webhook') {
+        // 🔥 웹훅 워크플로우: trigger_config만 업데이트, target_config 건드리지 않음
+        console.log('📡 웹훅 워크플로우 업데이트 - target_config 제외');
+        updateData = {
+          ...baseUpdateData,
+          ...(trigger_config && { trigger_config })
+        };
+      } else {
+        // 🎯 Manual/Schedule 워크플로우: target_config 포함 업데이트
+        console.log(`🎯 ${workflowType} 워크플로우 업데이트 - target_config 포함`);
+        updateData = {
+          ...baseUpdateData,
           target_config: {
             targetGroups: targetGroups || [],
             targetTemplateMappings: targetTemplateMappings || []
           },
-          message_config: {
-            steps: steps || [],
-            selectedTemplates: selectedTemplates || []
-          },
-          variables: {
-            templatePersonalizations: templatePersonalizations || {},
-            testSettings: testSettings || {}
-          },
-          schedule_config: scheduleSettings || {},
           mapping_config: {
             targetTemplateMappings: targetTemplateMappings || []
-          },
-          updated_at: koreaTimeToUTCString(getKoreaTime())
-        })
+          }
+        };
+      }
+
+      const { data, error } = await supabase
+        .from('workflows')
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
