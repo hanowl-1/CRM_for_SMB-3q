@@ -9,6 +9,11 @@ info:
     - **데이터베이스**: Supabase (메타데이터), MySQL (비즈니스 데이터)
     - **메시징**: CoolSMS API
     - **스케줄링**: AWS Lambda + Vercel Cron
+    
+    ### 중요 참고사항
+    - **스케줄 필드**: `schedule_config` 사용 (legacy `schedule_settings`는 하위호환성만 지원)
+    - **워크플로우**: 3단계 구조 (target_config, message_config, mapping_config)
+    - **테스트 모드**: 개발 환경에서 실제 메시지 발송 없이 시뮬레이션 가능
   version: 1.0.0
   contact:
     name: CRM API Support
@@ -241,16 +246,89 @@ paths:
                   type: array
                   items:
                     type: object
-                scheduleSettings:
-                  type: object
                 schedule_config:
                   type: object
+                  description: "스케줄 설정 (현재 사용 중인 필드)"
+                  required:
+                    - type
+                    - timezone
+                  properties:
+                    type:
+                      type: string
+                      enum: [immediate, delay, scheduled, recurring]
+                      example: "immediate"
+                      description: "스케줄 실행 타입"
+                    timezone:
+                      type: string
+                      example: "Asia/Seoul"
+                      description: "시간대 설정 (모든 타입에 필수)"
+                    delay:
+                      type: integer
+                      description: "지연 시간 (분 단위, type이 'delay'일 때 필수)"
+                      example: 60
+                    scheduledTime:
+                      type: string
+                      description: "예약 실행 시간 (type이 'scheduled'일 때 필수)"
+                      example: "2025-01-30T14:35:00+09:00"
+                    recurringPattern:
+                      type: object
+                      description: "반복 패턴 설정 (type이 'recurring'일 때 필수)"
+                      required:
+                        - frequency
+                        - interval
+                        - time
+                      properties:
+                        frequency:
+                          type: string
+                          enum: [daily, weekly, monthly]
+                          example: "daily"
+                        interval:
+                          type: integer
+                          example: 1
+                          description: "반복 간격"
+                        time:
+                          type: string
+                          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+                          example: "14:35"
+                          description: "실행 시간 (HH:MM 형식)"
+                        daysOfWeek:
+                          type: array
+                          items:
+                            type: integer
+                            minimum: 0
+                            maximum: 6
+                          description: "요일 설정 (0=일요일, 1=월요일, ..., weekly일 때 선택사항)"
+                        dayOfMonth:
+                          type: integer
+                          minimum: 1
+                          maximum: 31
+                          description: "월의 특정 일 (monthly일 때 선택사항)"
+                  examples:
+                    immediate:
+                      value:
+                        type: "immediate"
+                        timezone: "Asia/Seoul"
+                    delay:
+                      value:
+                        type: "delay"
+                        delay: 60
+                        timezone: "Asia/Seoul"
+                    recurring_daily:
+                      value:
+                        type: "recurring"
+                        timezone: "Asia/Seoul"
+                        recurringPattern:
+                          time: "14:35"
+                          interval: 1
+                          frequency: "daily"
                 testSettings:
                   type: object
+                  description: "테스트 실행 설정"
                 steps:
                   type: array
                   items:
                     type: object
+                  description: "워크플로우 실행 단계들"
                 createdBy:
                   type: string
                   example: "user"
@@ -260,6 +338,7 @@ paths:
                   example: "manual"
                 trigger_config:
                   type: object
+                  description: "트리거 상세 설정"
                 status:
                   type: string
                   enum: [draft, active, paused]
