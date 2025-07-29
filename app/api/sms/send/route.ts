@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { 
+  COOLSMS_CONFIG, 
+  SMS_CONFIG, 
+  TEST_CONFIG,
+  validateMessagingConfig 
+} from '@/lib/config/messaging';
 
 // COOLSMS SDK 임포트
 const coolsms = require('coolsms-node-sdk').default;
-
-// COOLSMS API 설정
-const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
-const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
-const TEST_PHONE_NUMBER = process.env.TEST_PHONE_NUMBER;
-const TEST_MODE = process.env.TEST_MODE === 'true';
 
 interface SMSRequest {
   to: string;
@@ -19,16 +19,28 @@ interface SMSRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const { to, message, from = '01041513771', enableRealSending = false, variables = {} }: SMSRequest = await request.json();
+    // 안전한 JSON 파싱
+    const body = await request.text();
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(body);
+    } catch (parseError) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid JSON format', error: parseError.message },
+        { status: 400 }
+      );
+    }
+    
+    const { to, message, from = SMS_CONFIG.defaultSender, enableRealSending = false, variables = {} }: SMSRequest = parsedBody;
 
     console.log('📱 단순 SMS 발송 요청:', {
       to,
       from,
       messageLength: message.length,
       enableRealSending,
-      TEST_MODE,
-      hasAPIKey: !!COOLSMS_API_KEY,
-      hasAPISecret: !!COOLSMS_API_SECRET,
+      TEST_MODE: TEST_CONFIG.isTestMode,
+      hasAPIKey: !!COOLSMS_CONFIG.apiKey,
+      hasAPISecret: !!COOLSMS_CONFIG.apiSecret,
       variables: Object.keys(variables).length > 0 ? variables : '없음'
     });
 
@@ -54,7 +66,7 @@ export async function POST(request: NextRequest) {
       from,
       message,
       variables,
-      enableRealSending: enableRealSending && !TEST_MODE // TEST_MODE가 true면 강제로 테스트 모드
+      enableRealSending: enableRealSending && !TEST_CONFIG.isTestMode // TEST_MODE가 true면 강제로 테스트 모드
     });
 
     return NextResponse.json({
@@ -64,8 +76,8 @@ export async function POST(request: NextRequest) {
       messageType: result.messageType,
       processedMessage: result.processedMessage,
       timestamp: new Date().toISOString(),
-      testMode: TEST_MODE,
-      actualSending: enableRealSending && !TEST_MODE,
+      testMode: TEST_CONFIG.isTestMode,
+      actualSending: enableRealSending && !TEST_CONFIG.isTestMode,
       variables: variables
     });
 
@@ -116,9 +128,9 @@ async function sendSimpleSMS({
   console.log('처리된 메시지:', processedMessage);
   console.log('메시지 길이:', processedMessage.length);
   console.log('실제 발송:', enableRealSending ? '활성화' : '비활성화');
-  console.log('TEST_MODE:', TEST_MODE);
-  console.log('API 키 존재:', !!COOLSMS_API_KEY);
-  console.log('API 시크릿 존재:', !!COOLSMS_API_SECRET);
+      console.log('TEST_MODE:', TEST_CONFIG.isTestMode);
+    console.log('API 키 존재:', !!COOLSMS_CONFIG.apiKey);
+    console.log('API 시크릿 존재:', !!COOLSMS_CONFIG.apiSecret);
 
   if (!enableRealSending) {
     // 테스트 모드
@@ -135,12 +147,12 @@ async function sendSimpleSMS({
 
   try {
     // 실제 COOLSMS API 호출
-    if (!COOLSMS_API_KEY || !COOLSMS_API_SECRET) {
+    if (!COOLSMS_CONFIG.apiKey || !COOLSMS_CONFIG.apiSecret) {
       throw new Error('COOLSMS API 키가 설정되지 않았습니다. .env.local 파일을 확인해주세요.');
     }
 
     console.log('🔑 COOLSMS API 초기화 중...');
-    const messageService = new coolsms(COOLSMS_API_KEY, COOLSMS_API_SECRET);
+    const messageService = new coolsms(COOLSMS_CONFIG.apiKey, COOLSMS_CONFIG.apiSecret);
     
     // 발신번호가 1800-7710 형태인 경우 여러 형태로 시도
     const possibleFromNumbers = [];

@@ -9,26 +9,9 @@ const coolsms = require('coolsms-node-sdk').default;
 // MySQL 연결
 import mysql from 'mysql2/promise';
 
-// MySQL 연결 설정
-const dbConfig = {
-  host: process.env.MYSQL_READONLY_HOST || 'supermembers-prod.cluster-cy8cnze5wxti.ap-northeast-2.rds.amazonaws.com',
-  port: parseInt(process.env.MYSQL_READONLY_PORT || '3306'),
-  user: process.env.MYSQL_READONLY_USER || 'readonly',
-  password: process.env.MYSQL_READONLY_PASSWORD || 'phozphoz1!',
-  database: process.env.MYSQL_READONLY_DATABASE || 'supermembers',
-  charset: 'utf8mb4',
-  timezone: '+09:00',
-  ssl: {
-    rejectUnauthorized: false
-  }
-};
-
-// COOLSMS API 설정
-const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
-const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
-const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
-const TEST_PHONE_NUMBER = process.env.TEST_PHONE_NUMBER;
-const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER || '18007710';
+import { MYSQL_READONLY_CONFIG, createMySQLConnection } from '@/lib/config/database';
+import { COOLSMS_CONFIG, KAKAO_CONFIG, SMS_CONFIG, TEST_CONFIG } from '@/lib/config/messaging';
+import { sendMessage } from '@/lib/services/message-sending-service';
 
 // Mock 템플릿 데이터 (SMS 발송용)
 const mockTemplates = [
@@ -86,16 +69,16 @@ export async function POST(request: NextRequest) {
       phoneNumber = 'TARGET_GROUP'; // 특수 값으로 표시
     } else {
       // 테스트 모드에서는 테스트 번호 사용
-      phoneNumber = testSettings?.testPhoneNumber || TEST_PHONE_NUMBER;
+      phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
       console.log('🧪 테스트 모드: 테스트 번호 사용 -', phoneNumber);
     }
 
     // 환경변수 설정 상태 확인
     const envStatus = {
-      COOLSMS_API_KEY: !!COOLSMS_API_KEY,
-      COOLSMS_API_SECRET: !!COOLSMS_API_SECRET,
-      KAKAO_SENDER_KEY: !!KAKAO_SENDER_KEY && KAKAO_SENDER_KEY !== 'your_kakao_sender_key_here',
-      TEST_PHONE_NUMBER: !!TEST_PHONE_NUMBER,
+      COOLSMS_API_KEY: !!COOLSMS_CONFIG.apiKey,
+      COOLSMS_API_SECRET: !!COOLSMS_CONFIG.apiSecret,
+      KAKAO_SENDER_KEY: !!KAKAO_CONFIG.senderKey && KAKAO_CONFIG.senderKey !== 'your_kakao_sender_key_here',
+      TEST_PHONE_NUMBER: !!TEST_CONFIG.phoneNumber,
       phoneNumber: phoneNumber,
       useRealTargets
     };
@@ -148,9 +131,9 @@ export async function POST(request: NextRequest) {
     // 실제 발송이 활성화되었지만 필수 환경변수가 없는 경우 경고
     if (enableRealSending) {
       const missingEnvVars = [];
-      if (!COOLSMS_API_KEY) missingEnvVars.push('COOLSMS_API_KEY');
-      if (!COOLSMS_API_SECRET) missingEnvVars.push('COOLSMS_API_SECRET');
-      if (!KAKAO_SENDER_KEY || KAKAO_SENDER_KEY === 'your_kakao_sender_key_here') {
+      if (!COOLSMS_CONFIG.apiKey) missingEnvVars.push('COOLSMS_API_KEY');
+      if (!COOLSMS_CONFIG.apiSecret) missingEnvVars.push('COOLSMS_API_SECRET');
+      if (!KAKAO_CONFIG.senderKey || KAKAO_CONFIG.senderKey === 'your_kakao_sender_key_here') {
         missingEnvVars.push('KAKAO_SENDER_KEY');
       }
       
@@ -250,22 +233,21 @@ export async function POST(request: NextRequest) {
                 console.log(`🎯 ${contact.name} 개인화 처리 중...`);
                 
                 try {
-                  const { personalizationService } = await import('@/lib/services/personalization-service');
+                  const { personalizeMessage } = await import('@/lib/services/personalization-service');
                   
                   // 개인화된 메시지 생성
-                  const personalizedMessages = await personalizationService.generatePersonalizedMessages(
-                    [{ contact: contact.phone, data: contact.data }],
+                  const personalizationResult = await personalizeMessage(
                     template.templateContent,
-                    step.action.personalization
+                    {
+                      target: contact.data || {},
+                      templateId: template.id,
+                      workflowId: workflow.id
+                    }
                   );
                   
-                  if (personalizedMessages.length > 0 && !personalizedMessages[0].error) {
+                  if (personalizationResult.success) {
                     // 개인화된 메시지에서 변수 추출
-                    variables = extractVariablesFromPersonalization(
-                      template.templateContent,
-                      personalizedMessages[0].personalizedContent,
-                      contact.data
-                    );
+                    variables = personalizationResult.variables || {};
                     console.log(`✅ ${contact.name} 개인화 완료:`, variables);
                   } else {
                     console.warn(`⚠️ ${contact.name} 개인화 실패, 기본값 사용`);
@@ -348,22 +330,21 @@ export async function POST(request: NextRequest) {
                 console.log('📊 샘플 타겟 데이터:', sampleTarget);
                 
                 // PersonalizationService import 추가 필요
-                const { personalizationService } = await import('@/lib/services/personalization-service');
+                const { personalizeMessage } = await import('@/lib/services/personalization-service');
                 
                 // 개인화된 메시지 생성
-                const personalizedMessages = await personalizationService.generatePersonalizedMessages(
-                  [{ contact: sampleTarget.phone, data: sampleTarget.data }],
+                const personalizationResult = await personalizeMessage(
                   template.templateContent,
-                  step.action.personalization
+                  {
+                    target: sampleTarget.data || {},
+                    templateId: template.id,
+                    workflowId: workflow.id
+                  }
                 );
                 
-                if (personalizedMessages.length > 0 && !personalizedMessages[0].error) {
+                if (personalizationResult.success) {
                   // 개인화된 메시지에서 변수 추출
-                  variables = extractVariablesFromPersonalization(
-                    template.templateContent,
-                    personalizedMessages[0].personalizedContent,
-                    sampleTarget.data
-                  );
+                  variables = personalizationResult.variables || {};
                   console.log('✅ 개인화된 변수 생성:', variables);
                 } else {
                   console.warn('⚠️ 개인화 실패, 기본값 사용');
@@ -568,16 +549,16 @@ async function sendAlimtalk({
 
   try {
     // 실제 COOLSMS API 호출
-    if (!COOLSMS_API_KEY || !COOLSMS_API_SECRET || !KAKAO_SENDER_KEY) {
+    if (!COOLSMS_CONFIG.apiKey || !COOLSMS_CONFIG.apiSecret || !KAKAO_CONFIG.senderKey) {
       throw new Error('COOLSMS API 키 또는 카카오 발신키가 설정되지 않았습니다.');
     }
 
-    const messageService = new coolsms(COOLSMS_API_KEY, COOLSMS_API_SECRET);
+    const messageService = new coolsms(COOLSMS_CONFIG.apiKey, COOLSMS_CONFIG.apiSecret);
     
     // 기본 메시지 옵션
     const baseMessageOptions: any = {
       to: phoneNumber,
-      from: SMS_SENDER_NUMBER,
+      from: SMS_CONFIG.senderNumber,
       type: 'ATA', // 알림톡
       kakaoOptions: {
         pfId: getPfIdForTemplate(finalTemplateId),
@@ -592,7 +573,7 @@ async function sendAlimtalk({
     
     console.log('📤 CoolSMS API 호출 옵션:', {
       to: phoneNumber,
-      from: SMS_SENDER_NUMBER,
+      from: SMS_CONFIG.senderNumber,
       type: 'ATA',
       pfId: getPfIdForTemplate(finalTemplateId),
       templateId: finalTemplateId,
@@ -698,18 +679,18 @@ function getPfIdForTemplate(templateId: string): string {
     
     // channel 속성에 따라 발신프로필 선택
     if (channel === 'CEO') {
-      const pfId = process.env.PFID_CEO || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      const pfId = process.env.PFID_CEO || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
       console.log('🔑 CEO 채널 발신프로필 사용:', pfId);
       return pfId;
     } else if (channel === 'BLOGGER') {
-      const pfId = process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      const pfId = process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
       console.log('🔑 BLOGGER 채널 발신프로필 사용:', pfId);
       return pfId;
     }
   }
   
   // 템플릿 정보를 찾을 수 없는 경우 기본값 사용
-  const pfId = KAKAO_SENDER_KEY || '';
+  const pfId = KAKAO_CONFIG.senderKey || '';
   console.log('⚠️ 템플릿 정보 없음, 기본 발신프로필 사용:', pfId);
   return pfId;
 }
@@ -751,15 +732,15 @@ async function sendSMS({
 
   try {
     // 실제 COOLSMS API 호출
-    if (!COOLSMS_API_KEY || !COOLSMS_API_SECRET) {
+    if (!COOLSMS_CONFIG.apiKey || !COOLSMS_CONFIG.apiSecret) {
       throw new Error('COOLSMS API 키가 설정되지 않았습니다.');
     }
 
-    const messageService = new coolsms(COOLSMS_API_KEY, COOLSMS_API_SECRET);
+    const messageService = new coolsms(COOLSMS_CONFIG.apiKey, COOLSMS_CONFIG.apiSecret);
     
     const result = await messageService.sendOne({
       to: phoneNumber,
-      from: SMS_SENDER_NUMBER,
+      from: SMS_CONFIG.senderNumber,
       text: processedContent,
       type: processedContent.length > 90 ? 'LMS' : 'SMS' // 90자 초과시 LMS
     });
@@ -884,7 +865,7 @@ async function getContactsFromTargetGroups(targetGroups: any[]): Promise<Array<{
       }
 
       // MySQL 연결
-      const connection = await mysql.createConnection(dbConfig);
+              const connection = await createMySQLConnection(MYSQL_READONLY_CONFIG);
       
       try {
         // 동적 쿼리 실행하여 실제 연락처 데이터 가져오기

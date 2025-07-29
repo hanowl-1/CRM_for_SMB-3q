@@ -3,7 +3,6 @@ import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
-import mysql from 'mysql2/promise';
 import { getSupabase, getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { 
   getKoreaTime, 
@@ -14,22 +13,8 @@ import {
   koreaTimeToUTC
 } from '@/lib/utils/timezone';
 import { executeQuery } from '@/lib/database/mysql-connection.js';
-
-const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
-const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
-const COOLSMS_SENDER = process.env.COOLSMS_SENDER;
-const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
-const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER;
-
-// MySQL 설정
-const dbConfig = {
-  host: process.env.MYSQL_HOST || 'localhost',
-  port: parseInt(process.env.MYSQL_PORT || '3306'),
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
-  database: process.env.MYSQL_DATABASE || 'test',
-  timezone: '+09:00'
-};
+import { createMySQLConnection, MYSQL_CONFIG } from '@/lib/config/database';
+import { COOLSMS_CONFIG, KAKAO_CONFIG, SMS_CONFIG } from '@/lib/config/messaging';
 
 interface ExecuteRequest {
   workflow?: Workflow;
@@ -1450,7 +1435,7 @@ async function sendAlimtalk({
   // 🔥 시간대 처리: API 인증을 위한 현재 시간 (UTC 기준)
   const date = new Date().toISOString();
   const salt = Date.now().toString();
-  const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
+  const signature = generateSignature(COOLSMS_CONFIG.apiKey!, COOLSMS_CONFIG.apiSecret!, date, salt);
 
   // CoolSMS API에 맞는 변수 형식으로 변환: 
   // variables 객체에 이미 #{변수명} 형태로 저장되어 있으므로 그대로 사용
@@ -1465,7 +1450,7 @@ async function sendAlimtalk({
 
   const messageData = {
     to: phoneNumber,
-    from: SMS_SENDER_NUMBER,
+          from: SMS_CONFIG.senderNumber,
     type: 'ATA',
     kakaoOptions: {
       pfId: pfId,
@@ -1482,7 +1467,7 @@ async function sendAlimtalk({
   const response = await fetch('https://api.coolsms.co.kr/messages/v4/send', {
     method: 'POST',
     headers: {
-      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_API_KEY}, date=${date}, salt=${salt}, signature=${signature}`,
+      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_CONFIG.apiKey}, date=${date}, salt=${salt}, signature=${signature}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -1519,11 +1504,11 @@ function getPfIdForTemplate(templateId: string): string {
     const channel = templateInfo.channel;
     
     if (channel === 'CEO') {
-      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
     } else if (channel === 'BLOGGER') {
-      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
     }
   }
   
-  return KAKAO_SENDER_KEY || '';
+  return KAKAO_CONFIG.senderKey || '';
 } 
