@@ -11,8 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarInitials } from '@/components/ui/avatar';
-import { LogOut, User, Settings } from 'lucide-react';
+import { LogOut, User, Settings, FileText } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import Link from 'next/link';
 
 export const UserMenu: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -55,6 +56,13 @@ export const UserMenu: React.FC = () => {
         <DropdownMenuItem disabled>
           <Settings className="mr-2 h-4 w-4" />
           <span>설정</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/docs" className="cursor-pointer">
+            <FileText className="mr-2 h-4 w-4" />
+            <span>API 문서</span>
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>
