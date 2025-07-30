@@ -101,14 +101,15 @@ components:
           example: "active"
         trigger_type:
           type: string
-          enum: [manual, schedule, webhook]
+          enum: [manual, webhook]
           example: "manual"
+          description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
         trigger_config:
           type: object
           description: "트리거 설정"
         target_config:
           type: object
-          description: "대상 설정 (manual/schedule 타입에서 사용)"
+          description: "대상 설정 (manual 타입에서만 사용)"
         message_config:
           type: object
           description: "메시지 설정"
@@ -340,7 +341,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [manual, schedule, webhook]
+            enum: [manual, webhook]
           description: "트리거 타입별 필터링"
           example: "manual"
         - name: search
@@ -396,7 +397,7 @@ paths:
       description: |
         새로운 워크플로우를 생성합니다. 워크플로우 타입에 따라 저장되는 필드가 다릅니다.
         - **webhook**: trigger_config만 저장, target_config 제외
-        - **manual/schedule**: target_config 포함
+        - **manual**: target_config 포함
       requestBody:
         required: true
         content:
@@ -417,9 +418,9 @@ paths:
                   example: "고객에게 리뷰 요청 메시지를 발송하는 워크플로우"
                 trigger_type:
                   type: string
-                  enum: [manual, schedule, webhook]
+                  enum: [manual, webhook]
                   default: "manual"
-                  description: "트리거 타입"
+                  description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
                   example: "manual"
                 status:
                   type: string
@@ -427,38 +428,57 @@ paths:
                   default: "draft"
                   description: "워크플로우 상태"
                   example: "draft"
-                selectedTemplates:
-                  type: array
-                  items:
-                    type: object
-                  description: "선택된 메시지 템플릿들"
-                targetGroups:
-                  type: array
-                  items:
-                    type: object
-                  description: "대상 그룹 설정 (manual/schedule 타입에서만 사용)"
-                templatePersonalizations:
+                message_config:
                   type: object
-                  description: "템플릿 개인화 설정"
-                targetTemplateMappings:
-                  type: array
-                  items:
-                    type: object
-                  description: "대상-템플릿 매핑 설정"
+                  description: "메시지 설정"
+                  properties:
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                      description: "워크플로우 실행 단계들"
+                      example: []
+                    selectedTemplates:
+                      type: array
+                      items:
+                        type: object
+                      description: "선택된 메시지 템플릿들"
+                      example: []
+                target_config:
+                  type: object
+                  description: "대상 설정 (manual 타입에서만 사용)"
+                  properties:
+                    targetGroups:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상 그룹 설정"
+                      example: []
+                    targetTemplateMappings:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상-템플릿 매핑 설정"
+                      example: []
+                variables:
+                  type: object
+                  description: "변수 설정"
+                  properties:
+                    templatePersonalizations:
+                      type: object
+                      description: "템플릿 개인화 설정"
+                      example: {}
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      example: {}
                 schedule_config:
                   $ref: '#/components/schemas/ScheduleConfig'
                 trigger_config:
                   type: object
                   description: "트리거 설정 (webhook 타입에서 주로 사용)"
-                testSettings:
-                  type: object
-                  description: "테스트 실행 설정"
-                steps:
-                  type: array
-                  items:
-                    type: object
-                  description: "워크플로우 실행 단계들"
-                createdBy:
+                  example: {}
+                created_by:
                   type: string
                   default: "user"
                   description: "생성자"
@@ -490,7 +510,8 @@ paths:
                     type: string
                     examples:
                       - "Workflow name is required"
-                      - "Invalid trigger type"
+                      - "Invalid trigger type. Only \"manual\" and \"webhook\" are supported."
+                      - "Webhook workflows only support \"immediate\" and \"delay\" schedule types."
                       - "Invalid status"
         '500':
           description: 서버 오류
