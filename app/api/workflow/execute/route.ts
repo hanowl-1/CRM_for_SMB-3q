@@ -1067,14 +1067,15 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               console.log(`📊 변수 쿼리 결과:`, {
                 success: variableResult.success,
                 hasData: !!variableResult.data,
-                dataLength: variableResult.data?.length || 0
+                dataLength: variableResult.data?.rows?.length || 0
               });
               
-              if (variableResult.success && variableResult.data && variableResult.data.length > 0) {
-                variableDataCache.set(mapping.variable_name, variableResult.data);
-                console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
-                console.log(`📊 샘플 데이터:`, variableResult.data.slice(0, 2));
-                console.log(`📊 첫 번째 행의 컬럼들:`, Object.keys(variableResult.data[0] || {}));
+              if (variableResult.success && variableResult.data && variableResult.data.rows && variableResult.data.rows.length > 0) {
+                const rows = variableResult.data.rows;
+                variableDataCache.set(mapping.variable_name, rows);
+                console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${rows.length}개 행)`);
+                console.log(`📊 샘플 데이터:`, rows.slice(0, 2));
+                console.log(`📊 첫 번째 행의 컬럼들:`, Object.keys(rows[0] || {}));
               } else {
                 console.log(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
