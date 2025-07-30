@@ -134,45 +134,49 @@ export interface Workflow {
   description: string;
   status: "draft" | "active" | "paused" | "archived";
 
-  // 🔥 백엔드에서 실제 사용하는 필드들만
   selectedTemplates?: KakaoTemplate[];
-  targetGroups?: TargetGroup[];
-  templatePersonalizations?: Record<string, PersonalizationSettings>;
-  targetTemplateMappings?: TargetTemplateMapping[];
-  scheduleSettings?: ScheduleSettings;
-  schedule_config?: ScheduleSettings;
-  testSettings?: WorkflowTestSettings;
   steps: WorkflowStep[];
   createdBy?: string; // 기본값: 'user'
   trigger_type?: string; // 기본값: 'manual'
+
   trigger_config?: {
     eventType?: string;
     [key: string]: any;
   };
+
   target_config?: {
     targetGroups?: TargetGroup[];
+    targetTemplateMappings?: TargetTemplateMapping[];
   };
 
-  // 🔥 기본 메타데이터
-  createdAt: string;
-  updatedAt: string;
+  schedule_config?: ScheduleSettings;
 
-  // 🔥 기존 trigger 필드는 호환성을 위해 유지
-  trigger: WorkflowTrigger;
+  variables?: {
+    templatePersonalizations?: Record<string, PersonalizationSettings>;
+    testSettings?: WorkflowTestSettings;
+  };
 
-  /* 🔥 백엔드에서 사용하지 않는 필드들 - 주석처리
   message_config?: {
     steps: WorkflowStep[];
+    selectedTemplates: KakaoTemplate[];
   };
   mapping_config?: {
     targetTemplateMappings: TargetTemplateMapping[];
   };
-  stats: {
-    totalRuns: number;
-    successRate: number;
-    lastRun?: string;
-  };
-  */
+
+  // 🔥 기본 메타데이터
+  created_at?: string;
+  updated_at?: string;
+  createdAt?: string; // 호환성용
+  updatedAt?: string; // 호환성용
+
+  // 🔥 기존 필드들 - 호환성을 위해 유지 (deprecated)
+  targetGroups?: TargetGroup[]; // -> target_config.targetGroups 사용 권장
+  templatePersonalizations?: Record<string, PersonalizationSettings>; // -> variables.templatePersonalizations 사용 권장
+  targetTemplateMappings?: TargetTemplateMapping[]; // -> target_config.targetTemplateMappings 사용 권장
+  scheduleSettings?: ScheduleSettings; // -> schedule_config 사용 권장
+  testSettings?: WorkflowTestSettings; // -> variables.testSettings 사용 권장
+  trigger?: WorkflowTrigger; // 호환성용
 }
 export interface WorkflowExecution {
   id: string;

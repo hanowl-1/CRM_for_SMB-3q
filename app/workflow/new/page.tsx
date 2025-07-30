@@ -41,24 +41,10 @@ export default function NewWorkflowPage() {
         description: workflow.description,
         trigger_type: workflow.trigger_type,
         status: workflow.status,
-        message_config: {
-          steps: workflow.steps || [],
-          selectedTemplates:
-            workflow.selectedTemplates ||
-            workflow.steps.map((step) => ({
-              id: step.action.templateId,
-              templateCode: step.action.templateCode,
-              templateName: step.action.templateName,
-              personalization: step.action.personalization,
-            })),
-        },
+        message_config: workflow.message_config,
         target_config: workflow.target_config,
-        variables: {
-          templatePersonalizations: workflow.templatePersonalizations || {},
-          testSettings: workflow.testSettings || {},
-        },
-        schedule_config:
-          workflow.scheduleSettings || workflow.schedule_config || {},
+        variables: workflow.variables,
+        schedule_config: workflow.schedule_config,
         trigger_config: workflow.trigger_config,
         createdBy: "user",
       };

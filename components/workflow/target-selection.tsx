@@ -518,6 +518,7 @@ WHERE contacts IS NOT NULL
 
             {triggerType === "manual" ? (
               <>
+                {/* 정적 조건 */}
                 <TabsContent value="static" className="space-y-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">
@@ -630,6 +631,8 @@ WHERE contacts IS NOT NULL
                     </Button>
                   </div>
                 </TabsContent>
+
+                {/* 동적 쿼리 */}
                 <TabsContent value="dynamic" className="space-y-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">
@@ -969,6 +972,7 @@ WHERE contacts IS NOT NULL
                 </TabsContent>
               </>
             ) : (
+              // 자동화 대상
               <TabsContent value="automation" className="space-y-4">
                 <div>
                   <label className="text-sm font-medium mb-2 block">

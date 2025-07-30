@@ -15,105 +15,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-// Supabase 워크플로우 데이터를 Workflow 타입으로 변환하는 함수
-function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
-  // 스케줄 설정에 따라 트리거 정보 동적 생성
-  const scheduleConfig = supabaseWorkflow.schedule_config;
-  const getTriggerInfo = () => {
-    if (!scheduleConfig || scheduleConfig.type === "immediate") {
-      return {
-        id: "trigger_manual",
-        name: "수동 실행",
-        type: "manual" as const,
-        description: "관리자가 수동으로 실행하는 워크플로우",
-        conditions: [],
-        conditionLogic: "AND" as const,
-      };
-    }
-
-    switch (scheduleConfig.type) {
-      case "delay":
-        return {
-          id: "trigger_delay",
-          name: `지연 실행 (${scheduleConfig.delay || 60}분 후)`,
-          type: "schedule" as const,
-          description: `${
-            scheduleConfig.delay || 60
-          }분 후 자동 실행되는 워크플로우`,
-          conditions: [],
-          conditionLogic: "AND" as const,
-        };
-      case "scheduled":
-        return {
-          id: "trigger_scheduled",
-          name: "예약 실행",
-          type: "schedule" as const,
-          description: "예약된 시간에 자동 실행되는 워크플로우",
-          conditions: [],
-          conditionLogic: "AND" as const,
-        };
-      case "recurring":
-        return {
-          id: "trigger_recurring",
-          name: "반복 실행",
-          type: "schedule" as const,
-          description: "반복 일정에 따라 자동 실행되는 워크플로우",
-          conditions: [],
-          conditionLogic: "AND" as const,
-        };
-      default:
-        return {
-          id: "trigger_schedule",
-          name: "스케줄 실행",
-          type: "schedule" as const,
-          description: "스케줄에 따라 자동 실행되는 워크플로우",
-          conditions: [],
-          conditionLogic: "AND" as const,
-        };
-    }
-  };
-
-  return {
-    id: supabaseWorkflow.id,
-    name: supabaseWorkflow.name,
-    description: supabaseWorkflow.description || "",
-    status: supabaseWorkflow.status,
-    trigger: getTriggerInfo(),
-    targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
-    targetTemplateMappings:
-      supabaseWorkflow.target_config?.targetTemplateMappings || [],
-    steps: supabaseWorkflow.message_config?.steps || [],
-    testSettings: supabaseWorkflow.variables?.testSettings || {
-      phoneNumber: "",
-      enableRealSending: false,
-      fallbackToSMS: false,
-    },
-    scheduleSettings: supabaseWorkflow.schedule_config
-      ? {
-          type: supabaseWorkflow.schedule_config.type || "immediate",
-          timezone: supabaseWorkflow.schedule_config.timezone || "Asia/Seoul",
-          delay: supabaseWorkflow.schedule_config.delay,
-          scheduledTime: supabaseWorkflow.schedule_config.scheduledTime,
-          recurringPattern: supabaseWorkflow.schedule_config.recurringPattern,
-        }
-      : {
-          type: "immediate",
-          timezone: "Asia/Seoul",
-        },
-    stats: supabaseWorkflow.statistics || {
-      totalRuns: 0,
-      successfulRuns: 0,
-      failedRuns: 0,
-      totalMessagesSent: 0,
-      totalCost: 0,
-      lastRunAt: null,
-      averageExecutionTime: 0,
-    },
-    createdAt: supabaseWorkflow.created_at,
-    updatedAt: supabaseWorkflow.updated_at,
-  };
-}
-
 export default function WorkflowDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -137,9 +38,9 @@ export default function WorkflowDetailPage() {
             const result = await response.json();
 
             if (result.success && result.data) {
-              console.log("✅ Supabase에서 워크플로우 찾음:", result.data.name);
-              const convertedWorkflow = convertSupabaseToWorkflow(result.data);
-              setWorkflow(convertedWorkflow);
+              console.log("✅ Supabase에서 워크플로우 찾음:", result.data);
+              // const convertedWorkflow = convertSupabaseToWorkflow(result.data);
+              setWorkflow(result.data);
               setIsLoading(false);
               return;
             }
@@ -179,12 +80,7 @@ export default function WorkflowDetailPage() {
 
   // 워크플로우 업데이트
   const handleUpdate = async (updatedWorkflow: Workflow) => {
-    console.log("🚀 handleUpdate 함수 호출됨:", {
-      workflowId: updatedWorkflow.id,
-      workflowName: updatedWorkflow.name,
-      scheduleSettings: updatedWorkflow.scheduleSettings,
-      timestamp: new Date().toISOString(),
-    });
+    console.log(updatedWorkflow);
 
     setIsSaving(true);
     try {
@@ -197,22 +93,18 @@ export default function WorkflowDetailPage() {
         name: updatedWorkflow.name,
         description: updatedWorkflow.description,
         status: updatedWorkflow.status,
-        targetGroups: updatedWorkflow.targetGroups,
-        targetTemplateMappings: updatedWorkflow.targetTemplateMappings,
-        steps: updatedWorkflow.steps,
-        testSettings: updatedWorkflow.testSettings,
-        scheduleSettings: updatedWorkflow.scheduleSettings, // 🔥 이 필드가 핵심!
+        message_config: updatedWorkflow.message_config,
+        target_config: updatedWorkflow.target_config,
+        variables: updatedWorkflow.variables,
+        schedule_config: updatedWorkflow.schedule_config,
+        trigger_config: updatedWorkflow.trigger_config,
       };
 
-      console.log("📤 전송할 스케줄 설정:", updatePayload.scheduleSettings);
-      console.log("📤 전송할 전체 데이터:", updatePayload);
+      // console.log("📤 전송할 스케줄 설정:", updatePayload.scheduleSettings);
+      // console.log("📤 전송할 전체 데이터:", updatePayload);
 
-      const apiUrl = `/api/supabase/workflows/${encodeURIComponent(
-        updatedWorkflow.id
-      )}`;
-      console.log("🔗 API URL:", apiUrl);
+      const apiUrl = `/api/supabase/workflows/${updatedWorkflow.id}`;
 
-      console.log("🚀 fetch 호출 시작...");
       const response = await fetch(apiUrl, {
         method: "PUT",
         headers: {
