@@ -187,12 +187,13 @@ export async function POST(request: NextRequest) {
 
             if (variableResponse.ok) {
               const variableResult = await variableResponse.json();
-              if (variableResult.success && variableResult.data) {
-                variableDataCache.set(mapping.variable_name, variableResult.data);
-                executionLogs.push(`✅ 변수 데이터 캐시됨: ${mapping.variable_name} (${variableResult.data.length}개 행)`);
+              if (variableResult.success && variableResult.data && variableResult.data.rows) {
+                const rows = variableResult.data.rows;
+                variableDataCache.set(mapping.variable_name, rows);
+                executionLogs.push(`✅ 변수 데이터 캐시됨: ${mapping.variable_name} (${rows.length}개 행)`);
                 console.log(`✅ 변수 데이터 캐시됨: ${mapping.variable_name}`, {
-                  rowCount: variableResult.data.length,
-                  sampleData: variableResult.data.slice(0, 3),
+                  rowCount: rows.length,
+                  sampleData: rows.slice(0, 3),
                   keyColumn: mapping.key_column,
                   outputColumn: mapping.selected_column,
                   query: mapping.source_field
@@ -200,7 +201,7 @@ export async function POST(request: NextRequest) {
                 
                 // 실행 로그에도 쿼리와 샘플 데이터 추가
                 executionLogs.push(`📝 쿼리: ${mapping.source_field}`);
-                executionLogs.push(`📊 샘플 데이터: ${JSON.stringify(variableResult.data.slice(0, 2))}`);
+                executionLogs.push(`📊 샘플 데이터: ${JSON.stringify(rows.slice(0, 2))}`);
               } else {
                 executionLogs.push(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
@@ -265,14 +266,14 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await response.json();
-        console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.length });
+        console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.rows?.length });
 
-        if (!result.success || !result.data || result.data.length === 0) {
+        if (!result.success || !result.data || !result.data.rows || result.data.rows.length === 0) {
           executionLogs.push(`⚠️ 그룹 "${group.name}"에서 데이터 없음`);
           continue;
         }
 
-        const contacts = result.data;
+        const contacts = result.data.rows;
         executionLogs.push(`✅ 그룹 "${group.name}"에서 ${contacts.length}개 연락처 조회됨`);
 
         // 🔥 5단계: 각 연락처별 개인화 메시지 생성

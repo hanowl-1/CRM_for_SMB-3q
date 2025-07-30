@@ -823,20 +823,261 @@ paths:
   /api/workflow/preview:
     post:
       tags: [Workflows]
-      summary: 워크플로우 미리보기
+      summary: 워크플로우 미리보기 생성
+      description: |
+        **저장되지 않은 워크플로우 설정**으로 실제 메시지 발송 전 미리보기를 생성합니다.
+        
+        ### 핵심 기능
+        - **임시 설정**: DB에 저장하지 않은 워크플로우 설정으로 시뮬레이션
+        - **실제 SQL 실행**: 사용자가 작성한 대상자 쿼리를 실제 DB에서 실행
+        - **변수 매핑**: 개별 변수 쿼리 실행 후 고객별 데이터 매칭
+        - **템플릿 렌더링**: 개인화된 메시지 생성
+        
+        ### 사용 시나리오
+        1. 워크플로우 빌더에서 설정 작성 중
+        2. "미리보기" 버튼 클릭 (아직 저장하지 않음)  
+        3. 현재 작성 중인 모든 설정을 API에 전달
+        4. 실제 고객 데이터로 개인화된 메시지 미리보기 확인
+        5. 확인 후 저장 여부 결정
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - targetGroups
+                - templates
+              properties:
+                targetGroups:
+                  type: array
+                  description: "대상 그룹 설정 (동적 SQL 쿼리 포함)"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "temp_group_1"
+                      name:
+                        type: string
+                        example: "VIP 고객"
+                      type:
+                        type: string
+                        enum: [dynamic, static]
+                        example: "dynamic"
+                      dynamicQuery:
+                        type: object
+                        properties:
+                          sql:
+                            type: string
+                            example: "SELECT id, name, phone, company_name FROM customers WHERE grade='VIP' LIMIT 5"
+                            description: "대상자 조회 SQL (SELECT만 허용)"
+                templates:
+                  type: array
+                  description: "선택된 메시지 템플릿들"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "template_123"
+                      templateName:
+                        type: string
+                        example: "리뷰 감사 메시지"
+                      templateCode:
+                        type: string
+                        example: "TK_001"
+                      content:
+                        type: string
+                        example: "안녕하세요 #{company_name}님! 총 #{total_reviews}개 리뷰 감사합니다."
+                templatePersonalizations:
+                  type: object
+                  description: "템플릿별 개인화 설정"
+                  additionalProperties:
+                    type: object
+                    properties:
+                      variableMappings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            templateVariable:
+                              type: string
+                              example: "#{company_name}"
+                            targetField:
+                              type: string
+                              example: "company_name"
+                            defaultValue:
+                              type: string
+                              example: "고객"
+                targetTemplateMappings:
+                  type: array
+                  description: "대상 그룹과 템플릿 매핑 설정"
+                  items:
+                    type: object
+                    properties:
+                      targetGroupId:
+                        type: string
+                        example: "temp_group_1"
+                      templateId:
+                        type: string
+                        example: "template_123"
+                      fieldMappings:
+                        type: array
+                        items:
+                          type: object
+                limit:
+                  type: integer
+                  default: 5
+                  minimum: 1
+                  maximum: 10
+                  description: "미리보기할 연락처 수 (최대 10명)"
+                  example: 5
       responses:
         '200':
-          description: 미리보기 성공
+          description: 미리보기 생성 성공
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    description: "고객별 개인화된 메시지 미리보기"
+                    items:
+                      type: object
+                      properties:
+                        groupName:
+                          type: string
+                          example: "VIP 고객"
+                        contact:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: "1"
+                            name:
+                              type: string
+                              example: "김철수"
+                            phone:
+                              type: string
+                              example: "010-1234-5678"
+                            email:
+                              type: string
+                              example: "kim@example.com"
+                            company:
+                              type: string
+                              example: "ABC회사"
+                            customFields:
+                              type: object
+                              description: "추가 고객 정보"
+                        messages:
+                          type: array
+                          description: "해당 고객에게 발송될 메시지들"
+                          items:
+                            type: object
+                            properties:
+                              templateId:
+                                type: string
+                                example: "template_123"
+                              templateName:
+                                type: string
+                                example: "리뷰 감사 메시지"
+                              templateCode:
+                                type: string
+                                example: "TK_001"
+                              originalContent:
+                                type: string
+                                example: "안녕하세요 #{company_name}님! 총 #{total_reviews}개 리뷰 감사합니다."
+                              processedContent:
+                                type: string
+                                example: "안녕하세요 ABC회사님! 총 127개 리뷰 감사합니다."
+                              variables:
+                                type: object
+                                description: "해당 고객에게 적용된 변수들"
+                                example:
+                                  company_name: "ABC회사"
+                                  total_reviews: "127"
+                              characterCount:
+                                type: integer
+                                example: 35
+                                description: "처리된 메시지의 글자 수"
+                  totalEstimatedCount:
+                    type: integer
+                    example: 5
+                    description: "총 미리보기 연락처 수"
+                  debug:
+                    type: object
+                    description: "디버그 정보"
+                    properties:
+                      savedMappingsCount:
+                        type: integer
+                        example: 3
+                        description: "사용된 변수 매핑 수"
+                      variableCacheSize:
+                        type: integer
+                        example: 3
+                        description: "캐시된 변수 수"
+                      templatesLoaded:
+                        type: integer
+                        example: 1
+                        description: "로드된 템플릿 수"
+                      realTemplatesFound:
+                        type: integer
+                        example: 1
+                        description: "실제 템플릿 데이터가 발견된 수"
+                      totalCachedRows:
+                        type: integer
+                        example: 150
+                        description: "캐시된 총 데이터 행 수"
+                  executionLogs:
+                    type: array
+                    description: "실행 로그 (디버깅용)"
+                    items:
+                      type: string
+                    example:
+                      - "🚀 워크플로우 미리보기 시작"
+                      - "✅ 변수 데이터 캐시됨: #{total_reviews} (50개 행)"
+                      - "🔗 매칭 성공: #{total_reviews} = \"127\" (id=1)"
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "targetGroups와 templates가 필요합니다."
+                      - "SELECT 문만 허용됩니다."
+                      - "허용되지 않는 SQL 키워드가 포함되어 있습니다."
+        '500':
+          description: 서버 오류 (SQL 실행 실패 등)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "미리보기 생성 중 오류가 발생했습니다."
+                  executionLogs:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - "❌ MySQL API 호출 실패: 500"
+                      - "❌ 변수 쿼리 실행 오류: 테이블이 존재하지 않습니다."
 
   /api/workflow/test:
     post:
