@@ -155,26 +155,36 @@ components:
 
     WebhookEvent:
       type: object
+      description: "웹훅 이벤트 데이터 (핵심 필드만 정의, 추가 필드 자유롭게 전송 가능)"
+      required:
+        - phone
       properties:
-        name:
-          type: string
-          example: "홍길동"
-        company:
-          type: string
-          example: "회사명"
         phone:
           type: string
           example: "010-1234-5678"
+          description: "수신자 전화번호 (필수) - phoneNumber, contact로도 전달 가능"
+        company:
+          type: string
+          example: "회사명"
+          description: "회사명/이름 (권장)"
         email:
           type: string
           format: email
           example: "test@example.com"
-        source:
-          type: string
-          example: "출처"
-        message:
-          type: string
-          example: "메시지"
+          description: "이메일 주소 (선택적)"
+      additionalProperties: true
+      examples:
+        minimal:
+          summary: "최소 필수 필드"
+          value:
+            phone: "010-1234-5678"
+            company: "테스트 회사"
+        with_email:
+          summary: "이메일 포함"
+          value:
+            phone: "010-1234-5678"
+            company: "ABC 회사"
+            email: "test@abc.com"
 
 paths:
   # Workflows
