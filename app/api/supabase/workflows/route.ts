@@ -68,17 +68,13 @@ export async function POST(request: NextRequest) {
     const {
       name,
       description,
-      selectedTemplates,
-      targetGroups,
-      templatePersonalizations,
-      targetTemplateMappings,
-      scheduleSettings,
+      message_config = {},
+      target_config = {},
+      variables = {},
       schedule_config,
-      testSettings,
-      steps,
-      createdBy = 'user',
-      trigger_type = 'manual',
       trigger_config = {},
+      created_by = 'user',
+      trigger_type = 'manual',
       status = 'draft'
     } = body;
 
@@ -90,10 +86,10 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!['manual', 'schedule', 'webhook'].includes(trigger_type)) {
+    if (!['manual', 'webhook'].includes(trigger_type)) {
       return NextResponse.json({
         success: false,
-        error: 'Invalid trigger type'
+        error: 'Invalid trigger type. Only "manual" and "webhook" are supported.'
       }, { status: 400 });
     }
 
@@ -107,10 +103,10 @@ export async function POST(request: NextRequest) {
     console.log('🔥 워크플로우 생성 요청:', {
       name,
       trigger_type,
-      targetGroupsCount: targetGroups?.length || 0,
-      templatesCount: selectedTemplates?.length || 0,
-      stepsCount: steps?.length || 0,
-      mappingsCount: targetTemplateMappings?.length || 0
+      targetGroupsCount: target_config?.targetGroups?.length || 0,
+      templatesCount: message_config?.selectedTemplates?.length || 0,
+      stepsCount: message_config?.steps?.length || 0,
+      mappingsCount: target_config?.targetTemplateMappings?.length || 0
     });
 
     const supabase = getSupabase();
@@ -121,44 +117,54 @@ export async function POST(request: NextRequest) {
       description: description?.trim() || null,
       trigger_type,
       status,
-      created_by: createdBy,
+      created_by: created_by,
       message_config: {
-        steps: steps || [],
-        selectedTemplates: selectedTemplates || []
+        steps: message_config?.steps || [],
+        selectedTemplates: message_config?.selectedTemplates || []
       }
     };
 
     let workflowData;
     
+    // Webhook 타입의 경우 schedule_config 검증
+    if (trigger_type === 'webhook' && schedule_config) {
+      if (!['immediate', 'delay'].includes(schedule_config.type)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Webhook workflows only support "immediate" and "delay" schedule types.'
+        }, { status: 400 });
+      }
+    }
+
     if (trigger_type === 'webhook') {
       // 웹훅 워크플로우: trigger_config만 저장, target_config 제외
       console.log('📡 웹훅 워크플로우 생성 - target_config 제외');
       workflowData = {
         ...baseWorkflowData,
         trigger_config,
-        schedule_config: schedule_config || scheduleSettings || {},
+        schedule_config: schedule_config || {},
         variables: {
-          templatePersonalizations: templatePersonalizations || {},
-          testSettings: testSettings || {}
+          templatePersonalizations: variables?.templatePersonalizations || {},
+          testSettings: variables?.testSettings || {}
         }
       };
     } else {
-      // Manual/Schedule 워크플로우: target_config 포함
+      // Manual 워크플로우: target_config 포함
       console.log(`🎯 ${trigger_type} 워크플로우 생성 - target_config 포함`);
       workflowData = {
         ...baseWorkflowData,
         trigger_config: trigger_config || {},
         target_config: {
-          targetGroups: targetGroups || [],
-          targetTemplateMappings: targetTemplateMappings || []
+          targetGroups: target_config?.targetGroups || [],
+          targetTemplateMappings: target_config?.targetTemplateMappings || []
         },
         variables: {
-          templatePersonalizations: templatePersonalizations || {},
-          testSettings: testSettings || {}
+          templatePersonalizations: variables?.templatePersonalizations || {},
+          testSettings: variables?.testSettings || {}
         },
-        schedule_config: schedule_config || scheduleSettings || {},
+        schedule_config: schedule_config || {},
         mapping_config: {
-          targetTemplateMappings: targetTemplateMappings || []
+          targetTemplateMappings: target_config?.targetTemplateMappings || []
         }
       };
     }
