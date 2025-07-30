@@ -88,25 +88,63 @@ components:
       properties:
         id:
           type: string
-          example: "workflow_123"
+          example: "550e8400-e29b-41d4-a716-446655440000"
         name:
           type: string
-          example: "워크플로우명"
+          example: "리뷰 요청 워크플로우"
         description:
           type: string
-          example: "설명"
+          example: "고객에게 리뷰 요청 메시지를 발송하는 워크플로우"
         status:
           type: string
-          enum: [active, draft, paused]
+          enum: [draft, active, paused, archived]
           example: "active"
         trigger_type:
           type: string
-          enum: [webhook, manual, scheduled]
-          example: "webhook"
+          enum: [manual, schedule, webhook]
+          example: "manual"
+        trigger_config:
+          type: object
+          description: "트리거 설정"
+        target_config:
+          type: object
+          description: "대상 설정 (manual/schedule 타입에서 사용)"
+        message_config:
+          type: object
+          description: "메시지 설정"
+        mapping_config:
+          type: object
+          description: "매핑 설정"
+        schedule_config:
+          $ref: '#/components/schemas/ScheduleConfig'
+        variables:
+          type: object
+          description: "변수 설정"
+        statistics:
+          type: object
+          description: "실행 통계"
+        last_run_at:
+          type: string
+          format: date-time
+          example: "2025-07-29T00:00:00Z"
+          description: "마지막 실행 시간"
+        next_run_at:
+          type: string
+          format: date-time
+          example: "2025-07-30T09:00:00Z"
+          description: "다음 실행 예정 시간"
+        created_by:
+          type: string
+          example: "user"
+          description: "생성자"
         created_at:
           type: string
           format: date-time
           example: "2025-07-29T00:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2025-07-29T12:00:00Z"
 
     SMSRequest:
       type: object
@@ -186,42 +224,179 @@ components:
             company: "ABC 회사"
             email: "test@abc.com"
 
+    ScheduleConfig:
+      type: object
+      description: "스케줄 설정 (현재 사용 중인 필드)"
+      required:
+        - type
+        - timezone
+      properties:
+        type:
+          type: string
+          enum: [immediate, delay, scheduled, recurring]
+          example: "immediate"
+          description: "스케줄 실행 타입"
+        timezone:
+          type: string
+          example: "Asia/Seoul"
+          description: "시간대 설정 (모든 타입에 필수)"
+        delay:
+          type: integer
+          description: "지연 시간 (분 단위, type이 'delay'일 때 필수)"
+          example: 60
+        scheduledTime:
+          type: string
+          description: "예약 실행 시간 (type이 'scheduled'일 때 필수)"
+          example: "2025-01-30T14:35:00+09:00"
+        recurringPattern:
+          type: object
+          description: "반복 패턴 설정 (type이 'recurring'일 때 필수)"
+          required:
+            - frequency
+            - interval
+            - time
+          properties:
+            frequency:
+              type: string
+              enum: [daily, weekly, monthly]
+              example: "daily"
+            interval:
+              type: integer
+              example: 1
+              description: "반복 간격"
+            time:
+              type: string
+              pattern: "^[0-2][0-9]:[0-5][0-9]$"
+              example: "14:35"
+              description: "실행 시간 (HH:MM 형식)"
+            daysOfWeek:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 6
+              description: "요일 설정 (0=일요일, 1=월요일, ..., weekly일 때 선택사항)"
+            dayOfMonth:
+              type: integer
+              minimum: 1
+              maximum: 31
+              description: "월의 특정 일 (monthly일 때 선택사항)"
+      examples:
+        immediate:
+          summary: "즉시 실행"
+          value:
+            type: "immediate"
+            timezone: "Asia/Seoul"
+        delay:
+          summary: "지연 실행"
+          value:
+            type: "delay"
+            delay: 60
+            timezone: "Asia/Seoul"
+        recurring_daily:
+          summary: "매일 반복"
+          value:
+            type: "recurring"
+            timezone: "Asia/Seoul"
+            recurringPattern:
+              time: "14:35"
+              interval: 1
+              frequency: "daily"
+
 paths:
   # Workflows
   /api/supabase/workflows:
     get:
       tags: [Workflows]
       summary: 워크플로우 목록 조회
+      description: |
+        페이지네이션, 필터링, 검색 기능을 지원하는 워크플로우 목록 조회 API입니다.
       parameters:
-        - name: action
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: "페이지 번호"
+          example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: "페이지당 항목 수 (최대 100개)"
+          example: 20
+        - name: status
           in: query
           schema:
             type: string
-            enum: [list, get]
-          example: "list"
-        - name: id
+            enum: [draft, active, paused, archived]
+          description: "상태별 필터링"
+          example: "active"
+        - name: trigger_type
           in: query
           schema:
             type: string
-          description: "특정 워크플로우 ID (action=get일 때 필요)"
+            enum: [manual, schedule, webhook]
+          description: "트리거 타입별 필터링"
+          example: "manual"
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: "이름 또는 설명에서 검색할 키워드"
+          example: "리뷰"
       responses:
         '200':
           description: 성공
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Workflow'
+                  meta:
+                    type: object
                     properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Workflow'
-    
+                      total:
+                        type: integer
+                        description: "전체 항목 수"
+                        example: 150
+                      page:
+                        type: integer
+                        description: "현재 페이지"
+                        example: 1
+                      limit:
+                        type: integer
+                        description: "페이지당 항목 수"
+                        example: 20
+                      totalPages:
+                        type: integer
+                        description: "전체 페이지 수"
+                        example: 8
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
     post:
       tags: [Workflows]
-      summary: 워크플로우 생성
+      summary: 새 워크플로우 생성
+      description: |
+        새로운 워크플로우를 생성합니다. 워크플로우 타입에 따라 저장되는 필드가 다릅니다.
+        - **webhook**: trigger_config만 저장, target_config 제외
+        - **manual/schedule**: target_config 포함
       requestBody:
         required: true
         content:
@@ -229,108 +404,52 @@ paths:
             schema:
               type: object
               required:
-                - action
                 - name
               properties:
-                action:
-                  type: string
-                  enum: [create, update, delete]
-                  example: "create"
                 name:
                   type: string
-                  example: "워크플로우명"
+                  minLength: 1
+                  description: "워크플로우 이름 (필수)"
+                  example: "리뷰 요청 워크플로우"
                 description:
                   type: string
-                  example: "설명"
+                  description: "워크플로우 설명"
+                  example: "고객에게 리뷰 요청 메시지를 발송하는 워크플로우"
+                trigger_type:
+                  type: string
+                  enum: [manual, schedule, webhook]
+                  default: "manual"
+                  description: "트리거 타입"
+                  example: "manual"
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  default: "draft"
+                  description: "워크플로우 상태"
+                  example: "draft"
                 selectedTemplates:
                   type: array
                   items:
-                    type: string
+                    type: object
+                  description: "선택된 메시지 템플릿들"
                 targetGroups:
                   type: array
                   items:
-                    type: string
+                    type: object
+                  description: "대상 그룹 설정 (manual/schedule 타입에서만 사용)"
                 templatePersonalizations:
                   type: object
+                  description: "템플릿 개인화 설정"
                 targetTemplateMappings:
                   type: array
                   items:
                     type: object
+                  description: "대상-템플릿 매핑 설정"
                 schedule_config:
+                  $ref: '#/components/schemas/ScheduleConfig'
+                trigger_config:
                   type: object
-                  description: "스케줄 설정 (현재 사용 중인 필드)"
-                  required:
-                    - type
-                    - timezone
-                  properties:
-                    type:
-                      type: string
-                      enum: [immediate, delay, scheduled, recurring]
-                      example: "immediate"
-                      description: "스케줄 실행 타입"
-                    timezone:
-                      type: string
-                      example: "Asia/Seoul"
-                      description: "시간대 설정 (모든 타입에 필수)"
-                    delay:
-                      type: integer
-                      description: "지연 시간 (분 단위, type이 'delay'일 때 필수)"
-                      example: 60
-                    scheduledTime:
-                      type: string
-                      description: "예약 실행 시간 (type이 'scheduled'일 때 필수)"
-                      example: "2025-01-30T14:35:00+09:00"
-                    recurringPattern:
-                      type: object
-                      description: "반복 패턴 설정 (type이 'recurring'일 때 필수)"
-                      required:
-                        - frequency
-                        - interval
-                        - time
-                      properties:
-                        frequency:
-                          type: string
-                          enum: [daily, weekly, monthly]
-                          example: "daily"
-                        interval:
-                          type: integer
-                          example: 1
-                          description: "반복 간격"
-                        time:
-                          type: string
-                          pattern: "^[0-2][0-9]:[0-5][0-9]$"
-                          example: "14:35"
-                          description: "실행 시간 (HH:MM 형식)"
-                        daysOfWeek:
-                          type: array
-                          items:
-                            type: integer
-                            minimum: 0
-                            maximum: 6
-                          description: "요일 설정 (0=일요일, 1=월요일, ..., weekly일 때 선택사항)"
-                        dayOfMonth:
-                          type: integer
-                          minimum: 1
-                          maximum: 31
-                          description: "월의 특정 일 (monthly일 때 선택사항)"
-                  examples:
-                    immediate:
-                      value:
-                        type: "immediate"
-                        timezone: "Asia/Seoul"
-                    delay:
-                      value:
-                        type: "delay"
-                        delay: 60
-                        timezone: "Asia/Seoul"
-                    recurring_daily:
-                      value:
-                        type: "recurring"
-                        timezone: "Asia/Seoul"
-                        recurringPattern:
-                          time: "14:35"
-                          interval: 1
-                          frequency: "daily"
+                  description: "트리거 설정 (webhook 타입에서 주로 사용)"
                 testSettings:
                   type: object
                   description: "테스트 실행 설정"
@@ -341,27 +460,323 @@ paths:
                   description: "워크플로우 실행 단계들"
                 createdBy:
                   type: string
+                  default: "user"
+                  description: "생성자"
                   example: "user"
-                trigger_type:
-                  type: string
-                  enum: [manual, webhook, scheduled]
-                  example: "manual"
-                trigger_config:
-                  type: object
-                  description: "트리거 상세 설정"
-                status:
-                  type: string
-                  enum: [draft, active, paused]
-                  example: "draft"
       responses:
-        '200':
-          description: 워크플로우 생성 성공
+        '201':
+          description: 생성 성공
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
         '400':
           description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "Workflow name is required"
+                      - "Invalid trigger type"
+                      - "Invalid status"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/supabase/workflows/{id}:
+    get:
+      tags: [Workflows]
+      summary: 단일 워크플로우 조회
+      description: "특정 워크플로우의 상세 정보를 조회합니다."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags: [Workflows]
+      summary: 워크플로우 전체 수정
+      description: |
+        워크플로우의 전체 또는 부분 정보를 수정합니다.
+        워크플로우 타입에 따라 수정 가능한 필드가 다릅니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: "워크플로우 이름"
+                  example: "수정된 워크플로우 이름"
+                description:
+                  type: string
+                  description: "워크플로우 설명"
+                trigger_type:
+                  type: string
+                  enum: [manual, schedule, webhook]
+                  description: "트리거 타입"
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  description: "워크플로우 상태"
+                selectedTemplates:
+                  type: array
+                  items:
+                    type: object
+                targetGroups:
+                  type: array
+                  items:
+                    type: object
+                templatePersonalizations:
+                  type: object
+                targetTemplateMappings:
+                  type: array
+                  items:
+                    type: object
+                schedule_config:
+                  $ref: '#/components/schemas/ScheduleConfig'
+                trigger_config:
+                  type: object
+                testSettings:
+                  type: object
+                steps:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: 수정 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow name cannot be empty"
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [Workflows]
+      summary: 워크플로우 상태 변경
+      description: |
+        워크플로우의 상태를 변경합니다. 
+        상태가 'paused' 또는 'archived'로 변경되면 관련된 스케줄 작업들이 자동으로 취소됩니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  description: "변경할 상태"
+                  example: "active"
+      responses:
+        '200':
+          description: 상태 변경 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+                  message:
+                    type: string
+                    examples:
+                      - "워크플로우가 활성화되었습니다."
+                      - "워크플로우가 일시정지되었습니다."
+                      - "워크플로우가 보관되었습니다."
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "Status is required for PATCH operation"
+                      - "Invalid status"
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Workflows]
+      summary: 워크플로우 삭제
+      description: |
+        워크플로우를 영구적으로 삭제합니다.
+        CASCADE 설정으로 인해 관련된 scheduled_jobs도 함께 삭제됩니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "워크플로우 '리뷰 요청 워크플로우'가 삭제되었습니다."
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
           content:
             application/json:
               schema:
