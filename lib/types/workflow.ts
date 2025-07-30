@@ -12,8 +12,8 @@ export interface WorkflowTrigger {
     | "cart_abandon"
     | "birthday"
     | "purchase"
-    | "webhook"
-    | "inquiry";
+    | "lead_created"
+    | "webhook";
   name: string;
   description: string;
   conditions?: WorkflowCondition[];

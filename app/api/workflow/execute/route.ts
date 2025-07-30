@@ -3,7 +3,6 @@ import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
-import mysql from 'mysql2/promise';
 import { getSupabase, getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { 
   getKoreaTime, 
@@ -14,22 +13,8 @@ import {
   koreaTimeToUTC
 } from '@/lib/utils/timezone';
 import { executeQuery } from '@/lib/database/mysql-connection.js';
-
-const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
-const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
-const COOLSMS_SENDER = process.env.COOLSMS_SENDER;
-const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
-const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER;
-
-// MySQL 설정
-const dbConfig = {
-  host: process.env.MYSQL_HOST || 'localhost',
-  port: parseInt(process.env.MYSQL_PORT || '3306'),
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
-  database: process.env.MYSQL_DATABASE || 'test',
-  timezone: '+09:00'
-};
+import { createMySQLConnection, MYSQL_CONFIG } from '@/lib/config/database';
+import { COOLSMS_CONFIG, KAKAO_CONFIG, SMS_CONFIG } from '@/lib/config/messaging';
 
 interface ExecuteRequest {
   workflow?: Workflow;
@@ -100,6 +85,29 @@ export async function POST(request: NextRequest) {
       console.log(`📋 scheduledJobId를 jobId로 매핑: ${jobId}`);
     }
 
+    // 🔥 스케줄된 작업에서 웹훅 데이터 추출
+    let webhookTriggerData = null;
+    if (jobId && scheduledExecution) {
+      console.log(`📋 스케줄된 작업에서 웹훅 데이터 조회 중: ${jobId}`);
+      
+      try {
+        const { data: jobData, error: jobError } = await getSupabase()
+          .from('scheduled_jobs')
+          .select('workflow_data')
+          .eq('id', jobId)
+          .single();
+        
+        if (jobError) {
+          console.error('스케줄된 작업 조회 실패:', jobError);
+        } else if (jobData?.workflow_data?.webhook_trigger) {
+          webhookTriggerData = jobData.workflow_data.webhook_trigger;
+          console.log('🔔 웹훅 트리거 데이터 발견:', webhookTriggerData);
+        }
+      } catch (jobQueryError) {
+        console.error('스케줄된 작업 조회 중 오류:', jobQueryError);
+      }
+    }
+
     // 🔥 workflow 객체가 없으면 workflowId로 조회
     if (!workflow && workflowId) {
       console.log(`📋 workflowId로 워크플로우 정보 조회 중: ${workflowId}`);
@@ -150,11 +158,15 @@ export async function POST(request: NextRequest) {
           // 🔥 스케줄 실행을 위한 추가 정보
           target_config: workflowData.target_config,
           message_config: workflowData.message_config,
-          variables: workflowData.variables
+          variables: workflowData.variables,
+          trigger_type: workflowData.trigger_type,
+          webhook_trigger: webhookTriggerData // 🔥 웹훅 트리거 데이터 추가
         } as Workflow & {
           target_config?: any;
           message_config?: any;
           variables?: any;
+          trigger_type?: string;
+          webhook_trigger?: any;
         };
         
         console.log('✅ 워크플로우 정보 조회 완료:', {
@@ -271,11 +283,27 @@ export async function POST(request: NextRequest) {
         target_config?: any;
         message_config?: any;
         mapping_config?: any;
+        trigger_type?: string;
+        webhook_trigger?: any;
       };
+      
+      // 웹훅 트리거인지 확인
+      const isWebhookTrigger = workflowWithSupabaseProps.trigger_type === 'webhook' || 
+                              workflowWithSupabaseProps.webhook_trigger?.trigger_type === 'webhook';
+      
+      console.log('🔍 [DEBUG] 웹훅 트리거 확인:', {
+        'trigger_type': workflowWithSupabaseProps.trigger_type,
+        'webhook_trigger': workflowWithSupabaseProps.webhook_trigger,
+        'isWebhookTrigger': isWebhookTrigger,
+        'condition1': workflowWithSupabaseProps.trigger_type === 'webhook',
+        'condition2': workflowWithSupabaseProps.webhook_trigger?.trigger_type === 'webhook'
+      });
       
       console.log('📋 워크플로우 실행 시작:', {
         id: workflow.id,
         name: workflow.name,
+        triggerType: workflowWithSupabaseProps.trigger_type,
+        isWebhookTrigger,
         targetGroupsCount: workflow.targetGroups?.length || 0,
         stepsCount: workflow.steps?.length || 0,
         hasTargetConfig: !!workflowWithSupabaseProps.target_config,
@@ -316,8 +344,8 @@ export async function POST(request: NextRequest) {
         console.log('📋 기존 targetTemplateMappings에서 매핑 설정 추출:', targetTemplateMappings.length, '개');
       }
       
-      // 🔥 데이터 검증
-      if (targetGroups.length === 0) {
+      // 🔥 데이터 검증 (웹훅 타입은 대상 그룹 검증 건너뛰기)
+      if (!isWebhookTrigger && targetGroups.length === 0) {
         throw new Error('대상 그룹이 설정되지 않았습니다. target_config.targetGroups를 확인해주세요.');
       }
       
@@ -336,13 +364,24 @@ export async function POST(request: NextRequest) {
 
         console.log(`📤 스텝 ${i + 1} 실행: ${step.name}`);
 
-        // 대상 그룹별로 메시지 발송
-        for (const targetGroup of targetGroups) {
-          const stepResult = await executeStep(step, targetGroup, workflow, enableRealSending, targetTemplateMappings);
+        if (isWebhookTrigger) {
+          // 🔥 웹훅 타입: 이벤트 데이터에서 직접 연락처 추출
+          const webhookEventData = workflowWithSupabaseProps.webhook_trigger?.event_data || {};
+          const webhookTargetGroup = {
+            id: 'webhook_target',
+            name: '웹훅 이벤트 대상',
+            type: 'webhook' as const,
+            estimatedCount: 1,
+            webhookEventData // 웹훅 이벤트 데이터 저장
+          };
+          
+          console.log('🔔 웹훅 이벤트 데이터:', webhookEventData);
+          
+          const stepResult = await executeStep(step, webhookTargetGroup, workflow, enableRealSending, targetTemplateMappings);
           results.push({
             step: i + 1,
             stepName: step.name,
-            targetGroup: targetGroup.name,
+            targetGroup: webhookTargetGroup.name,
             ...stepResult
           });
 
@@ -355,6 +394,28 @@ export async function POST(request: NextRequest) {
             totalSuccessCount += stepResult.successCount || 1;
           } else {
             totalFailedCount += stepResult.failedCount || 1;
+          }
+        } else {
+          // 🔥 일반 타입: 대상 그룹별로 메시지 발송
+          for (const targetGroup of targetGroups) {
+            const stepResult = await executeStep(step, targetGroup, workflow, enableRealSending, targetTemplateMappings);
+            results.push({
+              step: i + 1,
+              stepName: step.name,
+              targetGroup: targetGroup.name,
+              ...stepResult
+            });
+
+            // 메시지 로그 수집
+            if (stepResult.messageLogs) {
+              allMessageLogs.push(...stepResult.messageLogs);
+            }
+
+            if (stepResult.status === 'success') {
+              totalSuccessCount += stepResult.successCount || 1;
+            } else {
+              totalFailedCount += stepResult.failedCount || 1;
+            }
           }
         }
 
@@ -1244,6 +1305,25 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
 // 대상 그룹에서 실제 대상자 목록 조회
 async function getTargetsFromGroup(targetGroup: any) {
   try {
+    // 🔥 웹훅 타입: 이벤트 데이터에서 직접 대상자 생성
+    if (targetGroup.type === 'webhook' && targetGroup.webhookEventData) {
+      const eventData = targetGroup.webhookEventData;
+      console.log('🔔 웹훅 이벤트 데이터에서 대상자 생성:', eventData);
+      
+      // 웹훅 이벤트 데이터를 대상자 형식으로 변환
+      const phoneNumber = eventData.phone || eventData.phoneNumber || eventData.contact || '01000000000';
+      const name = eventData.name || eventData.company || '웹훅 대상자';
+      const email = eventData.email || null;
+      
+      return [{
+        id: 'webhook_target',
+        name: name,
+        phoneNumber: phoneNumber,
+        email: email,
+        rawData: eventData // 웹훅 이벤트 데이터를 원본 데이터로 사용
+      }];
+    }
+    
     // MySQL 동적 쿼리 실행하여 실제 대상자 조회
     if (targetGroup.type === 'dynamic' && targetGroup.dynamicQuery?.sql) {
       console.log(`🔍 대상자 조회 시작 - MySQL API 호출 사용`);
@@ -1355,7 +1435,7 @@ async function sendAlimtalk({
   // 🔥 시간대 처리: API 인증을 위한 현재 시간 (UTC 기준)
   const date = new Date().toISOString();
   const salt = Date.now().toString();
-  const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
+  const signature = generateSignature(COOLSMS_CONFIG.apiKey!, COOLSMS_CONFIG.apiSecret!, date, salt);
 
   // CoolSMS API에 맞는 변수 형식으로 변환: 
   // variables 객체에 이미 #{변수명} 형태로 저장되어 있으므로 그대로 사용
@@ -1370,7 +1450,7 @@ async function sendAlimtalk({
 
   const messageData = {
     to: phoneNumber,
-    from: SMS_SENDER_NUMBER,
+          from: SMS_CONFIG.senderNumber,
     type: 'ATA',
     kakaoOptions: {
       pfId: pfId,
@@ -1387,7 +1467,7 @@ async function sendAlimtalk({
   const response = await fetch('https://api.coolsms.co.kr/messages/v4/send', {
     method: 'POST',
     headers: {
-      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_API_KEY}, date=${date}, salt=${salt}, signature=${signature}`,
+      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_CONFIG.apiKey}, date=${date}, salt=${salt}, signature=${signature}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -1424,11 +1504,11 @@ function getPfIdForTemplate(templateId: string): string {
     const channel = templateInfo.channel;
     
     if (channel === 'CEO') {
-      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
     } else if (channel === 'BLOGGER') {
-      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_SENDER_KEY || '';
+      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
     }
   }
   
-  return KAKAO_SENDER_KEY || '';
+  return KAKAO_CONFIG.senderKey || '';
 } 

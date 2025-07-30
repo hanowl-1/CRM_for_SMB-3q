@@ -562,7 +562,10 @@ export async function GET(request: NextRequest) {
           // 🔥 스케줄 실행을 위한 추가 정보
           target_config: workflowData.target_config,
           message_config: workflowData.message_config,
-          variables: workflowData.variables
+          variables: workflowData.variables,
+          // 🔥 웹훅 정보 추가 (누락되었던 부분!)
+          trigger_type: workflowData.trigger_type,
+          webhook_trigger: workflowData.webhook_trigger
         };
         
         console.log('📤 변환된 워크플로우 객체:', {

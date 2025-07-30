@@ -647,6 +647,16 @@ function DashboardContent() {
 
             {/* 주요 액션 버튼 및 사용자 메뉴 */}
             <div className="flex items-center gap-3">
+              <Link href="/docs">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  API 문서
+                </Button>
+              </Link>
               <Button
                 variant="outline"
                 size="sm"

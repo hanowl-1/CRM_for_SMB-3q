@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
+import { createSuccessResponse, logAndCreateErrorResponse } from '@/lib/utils/api-response';
+import { personalizeBatch } from '@/lib/services/personalization-service';
 
 function getSampleValueForVariable(variableName: string): string {
   const lowerName = variableName.toLowerCase();
@@ -451,19 +453,12 @@ export async function POST(request: NextRequest) {
       variableCacheHits: Array.from(variableDataCache.entries()).map(([name, data]) => ({ name, rows: data.length }))
     });
 
-    return NextResponse.json(response);
+    return createSuccessResponse(response, '워크플로우 미리보기 생성 완료');
 
   } catch (error) {
     console.error('❌ 워크플로우 미리보기 오류:', error);
     executionLogs.push(`❌ 전체 처리 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : '알 수 없는 오류',
-        executionLogs 
-      },
-      { status: 500 }
-    );
+    return logAndCreateErrorResponse(error, '워크플로우 미리보기', '미리보기 생성 중 오류가 발생했습니다.');
   }
 } 
