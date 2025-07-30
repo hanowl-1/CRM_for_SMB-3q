@@ -71,16 +71,12 @@ export async function PUT(
     const {
       name,
       description,
-      selectedTemplates,
-      targetGroups,
-      templatePersonalizations,
-      targetTemplateMappings,
-      scheduleSettings,
+      message_config = {},
+      target_config = {},
+      variables = {},
       schedule_config,
-      testSettings,
-      steps,
+      trigger_config = {},
       trigger_type,
-      trigger_config,
       status
     } = body;
 
@@ -92,10 +88,10 @@ export async function PUT(
       }, { status: 400 });
     }
 
-    if (trigger_type && !['manual', 'schedule', 'webhook'].includes(trigger_type)) {
+    if (trigger_type && !['manual', 'webhook'].includes(trigger_type)) {
       return NextResponse.json({
         success: false,
-        error: 'Invalid trigger type'
+        error: 'Invalid trigger type. Only "manual" and "webhook" are supported.'
       }, { status: 400 });
     }
 
@@ -110,10 +106,10 @@ export async function PUT(
       id,
       name,
       trigger_type,
-      targetGroupsCount: targetGroups?.length || 0,
-      templatesCount: selectedTemplates?.length || 0,
-      stepsCount: steps?.length || 0,
-      mappingsCount: targetTemplateMappings?.length || 0
+      targetGroupsCount: target_config?.targetGroups?.length || 0,
+      templatesCount: message_config?.selectedTemplates?.length || 0,
+      stepsCount: message_config?.steps?.length || 0,
+      mappingsCount: target_config?.targetTemplateMappings?.length || 0
     });
 
     const supabase = getSupabase();
@@ -147,22 +143,22 @@ export async function PUT(
     if (description !== undefined) baseUpdateData.description = description?.trim() || null;
     if (status !== undefined) baseUpdateData.status = status;
 
-    if (steps !== undefined || selectedTemplates !== undefined) {
+    if (message_config !== undefined) {
       baseUpdateData.message_config = {
-        steps: steps || [],
-        selectedTemplates: selectedTemplates || []
+        steps: message_config?.steps || [],
+        selectedTemplates: message_config?.selectedTemplates || []
       };
     }
 
-    if (templatePersonalizations !== undefined || testSettings !== undefined) {
+    if (variables !== undefined) {
       baseUpdateData.variables = {
-        templatePersonalizations: templatePersonalizations || {},
-        testSettings: testSettings || {}
+        templatePersonalizations: variables?.templatePersonalizations || {},
+        testSettings: variables?.testSettings || {}
       };
     }
 
-    if (scheduleSettings !== undefined || schedule_config !== undefined) {
-      baseUpdateData.schedule_config = schedule_config || scheduleSettings || {};
+    if (schedule_config !== undefined) {
+      baseUpdateData.schedule_config = schedule_config;
     }
 
     let updateData;
@@ -175,19 +171,19 @@ export async function PUT(
         ...(trigger_config && { trigger_config })
       };
     } else {
-      // Manual/Schedule 워크플로우: target_config 포함 업데이트
+      // Manual 워크플로우: target_config 포함 업데이트
       console.log(`🎯 ${workflowType} 워크플로우 업데이트 - target_config 포함`);
       updateData = {
         ...baseUpdateData,
-        ...(targetGroups !== undefined && {
+        ...(target_config !== undefined && {
           target_config: {
-            targetGroups: targetGroups || [],
-            targetTemplateMappings: targetTemplateMappings || []
+            targetGroups: target_config?.targetGroups || [],
+            targetTemplateMappings: target_config?.targetTemplateMappings || []
           }
         }),
-        ...(targetTemplateMappings !== undefined && {
+        ...(target_config?.targetTemplateMappings !== undefined && {
           mapping_config: {
-            targetTemplateMappings: targetTemplateMappings || []
+            targetTemplateMappings: target_config.targetTemplateMappings || []
           }
         })
       };

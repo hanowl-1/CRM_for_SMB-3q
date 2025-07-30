@@ -597,36 +597,62 @@ paths:
                   description: "워크플로우 설명"
                 trigger_type:
                   type: string
-                  enum: [manual, schedule, webhook]
-                  description: "트리거 타입"
+                  enum: [manual, webhook]
+                  description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
                 status:
                   type: string
                   enum: [draft, active, paused, archived]
                   description: "워크플로우 상태"
-                selectedTemplates:
-                  type: array
-                  items:
-                    type: object
-                targetGroups:
-                  type: array
-                  items:
-                    type: object
-                templatePersonalizations:
+                message_config:
                   type: object
-                targetTemplateMappings:
-                  type: array
-                  items:
-                    type: object
+                  description: "메시지 설정"
+                  properties:
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                      description: "워크플로우 실행 단계들"
+                      example: []
+                    selectedTemplates:
+                      type: array
+                      items:
+                        type: object
+                      description: "선택된 메시지 템플릿들"
+                      example: []
+                target_config:
+                  type: object
+                  description: "대상 설정 (manual 타입에서만 사용)"
+                  properties:
+                    targetGroups:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상 그룹 설정"
+                      example: []
+                    targetTemplateMappings:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상-템플릿 매핑 설정"
+                      example: []
+                variables:
+                  type: object
+                  description: "변수 설정"
+                  properties:
+                    templatePersonalizations:
+                      type: object
+                      description: "템플릿 개인화 설정"
+                      example: {}
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      example: {}
                 schedule_config:
                   $ref: '#/components/schemas/ScheduleConfig'
                 trigger_config:
                   type: object
-                testSettings:
-                  type: object
-                steps:
-                  type: array
-                  items:
-                    type: object
+                  description: "트리거 설정 (webhook 타입에서 주로 사용)"
+                  example: {}
       responses:
         '200':
           description: 수정 성공
