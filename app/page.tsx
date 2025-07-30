@@ -30,12 +30,50 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { Workflow } from "@/lib/types/workflow";
+import { Workflow, WorkflowStep } from "@/lib/types/workflow";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+interface DashboardWorkflow {
+  id: string;
+  name: string;
+  description?: string;
+  status: "draft" | "active" | "paused" | "archived";
+  trigger_type: string;
+  sent: number;
+  lastRun: string;
+  stepsCount: number;
+  templateInfo?: {
+    templateName: string;
+    templateCount: number;
+    additionalTemplates: number;
+  };
+  stats: {
+    totalCost: number;
+    targetsCount: number;
+  };
+  estimatedCount?: number;
+  steps: WorkflowStep[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -62,32 +100,7 @@ export default function Dashboard() {
 }
 
 function DashboardContent() {
-  const [workflows, setWorkflows] = useState<
-    Array<{
-      id: string;
-      name: string;
-      status: string;
-      trigger: string;
-      sent: number;
-      lastRun: string;
-      stepsCount: number;
-      description?: string;
-      schedule_config?: any;
-      templateInfo?: {
-        templateName: string;
-        templateCount: number;
-        additionalTemplates: number;
-      } | null;
-      nextRun?: Date | null;
-      createdAt: Date;
-      statistics: {
-        totalRuns: number;
-        successRate: number;
-        totalCost: number;
-      };
-      targetsCount: number;
-    }>
-  >([]);
+  const [workflows, setWorkflows] = useState<DashboardWorkflow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +136,19 @@ function DashboardContent() {
     lastExecutionTime: string;
   } | null>(null);
 
+  // 상태 추가
+  const [executeModal, setExecuteModal] = useState<{
+    isOpen: boolean;
+    workflowId: string | null;
+    workflowName: string;
+    estimatedCount?: number;
+  }>({
+    isOpen: false,
+    workflowId: null,
+    workflowName: "",
+    estimatedCount: 0,
+  });
+
   // Supabase에서 워크플로우 불러오기 (DB 기반만)
   const loadWorkflows = async () => {
     setIsLoading(true);
@@ -131,7 +157,7 @@ function DashboardContent() {
     try {
       console.log("📊 Supabase에서 워크플로우 목록 로드 중...");
 
-      const response = await fetch("/api/supabase/workflows?action=list");
+      const response = await fetch("/api/supabase/workflows");
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -143,148 +169,43 @@ function DashboardContent() {
         throw new Error(result.message || "워크플로우 로드에 실패했습니다.");
       }
 
-      const supabaseWorkflows: Workflow[] = result.data || [];
-      console.log(
-        "✅ Supabase에서 불러온 워크플로우:",
-        supabaseWorkflows.length,
-        "개"
-      );
+      const supabaseWorkflows = result.data || [];
 
       // 워크플로우를 표시용 형태로 변환
-      const convertedWorkflows = supabaseWorkflows.map((workflow) => {
-        // 스케줄 설정에 따라 동적으로 트리거 이름 생성
-        const getTriggerName = () => {
-          const scheduleConfig = (workflow as any).schedule_config;
-
-          console.log(`🔍 워크플로우 "${workflow.name}" 트리거 분석:`, {
-            scheduleConfig,
-            hasScheduleConfig: !!scheduleConfig,
-            scheduleType: scheduleConfig?.type,
-            rawWorkflow: workflow,
-          });
-
-          if (!scheduleConfig || scheduleConfig.type === "immediate") {
-            console.log(`➡️ "${workflow.name}": 수동 실행 (스케줄 없음)`);
-            return "수동 실행";
-          }
-
-          let triggerName = "";
-          switch (scheduleConfig.type) {
-            case "delay":
-              triggerName = `지연 실행 (${scheduleConfig.delay || 60}분 후)`;
-              break;
-            case "scheduled":
-              triggerName = "예약 실행";
-              break;
-            case "recurring":
-              triggerName = "반복 실행";
-              break;
-            default:
-              triggerName = "스케줄 실행";
-          }
-
-          console.log(`➡️ "${workflow.name}": ${triggerName}`);
-          return triggerName;
-        };
-
-        // 사용 중인 템플릿 정보 추출
-        const getTemplateInfo = () => {
-          const messageConfig = (workflow as any).message_config;
-          const steps = messageConfig?.steps || [];
-
-          console.log(`🔍 워크플로우 "${workflow.name}" 템플릿 정보 분석:`, {
-            messageConfig,
-            steps,
-            stepsLength: steps.length,
-            firstStep: steps[0],
-            fullWorkflow: workflow,
-          });
-
-          if (steps.length === 0) {
-            console.log(`❌ "${workflow.name}": 단계 없음`);
-            return null;
-          }
-
-          // 첫 번째 스텝의 템플릿 정보 사용
-          const firstStep = steps[0];
-          console.log(`🔍 첫 번째 스텝 분석:`, {
-            firstStep,
-            action: firstStep?.action,
-            templateName: firstStep?.action?.templateName,
-            alternativeTemplateName: firstStep?.templateName,
-            stepName: firstStep?.name,
-          });
-
-          // 여러 방법으로 템플릿 이름 찾기
-          let templateName =
-            firstStep?.action?.templateName ||
-            firstStep?.templateName ||
-            firstStep?.name;
-
-          // 스텝 이름에서 " 발송" 제거 (예: "113. [슈퍼멤버스]... 발송" → "113. [슈퍼멤버스]...")
-          if (templateName && templateName.endsWith(" 발송")) {
-            templateName = templateName.slice(0, -3);
-          }
-
-          if (!templateName) {
-            console.log(`❌ "${workflow.name}": 템플릿 이름 없음`);
-            return null;
-          }
-
-          const templateInfo = {
-            templateName,
-            templateCount: steps.length,
-            // 여러 템플릿이 있는 경우
-            additionalTemplates: steps.length > 1 ? steps.length - 1 : 0,
-          };
-
-          console.log(`✅ "${workflow.name}" 템플릿 정보:`, templateInfo);
-          return templateInfo;
-        };
-
-        const templateInfo = getTemplateInfo();
-
-        return {
+      const convertedWorkflows: DashboardWorkflow[] = supabaseWorkflows.map(
+        (workflow: any) => ({
           id: workflow.id,
-          name: workflow.name || "이름 없는 워크플로우",
-          status: workflow.status || "draft",
-          trigger: getTriggerName(),
-          templateInfo: templateInfo,
-          sent: (workflow as any).statistics?.totalRuns || 0,
-          lastRun: (workflow as any).last_run_at
-            ? new Date((workflow as any).last_run_at).toLocaleString("ko-KR", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "실행 기록 없음",
-          targetsCount:
-            (workflow as any).target_config?.targetGroups?.length || 0,
-          stepsCount: (workflow as any).message_config?.steps?.length || 0,
+          name: workflow.name,
           description: workflow.description,
-          schedule_config: (workflow as any).schedule_config,
-          nextRun: (workflow as any).next_run_at
-            ? new Date((workflow as any).next_run_at)
-            : null,
-          createdAt: new Date((workflow as any).created_at),
-          statistics: (workflow as any).statistics || {
-            totalRuns: 0,
-            successRate: 0,
-            totalCost: 0,
+          status: workflow.status,
+          trigger_type: workflow.trigger_type || "manual",
+          sent: workflow.sent || 0,
+          lastRun: workflow.lastRun || "-",
+          stepsCount: workflow.steps?.length || 0,
+          templateInfo: {
+            templateName: workflow.templateInfo?.templateName || "",
+            templateCount: workflow.templateInfo?.templateCount || 0,
+            additionalTemplates:
+              workflow.templateInfo?.additionalTemplates || 0,
           },
-        };
-      });
+          stats: {
+            totalCost: workflow.stats?.totalCost || 0,
+            targetsCount: workflow.stats?.targetsCount || 0,
+          },
+          estimatedCount: workflow.estimated_count || 0,
+          steps: workflow.steps || [],
+          createdAt: workflow.createdAt || new Date().toISOString(),
+          updatedAt: workflow.updatedAt || new Date().toISOString(),
+        })
+      );
 
-      console.log("🔄 변환된 워크플로우:", convertedWorkflows);
       setWorkflows(convertedWorkflows);
     } catch (error) {
-      console.error("❌ 워크플로우 로드 실패:", error);
+      console.error("❌ 워크플로우 목록 로드 실패:", error);
       setError(
         error instanceof Error
           ? error.message
-          : "알 수 없는 오류가 발생했습니다."
+          : "알 수 없는 오류가 발생했습니다"
       );
     } finally {
       setIsLoading(false);
@@ -436,17 +357,10 @@ function DashboardContent() {
       console.log(
         `🔄 워크플로우 상태 변경: ${workflowId} (${currentStatus} → ${newStatus})`
       );
-
-      const response = await fetch("/api/supabase/workflows", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "toggle_status",
-          id: workflowId,
-          status: newStatus,
-        }),
+      const response = await fetch(`/api/supabase/workflows/${workflowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
       });
 
       const result = await response.json();
@@ -499,7 +413,7 @@ function DashboardContent() {
     }
   };
 
-  const handleDeleteClick = (workflow: Workflow) => {
+  const handleDeleteClick = (workflow: DashboardWorkflow) => {
     setDeleteModal({
       isOpen: true,
       workflowId: workflow.id,
@@ -516,7 +430,7 @@ function DashboardContent() {
       console.log(`🗑️ 워크플로우 삭제 시도: ${deleteModal.workflowId}`);
 
       const response = await fetch(
-        `/api/supabase/workflows?id=${deleteModal.workflowId}`,
+        `/api/supabase/workflows/${deleteModal.workflowId}`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -554,6 +468,45 @@ function DashboardContent() {
     setDeleteModal({ isOpen: false, workflowId: null, workflowName: "" });
   };
 
+  // 즉시 실행 핸들러 추가
+  const handleExecuteClick = (workflow: DashboardWorkflow) => {
+    setExecuteModal({
+      isOpen: true,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      estimatedCount: workflow.estimatedCount || 0,
+    });
+  };
+
+  const handleConfirmExecute = async () => {
+    if (!executeModal.workflowId) return;
+
+    try {
+      console.log(`🚀 워크플로우 즉시 실행: ${executeModal.workflowId}`);
+
+      const response = await fetch(`/api/workflow/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflowId: executeModal.workflowId,
+          enableRealSending: true,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success("워크플로우 실행이 시작되었습니다.");
+        setExecuteModal({ isOpen: false, workflowId: null, workflowName: "" });
+      } else {
+        throw new Error(result.error || "실행 실패");
+      }
+    } catch (error) {
+      console.error("❌ 워크플로우 실행 실패:", error);
+      toast.error(`워크플로우 실행에 실패했습니다: ${error.message}`);
+    }
+  };
+
   useEffect(() => {
     loadWorkflows();
     loadSchedulerStatus();
@@ -585,7 +538,7 @@ function DashboardContent() {
       workflow.templateInfo?.templateName
         .toLowerCase()
         .includes(searchTerm.toLowerCase()) ||
-      workflow.trigger.toLowerCase().includes(searchTerm.toLowerCase());
+      workflow.trigger_type.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus =
       statusFilter === "all" || workflow.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -1193,7 +1146,7 @@ function DashboardContent() {
                                 <div>
                                   <div className="text-gray-500">트리거</div>
                                   <div className="font-medium">
-                                    {workflow.trigger}
+                                    {workflow.trigger_type}
                                   </div>
                                 </div>
                               </div>
@@ -1220,6 +1173,11 @@ function DashboardContent() {
                             </div>
 
                             {/* 스케줄 정보 - 별도 섹션 */}
+                            {/* The original code had a schedule_config check here,
+                                but the new loadWorkflows function doesn't return it.
+                                Assuming it's no longer needed or will be added back.
+                                For now, removing the check as it's not in the new data structure. */}
+                            {/*
                             {(workflow as any).schedule_config && (
                               <div className="mt-3 p-2 bg-orange-50 rounded border border-orange-200">
                                 <div className="flex items-center gap-2 text-orange-800">
@@ -1274,6 +1232,7 @@ function DashboardContent() {
                                 </div>
                               </div>
                             )}
+                            */}
                           </div>
 
                           {/* 오른쪽: 액션 버튼 */}
@@ -1398,6 +1357,19 @@ function DashboardContent() {
                                 </div>
                               </div>
                             )}
+                            {/* 즉시 실행 버튼 (웹훅이 아닐 때만 표시) */}
+                            {workflow.trigger_type !== "webhook" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleExecuteClick(workflow)}
+                                className="bg-orange-50 border-orange-200 hover:bg-orange-100"
+                                title="조건에 맞는 모든 대상자에게 즉시 발송"
+                              >
+                                <Play className="w-4 h-4 mr-1" />
+                                즉시 실행
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -1435,6 +1407,61 @@ function DashboardContent() {
           </CardContent>
         </Card>
       </div>
+      {/* 즉시 실행 확인 다이얼로그 */}
+      <Dialog
+        open={executeModal.isOpen}
+        onOpenChange={(open) =>
+          !open &&
+          setExecuteModal({ isOpen: false, workflowId: null, workflowName: "" })
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>워크플로우 즉시 실행</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm">
+              <span className="font-medium">{executeModal.workflowName}</span>{" "}
+              워크플로우를 지금 실행하시겠습니까?
+            </p>
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
+              <div className="flex items-center gap-2 text-orange-800">
+                <AlertCircle className="w-4 h-4" />
+                <span className="font-medium">실행 시 주의사항</span>
+              </div>
+              <ul className="mt-2 space-y-1 text-orange-700 text-sm pl-6 list-disc">
+                <li>현재 조건에 맞는 모든 대상자에게 메시지가 발송됩니다.</li>
+                <li>
+                  예상 발송 대상:{" "}
+                  {executeModal.estimatedCount?.toLocaleString()}명
+                </li>
+                <li>실행 후 취소할 수 없습니다.</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setExecuteModal({
+                  isOpen: false,
+                  workflowId: null,
+                  workflowName: "",
+                })
+              }
+            >
+              취소
+            </Button>
+            <Button
+              variant="default"
+              onClick={handleConfirmExecute}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              실행
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

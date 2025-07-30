@@ -25,54 +25,45 @@ export default function NewWorkflowPage() {
   const handleSave = async (workflow: Workflow) => {
     setIsSaving(true);
     try {
-      console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
-      console.log("워크플로우 데이터:", workflow);
-      console.log("🔍 개인화 설정 확인:", workflow.templatePersonalizations);
-      console.log(
-        "🔍 스텝별 개인화 설정:",
-        workflow.steps?.map((step) => ({
-          templateId: step.action.templateId,
-          personalization: step.action.personalization,
-        }))
-      );
+      // console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
+      // console.log("워크플로우 데이터:", workflow);
+      // console.log("🔍 개인화 설정 확인:", workflow.templatePersonalizations);
+      // console.log(
+      //   "🔍 스텝별 개인화 설정:",
+      //   workflow.steps?.map((step) => ({
+      //     templateId: step.action.templateId,
+      //     personalization: step.action.personalization,
+      //   }))
+      // );
 
-      // API가 기대하는 형식으로 데이터 구성
       const requestData = {
-        action: "create",
         name: workflow.name,
         description: workflow.description,
-        selectedTemplates:
-          workflow.selectedTemplates ||
-          workflow.steps.map((step) => ({
-            id: step.action.templateId,
-            templateCode: step.action.templateCode,
-            templateName: step.action.templateName,
-            personalization: step.action.personalization,
-          })),
-        targetGroups: workflow.targetGroups || [],
-        templatePersonalizations:
-          workflow.templatePersonalizations ||
-          workflow.steps.reduce((acc, step) => {
-            if (step.action.personalization) {
-              acc[step.action.templateId] = step.action.personalization;
-            }
-            return acc;
-          }, {} as any),
-        targetTemplateMappings: workflow.targetTemplateMappings || [],
-        scheduleSettings:
-          workflow.scheduleSettings || workflow.schedule_config || {},
+        trigger_type: workflow.trigger_type,
+        status: workflow.status,
+        message_config: {
+          steps: workflow.steps || [],
+          selectedTemplates:
+            workflow.selectedTemplates ||
+            workflow.steps.map((step) => ({
+              id: step.action.templateId,
+              templateCode: step.action.templateCode,
+              templateName: step.action.templateName,
+              personalization: step.action.personalization,
+            })),
+        },
+        target_config: workflow.target_config,
+        variables: {
+          templatePersonalizations: workflow.templatePersonalizations || {},
+          testSettings: workflow.testSettings || {},
+        },
         schedule_config:
           workflow.scheduleSettings || workflow.schedule_config || {},
-        testSettings: workflow.testSettings || {},
-        steps: workflow.steps || [],
-        createdBy: "user",
-        trigger_type: workflow.trigger_type,
         trigger_config: workflow.trigger_config,
-        target_config: workflow.target_config,
-        status: workflow.status,
+        createdBy: "user",
       };
 
-      console.log("API 요청 데이터:", requestData);
+      // console.log("API 요청 데이터:", requestData);
 
       // Supabase에 워크플로우 저장
       const response = await fetch("/api/supabase/workflows", {

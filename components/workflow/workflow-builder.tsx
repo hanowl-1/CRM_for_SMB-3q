@@ -59,6 +59,7 @@ import {
   ArrowLeft,
   AlertCircle,
   RefreshCw,
+  Webhook,
 } from "lucide-react";
 import { mockTemplates } from "@/lib/data/mock-templates";
 import { TargetTemplateMapping } from "./target-template-mapping";
@@ -94,6 +95,10 @@ export function WorkflowBuilder({
   const [workflowStatus, setWorkflowStatus] = useState<
     "draft" | "active" | "paused" | "archived"
   >(workflow?.status || "draft");
+  const [triggerType, setTriggerType] = useState<"manual" | "webhook">(
+    "manual"
+  );
+
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>(
     workflow?.targetGroups || []
   );
@@ -339,27 +344,44 @@ export function WorkflowBuilder({
 
   // 탭 완료 상태 체크
   const isTabComplete = (tabId: string) => {
+    // 필수 전단계 탭들의 완료 상태 체크
+    const isBasicComplete =
+      (name || "").trim() !== "" && (description || "").trim() !== "";
+    const isTemplatesComplete = selectedTemplates.length > 0;
+    const isTargetsComplete = targetGroups.length > 0;
+
+    // 핵심 3단계(기본정보, 템플릿선택, 대상설정)가 모두 완료되었는지
+    const coreStepsComplete =
+      isBasicComplete && isTemplatesComplete && isTargetsComplete;
+
     switch (tabId) {
       case "basic":
-        return (name || "").trim() !== "" && (description || "").trim() !== "";
+        return isBasicComplete;
       case "templates":
-        return selectedTemplates.length > 0;
+        return isTemplatesComplete;
       case "targets":
-        return targetGroups.length > 0;
+        return isTargetsComplete;
       case "mapping":
-        // 🔥 기본값 '--' 사용으로 인해 매핑이 없어도 항상 통과
-        // 동적 쿼리가 있는 대상 그룹이 있는 경우에만 매핑 필요
-        const hasDynamicTargets = targetGroups.some(
-          (group) => group.type === "dynamic" && group.dynamicQuery
-        );
-        if (!hasDynamicTargets) return true; // 동적 대상이 없으면 매핑 불필요
+        // // 🔥 기본값 '--' 사용으로 인해 매핑이 없어도 항상 통과
+        // // 동적 쿼리가 있는 대상 그룹이 있는 경우에만 매핑 필요
+        // const hasDynamicTargets = targetGroups.some(
+        //   (group) => group.type === "dynamic" && group.dynamicQuery
+        // );
+        // if (!hasDynamicTargets) return true; // 동적 대상이 없으면 매핑 불필요
 
-        // 🔥 설정이 안 되어 있어도 기본값 '--'로 처리하므로 항상 통과
-        return true;
+        // // 🔥 설정이 안 되어 있어도 기본값 '--'로 처리하므로 항상 통과
+        // return true;
+        return coreStepsComplete;
+
       case "schedule":
-        return true; // 스케줄은 기본값이 있으므로 항상 완료
+        // 🔥 핵심 3단계가 완료되어야 체크표시 나타남
+        return coreStepsComplete;
       case "review":
-        return (testSettings?.testPhoneNumber || "").trim() !== "";
+        // 🔥 핵심 3단계가 완료되고 테스트 전화번호도 입력되어야 체크표시
+        return (
+          coreStepsComplete &&
+          (testSettings?.testPhoneNumber || "").trim() !== ""
+        );
       default:
         return false;
     }
@@ -470,12 +492,14 @@ export function WorkflowBuilder({
     []
   );
 
-  // 워크플로우 저장 함수 (탭 이동 시 호출)
+  // 워크플로우 저장 관련 상태
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState<string | null>(
     workflow?.id || null
   );
+  // 변경사항 추적 상태
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // 워크플로우 저장 함수
   const saveWorkflow = useCallback(async () => {
@@ -522,15 +546,19 @@ export function WorkflowBuilder({
         mappingsCount: workflowData.targetTemplateMappings.length,
       });
 
-      const response = await fetch("/api/supabase/workflows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: workflowId ? "update" : "create",
-          id: workflowId,
-          ...workflowData,
-        }),
-      });
+      // REST API 원칙에 따라 새 생성과 수정을 분리
+      const isUpdate = workflowId ? true : false;
+
+      const response = await fetch(
+        isUpdate
+          ? `/api/supabase/workflows/${workflowId}` // PUT for update
+          : "/api/supabase/workflows", // POST for create
+        {
+          method: isUpdate ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(workflowData), // action, id 파라미터 제거
+        }
+      );
 
       const result = await response.json();
 
@@ -539,6 +567,7 @@ export function WorkflowBuilder({
           setWorkflowId(result.data.id);
         }
         setLastSaved(new Date().toLocaleTimeString());
+        setHasUnsavedChanges(false); // 저장 완료 시 변경사항 리셋
         console.log("✅ 워크플로우 저장 완료");
         return true;
       } else {
@@ -564,9 +593,9 @@ export function WorkflowBuilder({
     workflowId,
   ]);
 
-  // 탭 변경 시 저장
+  // 탭 변경 시 저장하지 않음 (수동 저장으로 변경)
   const handleTabChange = useCallback(
-    async (newTab: string) => {
+    (newTab: string) => {
       // 🔥 동적 탭 순서 사용
       const tabs = getTabOrder();
       const currentIndex = tabs.indexOf(activeTab);
@@ -590,19 +619,10 @@ export function WorkflowBuilder({
         }
       }
 
-      // 🔥 탭 이동 시 저장 (기본정보가 있을 때)
-      if (name && description) {
-        console.log("💾 탭 이동으로 인한 저장 시작...");
-        const saved = await saveWorkflow();
-        if (saved) {
-          console.log("✅ 탭 이동 저장 완료");
-        } else {
-          console.log("❌ 탭 이동 저장 실패");
-        }
-      }
+      // 탭 이동 (자동저장 제거됨)
       setActiveTab(newTab);
     },
-    [activeTab, name, description, saveWorkflow, isTabComplete]
+    [activeTab, isTabComplete]
   );
 
   // 탭이 클릭 가능한지 체크하는 함수
@@ -697,7 +717,7 @@ export function WorkflowBuilder({
     };
 
     return {
-      id: workflow?.id || `workflow_test_${Date.now()}`,
+      // id: workflow?.id || `workflow_test_${Date.now()}`,
       name: `${name} (테스트)`,
       description: `${description} - 테스트 실행`,
       status: "draft",
@@ -712,10 +732,10 @@ export function WorkflowBuilder({
           : { type: "immediate", timezone: "Asia/Seoul" },
       createdAt: workflow?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      stats: {
-        totalRuns: 0,
-        successRate: 0,
-      },
+      // stats: {
+      //   totalRuns: 0,
+      //   successRate: 0,
+      // },
     };
   };
 
@@ -823,9 +843,8 @@ export function WorkflowBuilder({
         body: JSON.stringify({
           targetGroups,
           templates: selectedTemplates,
-          templateVariables,
+          templatePersonalizations, // 🔥 템플릿 개인화 설정 (API 명세서 준수)
           targetTemplateMappings,
-          templatePersonalizations, // 🔥 템플릿 개인화 설정 추가
           limit: 5,
         }),
       });
@@ -863,7 +882,18 @@ export function WorkflowBuilder({
           hasData: result.data && result.data.length > 0,
           sampleData: result.data?.[0] || null,
         });
-        setPreviewData(result.data || []);
+
+        // 🔒 방어적 프로그래밍: result.data가 배열인지 확인
+        if (Array.isArray(result.data)) {
+          setPreviewData(result.data);
+        } else {
+          console.warn(
+            "⚠️ API 응답의 data가 배열이 아닙니다:",
+            typeof result.data,
+            result.data
+          );
+          setPreviewData([]);
+        }
         setTotalEstimatedCount(result.totalEstimatedCount || 0);
       } else {
         console.error("❌ 미리보기 API 응답 실패:", result);
@@ -891,43 +921,43 @@ export function WorkflowBuilder({
     return scheduleSettings.type === "immediate" ? "manual" : "schedule";
   };
 
-  const handleTestAutomationWorkflow = async () => {
-    try {
-      console.log("🧪 자동화 워크플로우 테스트 시작...");
+  // const handleTestAutomationWorkflow = async () => {
+  //   try {
+  //     console.log("🧪 자동화 워크플로우 테스트 시작...");
 
-      const automationTarget = targetGroups.find(
-        (group) => group.type === "automation"
-      );
-      const eventType = automationTarget?.automationQuery?.event || "signup";
+  //     const automationTarget = targetGroups.find(
+  //       (group) => group.type === "automation"
+  //     );
+  //     const eventType = automationTarget?.automationQuery?.event;
 
-      // 가짜 웹훅 이벤트 데이터 생성
-      const testEventData = {
-        event: eventType,
-        user: {
-          name: "테스트 사용자",
-          phone: testSettings.testPhoneNumber,
-          email: "test@example.com",
-        },
-        timestamp: new Date().toISOString(),
-        isTest: true,
-      };
+  //     // 가짜 웹훅 이벤트 데이터 생성
+  //     const testEventData = {
+  //       event: eventType,
+  //       user: {
+  //         name: "테스트 사용자",
+  //         phone: testSettings.testPhoneNumber,
+  //         email: "test@example.com",
+  //       },
+  //       timestamp: new Date().toISOString(),
+  //       isTest: true,
+  //     };
 
-      // 웹훅 수신 API로 테스트 이벤트 전송
-      const response = await fetch("/api/events/automation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(testEventData),
-      });
+  //     // 웹훅 수신 API로 테스트 이벤트 전송
+  //     const response = await fetch("/api/events/automation", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(testEventData),
+  //     });
 
-      if (response.ok) {
-        console.log("✅ 테스트 이벤트 발송 성공");
-      } else {
-        console.error("❌ 테스트 이벤트 발송 실패");
-      }
-    } catch (error) {
-      console.error("❌ 자동화 테스트 실패:", error);
-    }
-  };
+  //     if (response.ok) {
+  //       console.log("✅ 테스트 이벤트 발송 성공");
+  //     } else {
+  //       console.error("❌ 테스트 이벤트 발송 실패");
+  //     }
+  //   } catch (error) {
+  //     console.error("❌ 자동화 테스트 실패:", error);
+  //   }
+  // };
 
   const getTrigger = (): WorkflowTrigger => {
     if (hasAutomationTargets()) {
@@ -1053,9 +1083,11 @@ export function WorkflowBuilder({
   };
 
   const isScheduleTypeEnabled = (scheduleType: string) => {
-    if (hasAutomationTargets()) {
+    if (triggerType === "webhook") {
+      // webhook 타입일 때는 immediate와 delay만 허용
       return scheduleType === "immediate" || scheduleType === "delay";
     }
+    // manual 타입일 때는 모든 스케줄 타입 허용
     return true;
   };
 
@@ -1084,6 +1116,48 @@ export function WorkflowBuilder({
       .join(","),
   ]);
 
+  // 변경사항 추적 - 주요 상태가 변경될 때 unsaved 플래그 설정 -> UI를 위한 코드 (굳이 없어도 되는 코드)
+  useEffect(() => {
+    // 초기 로드 시에는 변경사항으로 처리하지 않음
+    if (workflow && !hasUnsavedChanges) return;
+
+    // 기본 정보나 설정이 변경되면 unsaved 표시
+    if (
+      name ||
+      description ||
+      selectedTemplates.length > 0 ||
+      targetGroups.length > 0
+    ) {
+      setHasUnsavedChanges(true);
+    }
+  }, [
+    name,
+    description,
+    selectedTemplates.length,
+    targetGroups.length,
+    templatePersonalizations,
+    targetTemplateMappings.length,
+    scheduleSettings,
+    testSettings,
+  ]);
+
+  // 페이지 나가기 전 경고 (저장되지 않은 변경사항이 있을 때)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue =
+          "저장되지 않은 변경사항이 있습니다. 정말 나가시겠습니까?";
+        return "저장되지 않은 변경사항이 있습니다. 정말 나가시겠습니까?";
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
   return (
     <div className="space-y-6">
       {/* 워크플로우 빌더 헤더 */}
@@ -1094,23 +1168,31 @@ export function WorkflowBuilder({
             개인화된 알림톡 발송 워크플로우를 설정하세요
           </p>
           {/* 저장 상태 표시 */}
-          {lastSaved && (
-            <div className="flex items-center gap-2 mt-2 text-sm">
-              <div className="w-2 h-2 bg-green-600 rounded-full"></div>
-              <span className="text-green-600">마지막 저장: {lastSaved}</span>
-              {workflowId && (
-                <span className="text-xs text-muted-foreground ml-2">
-                  ID: {workflowId.slice(0, 8)}...
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-4 mt-2 text-sm">
+            {hasUnsavedChanges && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                <span className="text-orange-600">저장되지 않은 변경사항</span>
+              </div>
+            )}
+            {lastSaved && !hasUnsavedChanges && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-600 rounded-full"></div>
+                <span className="text-green-600">마지막 저장: {lastSaved}</span>
+              </div>
+            )}
+            {workflowId && (
+              <span className="text-xs text-muted-foreground">
+                ID: {workflowId.slice(0, 8)}...
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 수동 저장 버튼 */}
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
+            variant={hasUnsavedChanges ? "default" : "outline"}
             onClick={saveWorkflow}
             disabled={isSaving || !name || !description}
             className="flex items-center gap-2"
@@ -1239,7 +1321,7 @@ export function WorkflowBuilder({
               {/* 🔥 워크플로우 상태 선택 추가 */}
               <div>
                 <label className="text-sm font-medium mb-2 block">
-                  워크플로우 상태
+                  워크플로우 상태 *
                 </label>
                 <Select
                   value={workflowStatus}
@@ -1287,6 +1369,45 @@ export function WorkflowBuilder({
                   {workflowStatus === "archived" &&
                     "보관된 상태입니다. 실행되지 않습니다."}
                 </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid gap-4">
+                  <div className="space-y-2">
+                    <Label>실행 방식 *</Label>
+                    <Select
+                      value={triggerType}
+                      onValueChange={(value: "manual" | "webhook") =>
+                        setTriggerType(value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="실행 방식을 선택하세요" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          value="manual"
+                          className="flex items-center gap-2"
+                        >
+                          <Zap className="w-4 h-4" />
+                          조건 만족시 검색 및 발송
+                        </SelectItem>
+                        <SelectItem
+                          value="webhook"
+                          className="flex items-center gap-2"
+                        >
+                          <Webhook className="w-4 h-4" />
+                          이벤트 발생 시 자동 발송
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="text-sm text-muted-foreground">
+                      {triggerType === "manual"
+                        ? "워크플로우가 활성화되면 설정된 조건의 대상자를 검색하여 메시지를 발송합니다."
+                        : "특정 이벤트(회원가입, 주문 등)가 발생하면 자동으로 메시지를 발송합니다."}
+                    </div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1461,6 +1582,7 @@ export function WorkflowBuilder({
           <TargetSelection
             onTargetsChange={setTargetGroups}
             currentTargets={targetGroups}
+            triggerType={triggerType} // 추가
           />
 
           <div className="flex justify-between">
@@ -1516,18 +1638,47 @@ export function WorkflowBuilder({
             </CardHeader>
             <CardContent className="space-y-6">
               {/* 현재 트리거 상태 표시 */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div
+                className={`${
+                  triggerType === "webhook"
+                    ? "bg-orange-50 border-orange-200"
+                    : "bg-blue-50 border-blue-200"
+                } border rounded-lg p-4`}
+              >
                 <div className="flex items-center gap-2 mb-2">
-                  <Zap className="w-4 h-4 text-blue-600" />
-                  <span className="font-medium text-blue-900">
+                  {triggerType === "webhook" ? (
+                    <Webhook className="w-4 h-4 text-orange-600" />
+                  ) : (
+                    <Zap className="w-4 h-4 text-blue-600" />
+                  )}
+                  <span
+                    className={`font-medium ${
+                      triggerType === "webhook"
+                        ? "text-orange-900"
+                        : "text-blue-900"
+                    }`}
+                  >
                     현재 트리거 설정
                   </span>
                 </div>
-                <div className="text-sm text-blue-800">
+                <div
+                  className={`text-sm ${
+                    triggerType === "webhook"
+                      ? "text-orange-800"
+                      : "text-blue-800"
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <span className="font-medium">트리거 타입:</span>
-                    <Badge variant="outline" className="bg-white">
-                      {scheduleSettings.type === "immediate"
+                    <Badge
+                      variant="outline"
+                      className={`${
+                        triggerType === "webhook" ? "bg-orange-50" : "bg-white"
+                      }`}
+                    >
+                      {triggerType === "webhook"
+                        ? "웹훅 트리거"
+                        : scheduleSettings.type === "immediate"
                         ? "수동 실행"
                         : scheduleSettings.type === "delay"
                         ? `지연 실행 (${scheduleSettings.delay}분 후)`
@@ -1539,8 +1690,10 @@ export function WorkflowBuilder({
                     </Badge>
                   </div>
                   <p className="mt-2 text-xs">
-                    {scheduleSettings.type === "immediate"
-                      ? "관리자가 수동으로 실행하는 워크플로우입니다."
+                    {triggerType === "webhook"
+                      ? "외부 이벤트 발생 시 자동으로 실행되는 워크플로우입니다."
+                      : scheduleSettings.type === "immediate"
+                      ? "워크플로우가 활성화되면 조건에 맞는 대상에게 즉시 메시지가 발송됩니다."
                       : scheduleSettings.type === "delay"
                       ? `저장 후 ${scheduleSettings.delay}분 후에 자동으로 실행됩니다.`
                       : scheduleSettings.type === "scheduled"
@@ -1578,9 +1731,9 @@ export function WorkflowBuilder({
                         }`}
                       />
                       <div>
-                        <h4 className="font-medium">즉시 발송</h4>
+                        <h4 className="font-medium">조건 만족 시 즉시 발송</h4>
                         <p className="text-sm text-muted-foreground">
-                          저장 즉시 발송
+                          활성화시 대상자 검색 및 발송
                         </p>
                       </div>
                     </div>
@@ -2461,120 +2614,132 @@ export function WorkflowBuilder({
                         개인화된 메시지 미리보기 (최대 5명)
                       </h5>
 
-                      {previewData.map((contactPreview, contactIndex) => (
-                        <div
-                          key={contactIndex}
-                          className="border rounded-lg p-4 bg-gray-50"
-                        >
-                          {/* 수신자 정보 */}
-                          <div className="flex items-center justify-between mb-3 pb-3 border-b">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
-                                {contactIndex + 1}
-                              </div>
-                              <div>
-                                <div className="font-medium">
-                                  {contactPreview.contact.name}
+                      {/* 🔒 방어적 프로그래밍: previewData가 배열인지 확인 */}
+                      {Array.isArray(previewData) ? (
+                        previewData.map((contactPreview, contactIndex) => (
+                          <div
+                            key={contactIndex}
+                            className="border rounded-lg p-4 bg-gray-50"
+                          >
+                            {/* 수신자 정보 */}
+                            <div className="flex items-center justify-between mb-3 pb-3 border-b">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                                  {contactIndex + 1}
                                 </div>
-                                <div className="text-sm text-muted-foreground">
-                                  {contactPreview.contact.phone}
-                                  {contactPreview.contact.company &&
-                                    ` • ${contactPreview.contact.company}`}
+                                <div>
+                                  <div className="font-medium">
+                                    {contactPreview.contact.name}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {contactPreview.contact.phone}
+                                    {contactPreview.contact.company &&
+                                      ` • ${contactPreview.contact.company}`}
+                                  </div>
                                 </div>
                               </div>
+                              <Badge variant="outline" className="text-xs">
+                                {contactPreview.groupName}
+                              </Badge>
                             </div>
-                            <Badge variant="outline" className="text-xs">
-                              {contactPreview.groupName}
-                            </Badge>
-                          </div>
 
-                          {/* 개인화된 메시지들 */}
-                          <div className="space-y-3">
-                            {contactPreview.messages.map(
-                              (message: any, messageIndex: number) => (
-                                <div
-                                  key={message.templateId}
-                                  className="bg-white border rounded-lg p-3"
-                                >
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <div className="w-5 h-5 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xs font-medium">
-                                      {messageIndex + 1}
-                                    </div>
-                                    <span className="font-medium text-sm">
-                                      {message.templateName}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {message.templateCode}
-                                    </Badge>
-                                  </div>
-
-                                  <div className="bg-white border-2 border-blue-200 rounded-lg p-4 mb-3">
-                                    <div className="text-sm font-medium text-gray-600 mb-2">
-                                      📱 개인화된 메시지
-                                    </div>
-                                    <div className="text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 rounded border">
-                                      {message.processedContent}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                    <span>
-                                      글자 수: {message.characterCount}자
-                                    </span>
-                                    <span>
-                                      변수{" "}
-                                      {
-                                        Object.keys(message.variables || {})
-                                          .length
-                                      }
-                                      개 적용
-                                    </span>
-                                  </div>
-
-                                  {/* 적용된 변수 표시 */}
-                                  {Object.keys(message.variables || {}).length >
-                                    0 && (
-                                    <details className="mt-2">
-                                      <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
-                                        적용된 변수 보기
-                                      </summary>
-                                      <div className="mt-2 pt-2 border-t">
-                                        <div className="flex flex-wrap gap-1">
-                                          {Object.entries(
-                                            message.variables || {}
-                                          ).map(
-                                            ([key, value]: [string, any]) => (
-                                              <div
-                                                key={key}
-                                                className="bg-blue-50 border rounded px-2 py-1 text-xs"
-                                              >
-                                                <span className="font-mono text-blue-600">
-                                                  #{key}
-                                                </span>
-                                                <span className="text-muted-foreground mx-1">
-                                                  →
-                                                </span>
-                                                <span className="font-medium">
-                                                  {String(value)}
-                                                </span>
-                                              </div>
-                                            )
-                                          )}
-                                        </div>
+                            {/* 개인화된 메시지들 */}
+                            <div className="space-y-3">
+                              {contactPreview.messages.map(
+                                (message: any, messageIndex: number) => (
+                                  <div
+                                    key={message.templateId}
+                                    className="bg-white border rounded-lg p-3"
+                                  >
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <div className="w-5 h-5 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xs font-medium">
+                                        {messageIndex + 1}
                                       </div>
-                                    </details>
-                                  )}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                                      <span className="font-medium text-sm">
+                                        {message.templateName}
+                                      </span>
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        {message.templateCode}
+                                      </Badge>
+                                    </div>
 
-                      {previewData.length > 0 &&
+                                    <div className="bg-white border-2 border-blue-200 rounded-lg p-4 mb-3">
+                                      <div className="text-sm font-medium text-gray-600 mb-2">
+                                        📱 개인화된 메시지
+                                      </div>
+                                      <div className="text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 rounded border">
+                                        {message.processedContent}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                      <span>
+                                        글자 수: {message.characterCount}자
+                                      </span>
+                                      <span>
+                                        변수{" "}
+                                        {
+                                          Object.keys(message.variables || {})
+                                            .length
+                                        }
+                                        개 적용
+                                      </span>
+                                    </div>
+
+                                    {/* 적용된 변수 표시 */}
+                                    {Object.keys(message.variables || {})
+                                      .length > 0 && (
+                                      <details className="mt-2">
+                                        <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                                          적용된 변수 보기
+                                        </summary>
+                                        <div className="mt-2 pt-2 border-t">
+                                          <div className="flex flex-wrap gap-1">
+                                            {Object.entries(
+                                              message.variables || {}
+                                            ).map(
+                                              ([key, value]: [string, any]) => (
+                                                <div
+                                                  key={key}
+                                                  className="bg-blue-50 border rounded px-2 py-1 text-xs"
+                                                >
+                                                  <span className="font-mono text-blue-600">
+                                                    #{key}
+                                                  </span>
+                                                  <span className="text-muted-foreground mx-1">
+                                                    →
+                                                  </span>
+                                                  <span className="font-medium">
+                                                    {String(value)}
+                                                  </span>
+                                                </div>
+                                              )
+                                            )}
+                                          </div>
+                                        </div>
+                                      </details>
+                                    )}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-sm text-muted-foreground border rounded-lg bg-yellow-50">
+                          <AlertCircle className="w-8 h-8 mx-auto mb-2 text-yellow-600" />
+                          <p>미리보기 데이터를 불러올 수 없습니다.</p>
+                          <p className="text-xs mt-1">
+                            데이터 형식: {typeof previewData}
+                          </p>
+                        </div>
+                      )}
+
+                      {Array.isArray(previewData) &&
+                        previewData.length > 0 &&
                         totalEstimatedCount > previewData.length && (
                           <div className="text-center py-4 text-sm text-muted-foreground border rounded-lg bg-gray-50">
                             <Info className="w-4 h-4 mx-auto mb-1" />
@@ -2604,62 +2769,27 @@ export function WorkflowBuilder({
                 <>
                   <Button
                     onClick={() => {
-                      if (hasAutomationTargets()) {
-                        // 🔥 자동화: 가짜 웹훅 이벤트로 테스트
-                        handleTestAutomationWorkflow();
-                      } else {
-                        // 🔥 일반: 테스트 번호로 즉시 실행
-                        const testWorkflow = {
-                          ...buildWorkflowForTest(),
-                          testSettings: {
-                            ...testSettings,
-                            enableRealSending: false,
-                            testPhoneNumber: testSettings.testPhoneNumber,
-                          },
-                        };
-                        onTest(testWorkflow);
-                      }
+                      const testWorkflow = {
+                        ...buildWorkflowForTest(),
+                        testSettings: {
+                          ...testSettings,
+                          testPhoneNumber: testSettings.testPhoneNumber,
+                        },
+                      };
+                      onTest(testWorkflow);
                     }}
                     variant="outline"
                     className="bg-blue-50 border-blue-200 hover:bg-blue-100"
                   >
                     <Play className="w-4 h-4 mr-2" />
-                    {hasAutomationTargets()
-                      ? "테스트 이벤트 발송"
-                      : "테스트 번호로 실행"}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      if (hasAutomationTargets()) {
-                        // 🔥 자동화는 활성화만 하고 웹훅 대기
-                        handleActivateAutomationWorkflow();
-                      } else {
-                        // 🔥 일반 워크플로우는 즉시 실행
-                        const realWorkflow = {
-                          ...buildWorkflowForTest(),
-                          testSettings: {
-                            ...testSettings,
-                            enableRealSending: true,
-                          },
-                        };
-                        onTest(realWorkflow);
-                      }
-                    }}
-                    variant="outline"
-                    className="bg-orange-50 border-orange-200 hover:bg-orange-100"
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    {hasAutomationTargets() ? "활성화" : "즉시 실행"}
+                    테스트 번호로 발송
                   </Button>
                 </>
               )}
               <Button
                 onClick={() => {
                   try {
-                    console.log("🔥 저장 버튼 클릭됨! 시작...");
-                    // 기존 워크플로우 저장 로직 사용
                     const workflowData: Workflow = {
-                      // id: workflow?.id || `workflow_${Date.now()}`,
                       name,
                       description,
                       status: workflowStatus,
@@ -2725,7 +2855,7 @@ export function WorkflowBuilder({
                 }}
               >
                 <Save className="w-4 h-4 mr-2" />
-                워크플로우 저장
+                {workflow?.id ? "워크플로우 수정" : "워크플로우 저장"}
               </Button>
             </div>
           </div>

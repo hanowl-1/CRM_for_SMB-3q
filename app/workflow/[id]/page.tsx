@@ -1,66 +1,74 @@
-"use client"
+"use client";
 
-import React, { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
-import { WorkflowBuilder } from "@/components/workflow/workflow-builder"
-import { Workflow } from "@/lib/types/workflow"
-import { Button } from "@/components/ui/button"
-import { ArrowLeft, AlertCircle } from "lucide-react"
-import Link from "next/link"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import React, { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { WorkflowBuilder } from "@/components/workflow/workflow-builder";
+import { Workflow } from "@/lib/types/workflow";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, AlertCircle } from "lucide-react";
+import Link from "next/link";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 // Supabase 워크플로우 데이터를 Workflow 타입으로 변환하는 함수
 function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
   // 스케줄 설정에 따라 트리거 정보 동적 생성
   const scheduleConfig = supabaseWorkflow.schedule_config;
   const getTriggerInfo = () => {
-    if (!scheduleConfig || scheduleConfig.type === 'immediate') {
+    if (!scheduleConfig || scheduleConfig.type === "immediate") {
       return {
-        id: 'trigger_manual',
-        name: '수동 실행',
-        type: 'manual' as const,
-        description: '관리자가 수동으로 실행하는 워크플로우',
+        id: "trigger_manual",
+        name: "수동 실행",
+        type: "manual" as const,
+        description: "관리자가 수동으로 실행하는 워크플로우",
         conditions: [],
-        conditionLogic: 'AND' as const
+        conditionLogic: "AND" as const,
       };
     }
-    
+
     switch (scheduleConfig.type) {
-      case 'delay':
+      case "delay":
         return {
-          id: 'trigger_delay',
+          id: "trigger_delay",
           name: `지연 실행 (${scheduleConfig.delay || 60}분 후)`,
-          type: 'schedule' as const,
-          description: `${scheduleConfig.delay || 60}분 후 자동 실행되는 워크플로우`,
+          type: "schedule" as const,
+          description: `${
+            scheduleConfig.delay || 60
+          }분 후 자동 실행되는 워크플로우`,
           conditions: [],
-          conditionLogic: 'AND' as const
+          conditionLogic: "AND" as const,
         };
-      case 'scheduled':
+      case "scheduled":
         return {
-          id: 'trigger_scheduled',
-          name: '예약 실행',
-          type: 'schedule' as const,
-          description: '예약된 시간에 자동 실행되는 워크플로우',
+          id: "trigger_scheduled",
+          name: "예약 실행",
+          type: "schedule" as const,
+          description: "예약된 시간에 자동 실행되는 워크플로우",
           conditions: [],
-          conditionLogic: 'AND' as const
+          conditionLogic: "AND" as const,
         };
-      case 'recurring':
+      case "recurring":
         return {
-          id: 'trigger_recurring',
-          name: '반복 실행',
-          type: 'schedule' as const,
-          description: '반복 일정에 따라 자동 실행되는 워크플로우',
+          id: "trigger_recurring",
+          name: "반복 실행",
+          type: "schedule" as const,
+          description: "반복 일정에 따라 자동 실행되는 워크플로우",
           conditions: [],
-          conditionLogic: 'AND' as const
+          conditionLogic: "AND" as const,
         };
       default:
         return {
-          id: 'trigger_schedule',
-          name: '스케줄 실행',
-          type: 'schedule' as const,
-          description: '스케줄에 따라 자동 실행되는 워크플로우',
+          id: "trigger_schedule",
+          name: "스케줄 실행",
+          type: "schedule" as const,
+          description: "스케줄에 따라 자동 실행되는 워크플로우",
           conditions: [],
-          conditionLogic: 'AND' as const
+          conditionLogic: "AND" as const,
         };
     }
   };
@@ -68,27 +76,30 @@ function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
   return {
     id: supabaseWorkflow.id,
     name: supabaseWorkflow.name,
-    description: supabaseWorkflow.description || '',
+    description: supabaseWorkflow.description || "",
     status: supabaseWorkflow.status,
     trigger: getTriggerInfo(),
     targetGroups: supabaseWorkflow.target_config?.targetGroups || [],
-    targetTemplateMappings: supabaseWorkflow.target_config?.targetTemplateMappings || [],
+    targetTemplateMappings:
+      supabaseWorkflow.target_config?.targetTemplateMappings || [],
     steps: supabaseWorkflow.message_config?.steps || [],
     testSettings: supabaseWorkflow.variables?.testSettings || {
-      phoneNumber: '',
+      phoneNumber: "",
       enableRealSending: false,
-      fallbackToSMS: false
+      fallbackToSMS: false,
     },
-    scheduleSettings: supabaseWorkflow.schedule_config ? {
-      type: supabaseWorkflow.schedule_config.type || 'immediate',
-      timezone: supabaseWorkflow.schedule_config.timezone || 'Asia/Seoul',
-      delay: supabaseWorkflow.schedule_config.delay,
-      scheduledTime: supabaseWorkflow.schedule_config.scheduledTime,
-      recurringPattern: supabaseWorkflow.schedule_config.recurringPattern
-    } : {
-      type: 'immediate',
-      timezone: 'Asia/Seoul'
-    },
+    scheduleSettings: supabaseWorkflow.schedule_config
+      ? {
+          type: supabaseWorkflow.schedule_config.type || "immediate",
+          timezone: supabaseWorkflow.schedule_config.timezone || "Asia/Seoul",
+          delay: supabaseWorkflow.schedule_config.delay,
+          scheduledTime: supabaseWorkflow.schedule_config.scheduledTime,
+          recurringPattern: supabaseWorkflow.schedule_config.recurringPattern,
+        }
+      : {
+          type: "immediate",
+          timezone: "Asia/Seoul",
+        },
     stats: supabaseWorkflow.statistics || {
       totalRuns: 0,
       successfulRuns: 0,
@@ -96,35 +107,35 @@ function convertSupabaseToWorkflow(supabaseWorkflow: any): Workflow {
       totalMessagesSent: 0,
       totalCost: 0,
       lastRunAt: null,
-      averageExecutionTime: 0
+      averageExecutionTime: 0,
     },
     createdAt: supabaseWorkflow.created_at,
-    updatedAt: supabaseWorkflow.updated_at
-  }
+    updatedAt: supabaseWorkflow.updated_at,
+  };
 }
 
 export default function WorkflowDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const [workflow, setWorkflow] = useState<Workflow | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const params = useParams();
+  const router = useRouter();
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const loadWorkflow = async () => {
       try {
-        const workflowId = params.id as string
-        
+        const workflowId = params.id as string;
+
         // 1. Supabase에서 워크플로우 조회
         try {
           console.log("📊 Supabase에서 워크플로우 조회 중...", workflowId);
-          
+
           const response = await fetch(`/api/supabase/workflows/${workflowId}`);
-          
+
           if (response.ok) {
             const result = await response.json();
-            
+
             if (result.success && result.data) {
               console.log("✅ Supabase에서 워크플로우 찾음:", result.data.name);
               const convertedWorkflow = convertSupabaseToWorkflow(result.data);
@@ -146,40 +157,41 @@ export default function WorkflowDetailPage() {
           { id: "5", name: "구매 후 리뷰 요청" },
           { id: "6", name: "재구매 유도 메시지" },
           { id: "7", name: "이벤트 참여 안내" },
-        ]
-        
-        const sampleWorkflow = sampleWorkflows.find(w => w.id === workflowId)
+        ];
+
+        const sampleWorkflow = sampleWorkflows.find((w) => w.id === workflowId);
         if (sampleWorkflow) {
           // 샘플 워크플로우는 편집할 수 없음을 알림
-          setNotFound(true)
+          setNotFound(true);
         } else {
-          setNotFound(true)
+          setNotFound(true);
         }
       } catch (error) {
-        console.error("워크플로우 로드 실패:", error)
-        setNotFound(true)
+        console.error("워크플로우 로드 실패:", error);
+        setNotFound(true);
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
 
-    loadWorkflow()
-  }, [params.id])
+    loadWorkflow();
+  }, [params.id]);
 
-  const handleSave = async (updatedWorkflow: Workflow) => {
-    console.log("🚀 handleSave 함수 호출됨:", {
+  // 워크플로우 업데이트
+  const handleUpdate = async (updatedWorkflow: Workflow) => {
+    console.log("🚀 handleUpdate 함수 호출됨:", {
       workflowId: updatedWorkflow.id,
       workflowName: updatedWorkflow.name,
       scheduleSettings: updatedWorkflow.scheduleSettings,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
-    
-    setIsSaving(true)
+
+    setIsSaving(true);
     try {
       // Supabase 워크플로우 업데이트
       console.log("🌐 Supabase API 호출 준비 중...");
       console.log("📊 Supabase 워크플로우 업데이트 중...", updatedWorkflow.id);
-      
+
       // 🔥 스케줄 설정만 별도로 전송 (백엔드 API가 scheduleSettings 필드를 별도 처리하기 때문)
       const updatePayload = {
         name: updatedWorkflow.name,
@@ -189,41 +201,43 @@ export default function WorkflowDetailPage() {
         targetTemplateMappings: updatedWorkflow.targetTemplateMappings,
         steps: updatedWorkflow.steps,
         testSettings: updatedWorkflow.testSettings,
-        scheduleSettings: updatedWorkflow.scheduleSettings  // 🔥 이 필드가 핵심!
+        scheduleSettings: updatedWorkflow.scheduleSettings, // 🔥 이 필드가 핵심!
       };
-      
+
       console.log("📤 전송할 스케줄 설정:", updatePayload.scheduleSettings);
       console.log("📤 전송할 전체 데이터:", updatePayload);
-      
-      const apiUrl = `/api/supabase/workflows/${encodeURIComponent(updatedWorkflow.id)}`;
+
+      const apiUrl = `/api/supabase/workflows/${encodeURIComponent(
+        updatedWorkflow.id
+      )}`;
       console.log("🔗 API URL:", apiUrl);
-      
+
       console.log("🚀 fetch 호출 시작...");
       const response = await fetch(apiUrl, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(updatePayload)
+        body: JSON.stringify(updatePayload),
       });
-      
+
       console.log("📨 API 응답 받음:", {
         status: response.status,
         statusText: response.statusText,
-        ok: response.ok
+        ok: response.ok,
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         console.log("📋 API 응답 데이터:", result);
-        
+
         if (result.success) {
           console.log("✅ Supabase 워크플로우 업데이트 성공");
           alert("워크플로우가 업데이트되었습니다!");
           router.push("/");
           return;
         } else {
-          throw new Error(result.message || 'Supabase 업데이트 실패');
+          throw new Error(result.message || "Supabase 업데이트 실패");
         }
       } else {
         const errorText = await response.text();
@@ -232,26 +246,32 @@ export default function WorkflowDetailPage() {
           statusText: response.statusText,
           url: apiUrl,
           body: errorText,
-          headers: Object.fromEntries(response.headers.entries())
+          headers: Object.fromEntries(response.headers.entries()),
         });
-        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+        throw new Error(
+          `HTTP ${response.status}: ${response.statusText} - ${errorText}`
+        );
       }
-      
     } catch (error) {
-      console.error("❌ 워크플로우 업데이트 실패:", error)
+      console.error("❌ 워크플로우 업데이트 실패:", error);
       console.error("❌ 전체 오류 정보:", {
-        message: error instanceof Error ? error.message : '알 수 없는 오류',
-        stack: error instanceof Error ? error.stack : '스택 없음',
-        error
+        message: error instanceof Error ? error.message : "알 수 없는 오류",
+        stack: error instanceof Error ? error.stack : "스택 없음",
+        error,
       });
-      alert(`업데이트에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
+      alert(
+        `업데이트에 실패했습니다.\n\n오류: ${
+          error instanceof Error ? error.message : "알 수 없는 오류"
+        }`
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
+  // 워크플로우 테스트
   const handleTest = async (workflow: Workflow) => {
-    setIsSaving(true)
+    setIsSaving(true);
     try {
       // 테스트 실행 API 호출
       const response = await fetch("/api/workflow/test", {
@@ -260,132 +280,171 @@ export default function WorkflowDetailPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          workflow
+          workflow,
         }),
-      })
+      });
 
       if (response.ok) {
-        const result = await response.json()
-        
+        const result = await response.json();
+
         // 스케줄 테스트인 경우
         if (result.scheduledTest) {
           let message = `⏰ 스케줄 테스트가 등록되었습니다!\n\n`;
-          
+
           // 스케줄 정보
           if (result.scheduleInfo) {
             message += `📅 스케줄 정보:\n`;
             message += `• 타입: ${
-              result.scheduleInfo.type === 'delay' ? '지연 발송' :
-              result.scheduleInfo.type === 'scheduled' ? '예약 발송' :
-              result.scheduleInfo.type === 'recurring' ? '반복 발송' : '즉시 발송'
+              result.scheduleInfo.type === "delay"
+                ? "지연 발송"
+                : result.scheduleInfo.type === "scheduled"
+                ? "예약 발송"
+                : result.scheduleInfo.type === "recurring"
+                ? "반복 발송"
+                : "즉시 발송"
             }\n`;
-            
-            if (result.scheduleInfo.type === 'delay') {
+
+            if (result.scheduleInfo.type === "delay") {
               message += `• 지연 시간: ${result.scheduleInfo.delay}분\n`;
-            } else if (result.scheduleInfo.type === 'scheduled') {
-              message += `• 예약 시간: ${new Date(result.scheduleInfo.scheduledTime).toLocaleString('ko-KR')}\n`;
-            } else if (result.scheduleInfo.type === 'recurring') {
+            } else if (result.scheduleInfo.type === "scheduled") {
+              message += `• 예약 시간: ${new Date(
+                result.scheduleInfo.scheduledTime
+              ).toLocaleString("ko-KR")}\n`;
+            } else if (result.scheduleInfo.type === "recurring") {
               const pattern = result.scheduleInfo.recurringPattern;
               if (pattern) {
                 message += `• 반복 주기: ${
-                  pattern.frequency === 'daily' ? '매일' :
-                  pattern.frequency === 'weekly' ? '매주' :
-                  pattern.frequency === 'monthly' ? '매월' : '기타'
+                  pattern.frequency === "daily"
+                    ? "매일"
+                    : pattern.frequency === "weekly"
+                    ? "매주"
+                    : pattern.frequency === "monthly"
+                    ? "매월"
+                    : "기타"
                 }\n`;
                 message += `• 발송 시간: ${pattern.time}\n`;
               }
             }
-            
+
             message += `• 타임존: ${result.scheduleInfo.timezone}\n\n`;
           }
-          
+
           // 테스트 설정 정보
           message += `📋 테스트 설정:\n`;
           message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
-          message += `• 실제 발송: ${result.testSettings.enableRealSending ? '✅ 활성화' : '❌ 비활성화'}\n`;
-          message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n\n`;
-          
+          message += `• 실제 발송: ${
+            result.testSettings.enableRealSending ? "✅ 활성화" : "❌ 비활성화"
+          }\n`;
+          message += `• SMS 대체: ${
+            result.testSettings.fallbackToSMS ? "✅ 활성화" : "❌ 비활성화"
+          }\n\n`;
+
           // 스케줄러 등록 정보
           if (result.jobId) {
             message += `🔧 스케줄러 정보:\n`;
             message += `• Job ID: ${result.jobId}\n`;
           }
-          message += `• 등록 시간: ${new Date(result.executionTime).toLocaleString('ko-KR')}\n\n`;
-          
+          message += `• 등록 시간: ${new Date(
+            result.executionTime
+          ).toLocaleString("ko-KR")}\n\n`;
+
           // 발송 상태
           message += `📡 상태: ${result.realSendingStatus}\n\n`;
-          
+
           message += `✨ 설정된 시간에 테스트 메시지가 자동으로 발송됩니다.`;
-          
+
           alert(message);
           return;
         }
-        
+
         // 즉시 테스트 결과 (기존 로직)
         let message = `🎯 워크플로우 테스트 완료!\n\n`;
-        
+
         // 테스트 설정 정보
         message += `📋 테스트 설정:\n`;
         message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
-        message += `• 실제 발송: ${result.testSettings.enableRealSending ? '✅ 활성화' : '❌ 비활성화'}\n`;
-        message += `• SMS 대체: ${result.testSettings.fallbackToSMS ? '✅ 활성화' : '❌ 비활성화'}\n`;
-        message += `• 실행 시간: ${new Date(result.executionTime).toLocaleString('ko-KR')}\n\n`;
-        
+        message += `• 실제 발송: ${
+          result.testSettings.enableRealSending ? "✅ 활성화" : "❌ 비활성화"
+        }\n`;
+        message += `• SMS 대체: ${
+          result.testSettings.fallbackToSMS ? "✅ 활성화" : "❌ 비활성화"
+        }\n`;
+        message += `• 실행 시간: ${new Date(
+          result.executionTime
+        ).toLocaleString("ko-KR")}\n\n`;
+
         // 환경변수 상태 정보 추가
         if (result.envStatus) {
           message += `🔧 환경변수 상태:\n`;
-          message += `• COOLSMS API 키: ${result.envStatus.COOLSMS_API_KEY ? '✅ 설정됨' : '❌ 누락'}\n`;
-          message += `• COOLSMS API 시크릿: ${result.envStatus.COOLSMS_API_SECRET ? '✅ 설정됨' : '❌ 누락'}\n`;
-          message += `• 카카오 발신키: ${result.envStatus.KAKAO_SENDER_KEY ? '✅ 설정됨' : '❌ 누락'}\n`;
-          message += `• 테스트 전화번호: ${result.envStatus.phoneNumber || '❌ 누락'}\n\n`;
+          message += `• COOLSMS API 키: ${
+            result.envStatus.COOLSMS_API_KEY ? "✅ 설정됨" : "❌ 누락"
+          }\n`;
+          message += `• COOLSMS API 시크릿: ${
+            result.envStatus.COOLSMS_API_SECRET ? "✅ 설정됨" : "❌ 누락"
+          }\n`;
+          message += `• 카카오 발신키: ${
+            result.envStatus.KAKAO_SENDER_KEY ? "✅ 설정됨" : "❌ 누락"
+          }\n`;
+          message += `• 테스트 전화번호: ${
+            result.envStatus.phoneNumber || "❌ 누락"
+          }\n\n`;
         }
-        
+
         // 실제 발송 상태
         if (result.realSendingStatus) {
           message += `📡 발송 상태: ${result.realSendingStatus}\n\n`;
         }
-        
+
         // 각 단계별 결과
         message += `📊 실행 결과:\n`;
         result.results.forEach((step: any) => {
-          const statusIcon = step.status === 'success' ? '✅' : '❌';
+          const statusIcon = step.status === "success" ? "✅" : "❌";
           message += `${statusIcon} 단계 ${step.step}: ${step.message}\n`;
-          
+
           if (step.variables && Object.keys(step.variables).length > 0) {
-            message += `   🔧 사용된 변수: ${Object.keys(step.variables).length}개\n`;
+            message += `   🔧 사용된 변수: ${
+              Object.keys(step.variables).length
+            }개\n`;
           }
-          
+
           if (step.processedContent) {
-            const preview = step.processedContent.length > 50 
-              ? step.processedContent.substring(0, 50) + '...' 
-              : step.processedContent;
+            const preview =
+              step.processedContent.length > 50
+                ? step.processedContent.substring(0, 50) + "..."
+                : step.processedContent;
             message += `   💬 메시지: ${preview}\n`;
           }
-          
+
           if (step.fallbackToSMS) {
             message += `   📱 SMS 대체 발송됨\n`;
           }
-          
+
           message += `\n`;
         });
-        
+
         // 성공/실패 요약
-        const successCount = result.results.filter((r: any) => r.status === 'success').length;
+        const successCount = result.results.filter(
+          (r: any) => r.status === "success"
+        ).length;
         const totalCount = result.results.length;
         message += `📈 요약: ${successCount}/${totalCount} 단계 성공`;
-        
-        alert(message)
+
+        alert(message);
       } else {
-        const errorResult = await response.json()
-        throw new Error(errorResult.message || "테스트 실행 실패")
+        const errorResult = await response.json();
+        throw new Error(errorResult.message || "테스트 실행 실패");
       }
     } catch (error) {
-      console.error("테스트 실행 실패:", error)
-      alert(`❌ 테스트 실행에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
+      console.error("테스트 실행 실패:", error);
+      alert(
+        `❌ 테스트 실행에 실패했습니다.\n\n오류: ${
+          error instanceof Error ? error.message : "알 수 없는 오류"
+        }`
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   if (isLoading) {
     return (
@@ -395,7 +454,7 @@ export default function WorkflowDetailPage() {
           <p>워크플로우를 불러오는 중...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (notFound) {
@@ -412,7 +471,9 @@ export default function WorkflowDetailPage() {
                 </Button>
               </Link>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">워크플로우를 찾을 수 없습니다</h1>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  워크플로우를 찾을 수 없습니다
+                </h1>
               </div>
             </div>
           </div>
@@ -423,28 +484,27 @@ export default function WorkflowDetailPage() {
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">워크플로우를 찾을 수 없습니다</h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                워크플로우를 찾을 수 없습니다
+              </h2>
               <p className="text-gray-600 text-center mb-6">
-                요청하신 워크플로우가 존재하지 않거나 삭제되었을 수 있습니다.<br />
+                요청하신 워크플로우가 존재하지 않거나 삭제되었을 수 있습니다.
+                <br />
                 샘플 워크플로우는 편집할 수 없습니다.
               </p>
               <div className="flex gap-3">
                 <Link href="/">
-                  <Button variant="outline">
-                    메인으로 돌아가기
-                  </Button>
+                  <Button variant="outline">메인으로 돌아가기</Button>
                 </Link>
                 <Link href="/workflow/new">
-                  <Button>
-                    새 워크플로우 만들기
-                  </Button>
+                  <Button>새 워크플로우 만들기</Button>
                 </Link>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -460,7 +520,9 @@ export default function WorkflowDetailPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">워크플로우 설정</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                워크플로우 설정
+              </h1>
               <p className="text-gray-600">{workflow?.name}</p>
             </div>
           </div>
@@ -472,7 +534,7 @@ export default function WorkflowDetailPage() {
         {workflow && (
           <WorkflowBuilder
             workflow={workflow}
-            onSave={handleSave}
+            onSave={handleUpdate}
             onTest={handleTest}
           />
         )}
@@ -488,5 +550,5 @@ export default function WorkflowDetailPage() {
         </div>
       )}
     </div>
-  )
-} 
+  );
+}

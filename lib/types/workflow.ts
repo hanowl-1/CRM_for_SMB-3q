@@ -129,7 +129,7 @@ export interface WorkflowTestSettings {
 // lib/types/workflow.ts 수정
 
 export interface Workflow {
-  // id: string;
+  id?: string;
   name: string;
   description: string;
   status: "draft" | "active" | "paused" | "archived";

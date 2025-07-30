@@ -36,17 +36,19 @@ import {
 interface TargetSelectionProps {
   onTargetsChange: (targets: TargetGroup[]) => void;
   currentTargets: TargetGroup[];
+  triggerType: "manual" | "webhook";
 }
 
 export function TargetSelection({
   onTargetsChange,
   currentTargets,
+  triggerType,
 }: TargetSelectionProps) {
   const [targets, setTargets] = useState<TargetGroup[]>(currentTargets);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "static" | "dynamic" | "automation"
-  >("static");
+  >(triggerType === "manual" ? "static" : "automation");
 
   // 정적 대상 선정 상태
   const [staticName, setStaticName] = useState("");
@@ -481,505 +483,540 @@ WHERE contacts IS NOT NULL
               setActiveTab(value as "static" | "dynamic" | "automation")
             }
           >
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="static" className="flex items-center gap-2">
-                <Database className="w-4 h-4" />
-                정적 조건
-              </TabsTrigger>
-              <TabsTrigger value="dynamic" className="flex items-center gap-2">
-                <Code className="w-4 h-4" />
-                동적 쿼리
-              </TabsTrigger>
-              <TabsTrigger
-                value="automation"
-                className="flex items-center gap-2"
-              >
-                <Play className="w-4 h-4" />
-                자동화
-              </TabsTrigger>
+            <TabsList
+              className={`grid w-full ${
+                triggerType === "manual" ? "grid-cols-2" : "grid-cols-1"
+              }`}
+            >
+              {triggerType === "manual" ? (
+                <>
+                  <TabsTrigger
+                    value="static"
+                    className="flex items-center gap-2"
+                  >
+                    <Database className="w-4 h-4" />
+                    정적 조건
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="dynamic"
+                    className="flex items-center gap-2"
+                  >
+                    <Code className="w-4 h-4" />
+                    동적 쿼리
+                  </TabsTrigger>
+                </>
+              ) : (
+                <TabsTrigger
+                  value="automation"
+                  className="flex items-center gap-2"
+                >
+                  <Play className="w-4 h-4" />
+                  자동화
+                </TabsTrigger>
+              )}
             </TabsList>
 
-            {/* 정적 조건 탭 */}
-            <TabsContent value="static" className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  그룹 이름 *
-                </label>
-                <Input
-                  value={staticName}
-                  onChange={(e) => setStaticName(e.target.value)}
-                  placeholder="예: VIP 고객"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  테이블 선택 *
-                </label>
-                <Select value={staticTable} onValueChange={setStaticTable}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="테이블을 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTables.map((table) => (
-                      <SelectItem key={table} value={table}>
-                        {table}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium">필터 조건</label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={addStaticCondition}
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    조건 추가
-                  </Button>
-                </div>
-
-                {staticConditions.map((condition, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 p-3 border rounded-lg mb-2"
-                  >
+            {triggerType === "manual" ? (
+              <>
+                <TabsContent value="static" className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      그룹 이름 *
+                    </label>
                     <Input
-                      placeholder="필드명"
-                      value={condition.field}
-                      onChange={(e) =>
-                        updateStaticCondition(index, { field: e.target.value })
-                      }
-                      className="flex-1"
+                      value={staticName}
+                      onChange={(e) => setStaticName(e.target.value)}
+                      placeholder="예: VIP 고객"
                     />
-                    <Select
-                      value={condition.operator}
-                      onValueChange={(value) =>
-                        updateStaticCondition(index, { operator: value as any })
-                      }
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="equals">같음</SelectItem>
-                        <SelectItem value="contains">포함</SelectItem>
-                        <SelectItem value="greater_than">초과</SelectItem>
-                        <SelectItem value="less_than">미만</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      placeholder="값"
-                      value={condition.value}
-                      onChange={(e) =>
-                        updateStaticCondition(index, { value: e.target.value })
-                      }
-                      className="flex-1"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeStaticCondition(index)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
                   </div>
-                ))}
-              </div>
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                >
-                  취소
-                </Button>
-                <Button
-                  onClick={addStaticTarget}
-                  disabled={!staticName.trim() || !staticTable}
-                >
-                  추가
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* 동적 쿼리 탭 */}
-            <TabsContent value="dynamic" className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  그룹 이름 *
-                </label>
-                <Input
-                  value={dynamicName}
-                  onChange={(e) => setDynamicName(e.target.value)}
-                  placeholder="예: 월간 리포트 대상자"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">설명</label>
-                <Input
-                  value={dynamicDescription}
-                  onChange={(e) => setDynamicDescription(e.target.value)}
-                  placeholder="이 쿼리가 어떤 대상자를 선택하는지 설명"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium">SQL 쿼리 *</label>
-                  <div className="flex gap-2">
-                    <Select
-                      onValueChange={(value) => {
-                        const template = queryTemplates.find(
-                          (t) => t.name === value
-                        );
-                        if (template) {
-                          setDynamicSql(template.sql);
-                          setDynamicDescription(template.description);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="템플릿 선택" />
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      테이블 선택 *
+                    </label>
+                    <Select value={staticTable} onValueChange={setStaticTable}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="테이블을 선택하세요" />
                       </SelectTrigger>
                       <SelectContent>
-                        {queryTemplates.map((template) => (
-                          <SelectItem key={template.name} value={template.name}>
-                            {template.name}
+                        {availableTables.map((table) => (
+                          <SelectItem key={table} value={table}>
+                            {table}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium">필터 조건</label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addStaticCondition}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        조건 추가
+                      </Button>
+                    </div>
+
+                    {staticConditions.map((condition, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 p-3 border rounded-lg mb-2"
+                      >
+                        <Input
+                          placeholder="필드명"
+                          value={condition.field}
+                          onChange={(e) =>
+                            updateStaticCondition(index, {
+                              field: e.target.value,
+                            })
+                          }
+                          className="flex-1"
+                        />
+                        <Select
+                          value={condition.operator}
+                          onValueChange={(value) =>
+                            updateStaticCondition(index, {
+                              operator: value as any,
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="equals">같음</SelectItem>
+                            <SelectItem value="contains">포함</SelectItem>
+                            <SelectItem value="greater_than">초과</SelectItem>
+                            <SelectItem value="less_than">미만</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          placeholder="값"
+                          value={condition.value}
+                          onChange={(e) =>
+                            updateStaticCondition(index, {
+                              value: e.target.value,
+                            })
+                          }
+                          className="flex-1"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeStaticCondition(index)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end gap-2">
                     <Button
                       variant="outline"
-                      onClick={testDynamicQuery}
-                      disabled={!dynamicSql.trim() || isTestingQuery}
+                      onClick={() => setShowAddDialog(false)}
                     >
-                      <Play className="w-4 h-4 mr-1" />
-                      {isTestingQuery ? "테스트 중..." : "쿼리 테스트"}
+                      취소
+                    </Button>
+                    <Button
+                      onClick={addStaticTarget}
+                      disabled={!staticName.trim() || !staticTable}
+                    >
+                      추가
                     </Button>
                   </div>
-                </div>
-                <Textarea
-                  value={dynamicSql}
-                  onChange={(e) => {
-                    setDynamicSql(e.target.value);
-                    // 쿼리가 변경되면 이전 테스트 결과 초기화
-                    if (queryTestResult) {
-                      setQueryTestResult(null);
-                    }
-                  }}
-                  placeholder="SELECT contact, name FROM Companies WHERE ..."
-                  rows={8}
-                  className="font-mono text-sm"
-                />
-              </div>
+                </TabsContent>
+                <TabsContent value="dynamic" className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      그룹 이름 *
+                    </label>
+                    <Input
+                      value={dynamicName}
+                      onChange={(e) => setDynamicName(e.target.value)}
+                      placeholder="예: 월간 리포트 대상자"
+                    />
+                  </div>
 
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  예상 결과 필드
-                </label>
-                <Input
-                  value={dynamicFields}
-                  onChange={(e) => setDynamicFields(e.target.value)}
-                  placeholder="contact, name, id"
-                  className="text-sm"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  쿼리 결과에 포함될 필드명을 쉼표로 구분하여 입력 (contact
-                  필드는 필수)
-                </p>
-              </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      설명
+                    </label>
+                    <Input
+                      value={dynamicDescription}
+                      onChange={(e) => setDynamicDescription(e.target.value)}
+                      placeholder="이 쿼리가 어떤 대상자를 선택하는지 설명"
+                    />
+                  </div>
 
-              {/* 쿼리 테스트 결과 */}
-              {queryTestResult && (
-                <div className="space-y-4">
-                  {queryTestResult.success ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CheckCircle className="w-5 h-5 text-green-600" />
-                        <h4 className="font-medium text-green-800">
-                          쿼리 테스트 성공
-                        </h4>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium">SQL 쿼리 *</label>
+                      <div className="flex gap-2">
+                        <Select
+                          onValueChange={(value) => {
+                            const template = queryTemplates.find(
+                              (t) => t.name === value
+                            );
+                            if (template) {
+                              setDynamicSql(template.sql);
+                              setDynamicDescription(template.description);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-48">
+                            <SelectValue placeholder="템플릿 선택" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {queryTemplates.map((template) => (
+                              <SelectItem
+                                key={template.name}
+                                value={template.name}
+                              >
+                                {template.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          onClick={testDynamicQuery}
+                          disabled={!dynamicSql.trim() || isTestingQuery}
+                        >
+                          <Play className="w-4 h-4 mr-1" />
+                          {isTestingQuery ? "테스트 중..." : "쿼리 테스트"}
+                        </Button>
                       </div>
+                    </div>
+                    <Textarea
+                      value={dynamicSql}
+                      onChange={(e) => {
+                        setDynamicSql(e.target.value);
+                        // 쿼리가 변경되면 이전 테스트 결과 초기화
+                        if (queryTestResult) {
+                          setQueryTestResult(null);
+                        }
+                      }}
+                      placeholder="SELECT contact, name FROM Companies WHERE ..."
+                      rows={8}
+                      className="font-mono text-sm"
+                    />
+                  </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div className="text-sm text-green-700">
-                          <p>
-                            조회된 데이터:{" "}
-                            <strong>{queryTestResult.totalCount}개</strong>
-                          </p>
-                          <p>
-                            미리보기: {queryTestResult.preview?.length || 0}개
-                            행
-                          </p>
-                        </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      예상 결과 필드
+                    </label>
+                    <Input
+                      value={dynamicFields}
+                      onChange={(e) => setDynamicFields(e.target.value)}
+                      placeholder="contact, name, id"
+                      className="text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      쿼리 결과에 포함될 필드명을 쉼표로 구분하여 입력 (contact
+                      필드는 필수)
+                    </p>
+                  </div>
 
-                        {queryTestResult.preview &&
-                          queryTestResult.preview.length > 0 && (
-                            <div className="text-sm">
-                              <p className="font-medium text-green-800 mb-2">
-                                사용 가능한 컬럼:
+                  {/* 쿼리 테스트 결과 */}
+                  {queryTestResult && (
+                    <div className="space-y-4">
+                      {queryTestResult.success ? (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <CheckCircle className="w-5 h-5 text-green-600" />
+                            <h4 className="font-medium text-green-800">
+                              쿼리 테스트 성공
+                            </h4>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div className="text-sm text-green-700">
+                              <p>
+                                조회된 데이터:{" "}
+                                <strong>{queryTestResult.totalCount}개</strong>
                               </p>
-                              <div className="flex flex-wrap gap-1">
-                                {Object.keys(queryTestResult.preview[0]).map(
-                                  (column) => (
-                                    <Badge
-                                      key={column}
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {column}
-                                    </Badge>
-                                  )
-                                )}
-                              </div>
+                              <p>
+                                미리보기: {queryTestResult.preview?.length || 0}
+                                개 행
+                              </p>
                             </div>
-                          )}
-                      </div>
 
-                      {/* 컬럼 선택 섹션 */}
-                      {queryTestResult.preview &&
-                        queryTestResult.preview.length > 0 && (
-                          <div className="space-y-4 pt-4 border-t border-green-200">
-                            <h5 className="font-medium text-green-800">
-                              컬럼 설정
-                            </h5>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* 연락처 컬럼 선택 */}
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  연락처 컬럼 *
-                                </label>
-                                <Select
-                                  value={contactColumn}
-                                  onValueChange={setContactColumn}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="연락처로 사용할 컬럼 선택" />
-                                  </SelectTrigger>
-                                  <SelectContent>
+                            {queryTestResult.preview &&
+                              queryTestResult.preview.length > 0 && (
+                                <div className="text-sm">
+                                  <p className="font-medium text-green-800 mb-2">
+                                    사용 가능한 컬럼:
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
                                     {Object.keys(
                                       queryTestResult.preview[0]
                                     ).map((column) => (
-                                      <SelectItem key={column} value={column}>
-                                        <div className="flex items-center justify-between w-full">
-                                          <span>{column}</span>
-                                          <span className="text-xs text-muted-foreground ml-2">
-                                            {String(
-                                              queryTestResult.preview[0][column]
-                                            )}
-                                          </span>
-                                        </div>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  메시지 발송 시 사용할 연락처 정보가 들어있는
-                                  컬럼
-                                </p>
-                              </div>
-
-                              {/* 매핑용 컬럼 선택 */}
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  매핑용 컬럼 (선택사항)
-                                </label>
-                                <div className="space-y-2">
-                                  {Object.keys(queryTestResult.preview[0]).map(
-                                    (column) => (
-                                      <div
+                                      <Badge
                                         key={column}
-                                        className="flex items-center gap-2"
+                                        variant="outline"
+                                        className="text-xs"
                                       >
-                                        <input
-                                          type="checkbox"
-                                          id={`mapping-${column}`}
-                                          checked={mappingColumns.includes(
-                                            column
-                                          )}
-                                          onChange={(e) => {
-                                            if (e.target.checked) {
-                                              setMappingColumns([
-                                                ...mappingColumns,
-                                                column,
-                                              ]);
-                                            } else {
-                                              setMappingColumns(
-                                                mappingColumns.filter(
-                                                  (c) => c !== column
-                                                )
-                                              );
-                                            }
-                                          }}
-                                          className="rounded border-gray-300"
-                                        />
-                                        <label
-                                          htmlFor={`mapping-${column}`}
-                                          className="text-sm cursor-pointer flex items-center gap-2"
-                                        >
-                                          <span>{column}</span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {String(
-                                              queryTestResult.preview[0][column]
-                                            )}
-                                          </span>
-                                        </label>
-                                      </div>
-                                    )
-                                  )}
+                                        {column}
+                                      </Badge>
+                                    ))}
+                                  </div>
                                 </div>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  개인화 변수에 사용할 수 있는 컬럼들을
-                                  선택하세요
-                                </p>
+                              )}
+                          </div>
+
+                          {/* 컬럼 선택 섹션 */}
+                          {queryTestResult.preview &&
+                            queryTestResult.preview.length > 0 && (
+                              <div className="space-y-4 pt-4 border-t border-green-200">
+                                <h5 className="font-medium text-green-800">
+                                  컬럼 설정
+                                </h5>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {/* 연락처 컬럼 선택 */}
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      연락처 컬럼 *
+                                    </label>
+                                    <Select
+                                      value={contactColumn}
+                                      onValueChange={setContactColumn}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="연락처로 사용할 컬럼 선택" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {Object.keys(
+                                          queryTestResult.preview[0]
+                                        ).map((column) => (
+                                          <SelectItem
+                                            key={column}
+                                            value={column}
+                                          >
+                                            <div className="flex items-center justify-between w-full">
+                                              <span>{column}</span>
+                                              <span className="text-xs text-muted-foreground ml-2">
+                                                {String(
+                                                  queryTestResult.preview[0][
+                                                    column
+                                                  ]
+                                                )}
+                                              </span>
+                                            </div>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      메시지 발송 시 사용할 연락처 정보가
+                                      들어있는 컬럼
+                                    </p>
+                                  </div>
+
+                                  {/* 매핑용 컬럼 선택 */}
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      매핑용 컬럼 (선택사항)
+                                    </label>
+                                    <div className="space-y-2">
+                                      {Object.keys(
+                                        queryTestResult.preview[0]
+                                      ).map((column) => (
+                                        <div
+                                          key={column}
+                                          className="flex items-center gap-2"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            id={`mapping-${column}`}
+                                            checked={mappingColumns.includes(
+                                              column
+                                            )}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                setMappingColumns([
+                                                  ...mappingColumns,
+                                                  column,
+                                                ]);
+                                              } else {
+                                                setMappingColumns(
+                                                  mappingColumns.filter(
+                                                    (c) => c !== column
+                                                  )
+                                                );
+                                              }
+                                            }}
+                                            className="rounded border-gray-300"
+                                          />
+                                          <label
+                                            htmlFor={`mapping-${column}`}
+                                            className="text-sm cursor-pointer flex items-center gap-2"
+                                          >
+                                            <span>{column}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {String(
+                                                queryTestResult.preview[0][
+                                                  column
+                                                ]
+                                              )}
+                                            </span>
+                                          </label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      개인화 변수에 사용할 수 있는 컬럼들을
+                                      선택하세요
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                        )}
+                            )}
 
-                      {/* 데이터 미리보기 */}
-                      {queryTestResult.preview &&
-                        queryTestResult.preview.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-green-200">
-                            <h5 className="font-medium text-green-800 mb-2">
-                              데이터 미리보기
-                            </h5>
-                            <div className="overflow-x-auto">
-                              <table className="min-w-full text-xs">
-                                <thead>
-                                  <tr className="bg-green-100">
-                                    {Object.keys(
-                                      queryTestResult.preview[0]
-                                    ).map((key) => (
-                                      <th
-                                        key={key}
-                                        className="px-2 py-1 text-left font-medium text-green-800"
-                                      >
-                                        {key}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {queryTestResult.preview
-                                    .slice(0, 3)
-                                    .map((row, index) => (
-                                      <tr
-                                        key={index}
-                                        className="border-b border-green-100"
-                                      >
-                                        {Object.values(row).map(
-                                          (value, colIndex) => (
-                                            <td
-                                              key={colIndex}
-                                              className="px-2 py-1 text-green-700"
-                                            >
-                                              {String(value)}
-                                            </td>
-                                          )
-                                        )}
+                          {/* 데이터 미리보기 */}
+                          {queryTestResult.preview &&
+                            queryTestResult.preview.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-green-200">
+                                <h5 className="font-medium text-green-800 mb-2">
+                                  데이터 미리보기
+                                </h5>
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full text-xs">
+                                    <thead>
+                                      <tr className="bg-green-100">
+                                        {Object.keys(
+                                          queryTestResult.preview[0]
+                                        ).map((key) => (
+                                          <th
+                                            key={key}
+                                            className="px-2 py-1 text-left font-medium text-green-800"
+                                          >
+                                            {key}
+                                          </th>
+                                        ))}
                                       </tr>
-                                    ))}
-                                </tbody>
-                              </table>
-                            </div>
+                                    </thead>
+                                    <tbody>
+                                      {queryTestResult.preview
+                                        .slice(0, 3)
+                                        .map((row, index) => (
+                                          <tr
+                                            key={index}
+                                            className="border-b border-green-100"
+                                          >
+                                            {Object.values(row).map(
+                                              (value, colIndex) => (
+                                                <td
+                                                  key={colIndex}
+                                                  className="px-2 py-1 text-green-700"
+                                                >
+                                                  {String(value)}
+                                                </td>
+                                              )
+                                            )}
+                                          </tr>
+                                        ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                        </div>
+                      ) : (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <AlertCircle className="w-5 h-5 text-red-600" />
+                            <h4 className="font-medium text-red-800">
+                              쿼리 테스트 실패
+                            </h4>
                           </div>
-                        )}
-                    </div>
-                  ) : (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <AlertCircle className="w-5 h-5 text-red-600" />
-                        <h4 className="font-medium text-red-800">
-                          쿼리 테스트 실패
-                        </h4>
-                      </div>
 
-                      <p className="text-sm text-red-700">
-                        {queryTestResult.error}
-                      </p>
+                          <p className="text-sm text-red-700">
+                            {queryTestResult.error}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowAddDialog(false)}
+                    >
+                      취소
+                    </Button>
+                    <Button
+                      onClick={addDynamicTarget}
+                      disabled={
+                        !dynamicName.trim() ||
+                        !dynamicSql.trim() ||
+                        !queryTestResult?.success ||
+                        !contactColumn
+                      }
+                      className="w-full"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      동적 대상 그룹 추가
+                    </Button>
+                  </div>
+                </TabsContent>
+              </>
+            ) : (
+              <TabsContent value="automation" className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    그룹 이름 *
+                  </label>
+                  <Input
+                    value={automationName}
+                    onChange={(e) => setAutomationName(e.target.value)}
+                    placeholder="예: 도입문의 고객"
+                  />
                 </div>
-              )}
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                >
-                  취소
-                </Button>
-                <Button
-                  onClick={addDynamicTarget}
-                  disabled={
-                    !dynamicName.trim() ||
-                    !dynamicSql.trim() ||
-                    !queryTestResult?.success ||
-                    !contactColumn
-                  }
-                  className="w-full"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  동적 대상 그룹 추가
-                </Button>
-              </div>
-            </TabsContent>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    이벤트 트리거 *
+                  </label>
+                  <Select
+                    value={automationEvent}
+                    onValueChange={setAutomationEvent}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="트리거 이벤트를 선택하세요" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lead_created">
+                        도입문의 완료
+                      </SelectItem>
+                      <SelectItem value="signup">회원가입 완료</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {/* 자동화 대상 선정 */}
-            <TabsContent value="automation" className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  그룹 이름 *
-                </label>
-                <Input
-                  value={automationName}
-                  onChange={(e) => setAutomationName(e.target.value)}
-                  placeholder="예: 도입문의 고객"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  이벤트 트리거 *
-                </label>
-                <Select
-                  value={automationEvent}
-                  onValueChange={setAutomationEvent}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="트리거 이벤트를 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="lead_created">도입문의 완료</SelectItem>
-                    <SelectItem value="signup">회원가입 완료</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                >
-                  취소
-                </Button>
-                <Button
-                  onClick={addAutomationTarget}
-                  disabled={!automationName.trim() || !automationEvent}
-                >
-                  추가
-                </Button>
-              </div>
-            </TabsContent>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAddDialog(false)}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    onClick={addAutomationTarget}
+                    disabled={!automationName.trim() || !automationEvent}
+                  >
+                    추가
+                  </Button>
+                </div>
+              </TabsContent>
+            )}
           </Tabs>
         </DialogContent>
       </Dialog>
