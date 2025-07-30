@@ -1,64 +1,79 @@
-"use client"
+"use client";
 
-import React from "react"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { WorkflowBuilder } from "@/components/workflow/workflow-builder"
-import { Workflow } from "@/lib/types/workflow"
-import { Button } from "@/components/ui/button"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import React from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { WorkflowBuilder } from "@/components/workflow/workflow-builder";
+import { Workflow } from "@/lib/types/workflow";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 // UUID 생성 함수 추가
 function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
 
 export default function NewWorkflowPage() {
-  const router = useRouter()
-  const [isSaving, setIsSaving] = useState(false)
+  const router = useRouter();
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async (workflow: Workflow) => {
-    setIsSaving(true)
+    setIsSaving(true);
     try {
       console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
       console.log("워크플로우 데이터:", workflow);
       console.log("🔍 개인화 설정 확인:", workflow.templatePersonalizations);
-      console.log("🔍 스텝별 개인화 설정:", workflow.steps?.map(step => ({
-        templateId: step.action.templateId,
-        personalization: step.action.personalization
-      })));
-      
+      console.log(
+        "🔍 스텝별 개인화 설정:",
+        workflow.steps?.map((step) => ({
+          templateId: step.action.templateId,
+          personalization: step.action.personalization,
+        }))
+      );
+
       // API가 기대하는 형식으로 데이터 구성
       const requestData = {
-        action: 'create',
+        action: "create",
         name: workflow.name,
         description: workflow.description,
-        selectedTemplates: workflow.selectedTemplates || workflow.steps.map(step => ({
-          id: step.action.templateId,
-          templateCode: step.action.templateCode,
-          templateName: step.action.templateName,
-          personalization: step.action.personalization
-        })),
+        selectedTemplates:
+          workflow.selectedTemplates ||
+          workflow.steps.map((step) => ({
+            id: step.action.templateId,
+            templateCode: step.action.templateCode,
+            templateName: step.action.templateName,
+            personalization: step.action.personalization,
+          })),
         targetGroups: workflow.targetGroups || [],
-        templatePersonalizations: workflow.templatePersonalizations || workflow.steps.reduce((acc, step) => {
-          if (step.action.personalization) {
-            acc[step.action.templateId] = step.action.personalization;
-          }
-          return acc;
-        }, {} as any),
+        templatePersonalizations:
+          workflow.templatePersonalizations ||
+          workflow.steps.reduce((acc, step) => {
+            if (step.action.personalization) {
+              acc[step.action.templateId] = step.action.personalization;
+            }
+            return acc;
+          }, {} as any),
         targetTemplateMappings: workflow.targetTemplateMappings || [],
-        scheduleSettings: workflow.scheduleSettings || workflow.schedule_config || {},
+        scheduleSettings:
+          workflow.scheduleSettings || workflow.schedule_config || {},
+        schedule_config:
+          workflow.scheduleSettings || workflow.schedule_config || {},
         testSettings: workflow.testSettings || {},
-        steps: workflow.steps || []
+        steps: workflow.steps || [],
+        createdBy: "user",
+        trigger_type: workflow.trigger_type,
+        trigger_config: workflow.trigger_config,
+        target_config: workflow.target_config,
+        status: workflow.status,
       };
-      
+
       console.log("API 요청 데이터:", requestData);
-      
+
       // Supabase에 워크플로우 저장
       const response = await fetch("/api/supabase/workflows", {
         method: "POST",
@@ -66,57 +81,60 @@ export default function NewWorkflowPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestData),
-      })
+      });
 
       if (response.ok) {
-        const result = await response.json()
+        const result = await response.json();
         if (result.success) {
           console.log("✅ Supabase 저장 성공:", result.data.id);
-          alert("워크플로우가 성공적으로 저장되었습니다!")
-          router.push("/")
+          alert("워크플로우가 성공적으로 저장되었습니다!");
+          router.push("/");
           return;
         } else {
-          throw new Error(result.message || 'Supabase 저장 실패');
+          throw new Error(result.message || "Supabase 저장 실패");
         }
       } else {
         const errorText = await response.text();
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-      
     } catch (error) {
-      console.error("❌ 워크플로우 저장 실패:", error)
-      alert(`저장에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
+      console.error("❌ 워크플로우 저장 실패:", error);
+      alert(
+        `저장에 실패했습니다.\n\n오류: ${
+          error instanceof Error ? error.message : "알 수 없는 오류"
+        }`
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handleTest = async (workflow: Workflow) => {
     try {
-      console.log("워크플로우 테스트 실행:", workflow)
-      
+      console.log("워크플로우 테스트 실행:", workflow);
+
       // 테스트 API 호출
-      const response = await fetch('/api/workflow/test', {
-        method: 'POST',
+      const response = await fetch("/api/workflow/test", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ workflow })
+        body: JSON.stringify({ workflow }),
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
-        alert("테스트가 성공적으로 실행되었습니다!")
-        console.log("테스트 결과:", result)
+        alert("테스트가 성공적으로 실행되었습니다!");
+        console.log("테스트 결과:", result);
       } else {
-        alert(`테스트 실행 실패: ${result.message}`)
+        alert(`테스트 실행 실패: ${result.message}`);
       }
     } catch (error) {
-      console.error("테스트 실행 실패:", error)
-      alert("테스트 실행 중 오류가 발생했습니다.")
+      console.error("테스트 실행 실패:", error);
+      alert("테스트 실행 중 오류가 발생했습니다.");
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -130,18 +148,17 @@ export default function NewWorkflowPage() {
                   돌아가기
                 </Button>
               </Link>
-              <h1 className="text-xl font-semibold text-gray-900">새 워크플로우 만들기</h1>
+              <h1 className="text-xl font-semibold text-gray-900">
+                새 워크플로우 만들기
+              </h1>
             </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <WorkflowBuilder 
-          onSave={handleSave} 
-          onTest={handleTest}
-        />
+        <WorkflowBuilder onSave={handleSave} onTest={handleTest} />
       </div>
     </div>
-  )
+  );
 }
