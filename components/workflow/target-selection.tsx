@@ -31,6 +31,7 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
+  Pencil,
 } from "lucide-react";
 
 interface TargetSelectionProps {
@@ -46,6 +47,7 @@ export function TargetSelection({
 }: TargetSelectionProps) {
   const [targets, setTargets] = useState<TargetGroup[]>(currentTargets);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<TargetGroup | null>(null);
   const [activeTab, setActiveTab] = useState<
     "static" | "dynamic" | "automation"
   >(triggerType === "manual" ? "static" : "automation");
@@ -167,11 +169,43 @@ export function TargetSelection({
     }
   };
 
+  const handleEditTarget = (target: TargetGroup) => {
+    setEditingTarget(target);
+
+    // 타입별로 필드 초기화
+    if (target.type === "static") {
+      setStaticName(target.name);
+      setStaticTable(target.table || "");
+      setStaticConditions(target.conditions || []);
+    } else if (target.type === "dynamic") {
+      setDynamicName(target.name);
+      setDynamicDescription(target.dynamicQuery?.description || "");
+      setDynamicSql(target.dynamicQuery?.sql || "");
+      setDynamicFields(target.dynamicQuery?.expectedFields?.join(", ") || "");
+      setContactColumn(target.dynamicQuery?.contactColumn || "");
+      setMappingColumns(target.dynamicQuery?.mappingColumns || []);
+    } else if (target.type === "automation") {
+      setAutomationName(target.name);
+      setAutomationEvent(target.automationQuery?.event || "");
+    }
+
+    setActiveTab(target.type);
+    setShowAddDialog(true);
+  };
+
+  const resetForms = () => {
+    setEditingTarget(null);
+    resetStaticForm();
+    resetDynamicForm();
+    resetAutomationForm();
+  };
+
+  // 기존 함수들 수정
   const addStaticTarget = () => {
     if (!staticName.trim() || !staticTable) return;
 
     const newTarget: TargetGroup = {
-      id: `target_${Date.now()}`,
+      id: editingTarget?.id || `target_${Date.now()}`,
       name: staticName,
       type: "static",
       table: staticTable,
@@ -179,8 +213,15 @@ export function TargetSelection({
       estimatedCount: 0,
     };
 
-    setTargets([...targets, newTarget]);
-    resetStaticForm();
+    if (editingTarget) {
+      setTargets(
+        targets.map((t) => (t.id === editingTarget.id ? newTarget : t))
+      );
+    } else {
+      setTargets([...targets, newTarget]);
+    }
+
+    resetForms();
     setShowAddDialog(false);
   };
 
@@ -188,7 +229,7 @@ export function TargetSelection({
     if (!dynamicName.trim() || !dynamicSql.trim()) return;
 
     const newTarget: TargetGroup = {
-      id: `target_${Date.now()}`,
+      id: editingTarget?.id || `target_${Date.now()}`,
       name: dynamicName,
       type: "dynamic",
       dynamicQuery: {
@@ -203,8 +244,15 @@ export function TargetSelection({
       estimatedCount: queryTestResult?.totalCount || 0,
     };
 
-    setTargets([...targets, newTarget]);
-    resetDynamicForm();
+    if (editingTarget) {
+      setTargets(
+        targets.map((t) => (t.id === editingTarget.id ? newTarget : t))
+      );
+    } else {
+      setTargets([...targets, newTarget]);
+    }
+
+    resetForms();
     setShowAddDialog(false);
   };
 
@@ -213,7 +261,7 @@ export function TargetSelection({
     if (!automationName.trim() || !automationEvent) return;
 
     const newTarget: TargetGroup = {
-      id: `automation_${Date.now()}`,
+      id: editingTarget?.id || `automation_${Date.now()}`,
       name: automationName,
       type: "automation",
       automationQuery: {
@@ -223,8 +271,15 @@ export function TargetSelection({
       estimatedCount: 0, // 자동화는 실시간이므로 0
     };
 
-    setTargets([...targets, newTarget]);
-    resetAutomationForm();
+    if (editingTarget) {
+      setTargets(
+        targets.map((t) => (t.id === editingTarget.id ? newTarget : t))
+      );
+    } else {
+      setTargets([...targets, newTarget]);
+    }
+
+    resetForms();
     setShowAddDialog(false);
   };
 
@@ -455,14 +510,24 @@ WHERE contacts IS NOT NULL
                     )}
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeTarget(target.id)}
-                    title="대상 그룹 제거"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditTarget(target)}
+                      title="대상 그룹 편집"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeTarget(target.id)}
+                      title="대상 그룹 제거"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -470,11 +535,19 @@ WHERE contacts IS NOT NULL
         </CardContent>
       </Card>
 
-      {/* 대상 그룹 추가 다이얼로그 */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+      {/* 대상 그룹 추가/편집 다이얼로그 */}
+      <Dialog
+        open={showAddDialog}
+        onOpenChange={(open) => {
+          if (!open) resetForms();
+          setShowAddDialog(open);
+        }}
+      >
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>대상 그룹 추가</DialogTitle>
+            <DialogTitle>
+              {editingTarget ? "대상 그룹 편집" : "대상 그룹 추가"}
+            </DialogTitle>
           </DialogHeader>
 
           <Tabs
@@ -781,7 +854,7 @@ WHERE contacts IS NOT NULL
                                   컬럼 설정
                                 </h5>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                   {/* 연락처 컬럼 선택 */}
                                   <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -795,25 +868,30 @@ WHERE contacts IS NOT NULL
                                         <SelectValue placeholder="연락처로 사용할 컬럼 선택" />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        {Object.keys(
-                                          queryTestResult.preview[0]
-                                        ).map((column) => (
-                                          <SelectItem
-                                            key={column}
-                                            value={column}
-                                          >
-                                            <div className="flex items-center justify-between w-full">
-                                              <span>{column}</span>
-                                              <span className="text-xs text-muted-foreground ml-2">
-                                                {String(
-                                                  queryTestResult.preview[0][
-                                                    column
-                                                  ]
-                                                )}
-                                              </span>
-                                            </div>
-                                          </SelectItem>
-                                        ))}
+                                        <div className="max-h-[200px] overflow-y-auto">
+                                          {Object.keys(
+                                            queryTestResult.preview[0]
+                                          ).map((column) => (
+                                            <SelectItem
+                                              key={column}
+                                              value={column}
+                                            >
+                                              <div className="flex flex-col">
+                                                <span className="font-medium">
+                                                  {column}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                                  예:{" "}
+                                                  {String(
+                                                    queryTestResult.preview[0][
+                                                      column
+                                                    ]
+                                                  )}
+                                                </span>
+                                              </div>
+                                            </SelectItem>
+                                          ))}
+                                        </div>
                                       </SelectContent>
                                     </Select>
                                     <p className="text-xs text-gray-500 mt-1">
@@ -827,51 +905,58 @@ WHERE contacts IS NOT NULL
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                       매핑용 컬럼 (선택사항)
                                     </label>
-                                    <div className="space-y-2">
-                                      {Object.keys(
-                                        queryTestResult.preview[0]
-                                      ).map((column) => (
-                                        <div
-                                          key={column}
-                                          className="flex items-center gap-2"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            id={`mapping-${column}`}
-                                            checked={mappingColumns.includes(
-                                              column
-                                            )}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setMappingColumns([
-                                                  ...mappingColumns,
-                                                  column,
-                                                ]);
-                                              } else {
-                                                setMappingColumns(
-                                                  mappingColumns.filter(
-                                                    (c) => c !== column
-                                                  )
-                                                );
-                                              }
-                                            }}
-                                            className="rounded border-gray-300"
-                                          />
-                                          <label
-                                            htmlFor={`mapping-${column}`}
-                                            className="text-sm cursor-pointer flex items-center gap-2"
-                                          >
-                                            <span>{column}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                              {String(
-                                                queryTestResult.preview[0][
+                                    <div className="border rounded-lg p-2">
+                                      <div className="max-h-[200px] overflow-y-auto">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                          {Object.keys(
+                                            queryTestResult.preview[0]
+                                          ).map((column) => (
+                                            <div
+                                              key={column}
+                                              className="flex items-start gap-2 p-1 hover:bg-gray-50 rounded"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                id={`mapping-${column}`}
+                                                checked={mappingColumns.includes(
                                                   column
-                                                ]
-                                              )}
-                                            </span>
-                                          </label>
+                                                )}
+                                                onChange={(e) => {
+                                                  if (e.target.checked) {
+                                                    setMappingColumns([
+                                                      ...mappingColumns,
+                                                      column,
+                                                    ]);
+                                                  } else {
+                                                    setMappingColumns(
+                                                      mappingColumns.filter(
+                                                        (c) => c !== column
+                                                      )
+                                                    );
+                                                  }
+                                                }}
+                                                className="mt-1"
+                                              />
+                                              <label
+                                                htmlFor={`mapping-${column}`}
+                                                className="text-sm cursor-pointer flex-1"
+                                              >
+                                                <div className="font-medium">
+                                                  {column}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground truncate">
+                                                  예:{" "}
+                                                  {String(
+                                                    queryTestResult.preview[0][
+                                                      column
+                                                    ]
+                                                  )}
+                                                </div>
+                                              </label>
+                                            </div>
+                                          ))}
                                         </div>
-                                      ))}
+                                      </div>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-1">
                                       개인화 변수에 사용할 수 있는 컬럼들을
@@ -889,44 +974,114 @@ WHERE contacts IS NOT NULL
                                 <h5 className="font-medium text-green-800 mb-2">
                                   데이터 미리보기
                                 </h5>
-                                <div className="overflow-x-auto">
-                                  <table className="min-w-full text-xs">
-                                    <thead>
-                                      <tr className="bg-green-100">
-                                        {Object.keys(
-                                          queryTestResult.preview[0]
-                                        ).map((key) => (
-                                          <th
-                                            key={key}
-                                            className="px-2 py-1 text-left font-medium text-green-800"
-                                          >
-                                            {key}
-                                          </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {queryTestResult.preview
-                                        .slice(0, 3)
-                                        .map((row, index) => (
-                                          <tr
-                                            key={index}
-                                            className="border-b border-green-100"
-                                          >
-                                            {Object.values(row).map(
-                                              (value, colIndex) => (
-                                                <td
-                                                  key={colIndex}
-                                                  className="px-2 py-1 text-green-700"
+
+                                {/* 사용 가능한 컬럼 목록 */}
+                                <div className="mb-4">
+                                  <h6 className="text-sm text-green-800 mb-2">
+                                    사용 가능한 컬럼
+                                  </h6>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                    {Object.keys(
+                                      queryTestResult.preview[0]
+                                    ).map((column) => (
+                                      <div
+                                        key={column}
+                                        className="bg-white border border-green-100 rounded p-2 text-xs"
+                                      >
+                                        <div className="font-medium text-green-800">
+                                          {column}
+                                        </div>
+                                        <div
+                                          className="text-green-600 truncate"
+                                          title={String(
+                                            queryTestResult.preview[0][column]
+                                          )}
+                                        >
+                                          예:{" "}
+                                          {String(
+                                            queryTestResult.preview[0][column]
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* 데이터 미리보기 테이블 */}
+                                <div>
+                                  <h6 className="text-sm text-green-800 mb-2">
+                                    처음 3개 행 미리보기
+                                  </h6>
+                                  <div className="border border-green-100 rounded-lg overflow-hidden">
+                                    <div className="overflow-x-auto">
+                                      <table className="min-w-full text-xs">
+                                        <thead>
+                                          <tr className="bg-green-50">
+                                            {Object.keys(
+                                              queryTestResult.preview[0]
+                                            )
+                                              .slice(0, 6)
+                                              .map((key) => (
+                                                <th
+                                                  key={key}
+                                                  className="px-3 py-2 text-left font-medium text-green-800 border-b border-green-100"
                                                 >
-                                                  {String(value)}
-                                                </td>
-                                              )
+                                                  {key}
+                                                </th>
+                                              ))}
+                                            {Object.keys(
+                                              queryTestResult.preview[0]
+                                            ).length > 6 && (
+                                              <th className="px-3 py-2 text-left font-medium text-green-800 border-b border-green-100">
+                                                +
+                                                {Object.keys(
+                                                  queryTestResult.preview[0]
+                                                ).length - 6}{" "}
+                                                more
+                                              </th>
                                             )}
                                           </tr>
-                                        ))}
-                                    </tbody>
-                                  </table>
+                                        </thead>
+                                        <tbody>
+                                          {queryTestResult.preview
+                                            .slice(0, 3)
+                                            .map((row, index) => (
+                                              <tr
+                                                key={index}
+                                                className="border-b border-green-50 last:border-0"
+                                              >
+                                                {Object.entries(row)
+                                                  .slice(0, 6)
+                                                  .map(
+                                                    (
+                                                      [key, value],
+                                                      colIndex
+                                                    ) => (
+                                                      <td
+                                                        key={colIndex}
+                                                        className="px-3 py-2 text-green-700"
+                                                      >
+                                                        <div
+                                                          className="truncate max-w-[200px]"
+                                                          title={String(value)}
+                                                        >
+                                                          {String(value)}
+                                                        </div>
+                                                      </td>
+                                                    )
+                                                  )}
+                                                {Object.keys(row).length >
+                                                  6 && (
+                                                  <td className="px-3 py-2 text-green-700">
+                                                    ...
+                                                  </td>
+                                                )}
+                                              </tr>
+                                            ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             )}

@@ -1517,7 +1517,7 @@ export function WorkflowBuilder({
           <TargetSelection
             onTargetsChange={setTargetGroups}
             currentTargets={targetGroups}
-            triggerType={triggerType} // 추가
+            triggerType={triggerType}
           />
 
           <div className="flex justify-between">
