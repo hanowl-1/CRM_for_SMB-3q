@@ -1129,20 +1129,303 @@ paths:
   /api/workflow/test:
     post:
       tags: [Workflows]
-      summary: 워크플로우 테스트
+      summary: 워크플로우 테스트 실행
+      description: |
+        **저장된 또는 임시 워크플로우 설정**으로 실제 메시지 발송 또는 시뮬레이션을 수행합니다.
+        
+        ### 핵심 기능
+        - **실제 발송 모드**: enableRealSending=true 시 실제 알림톡/SMS 발송
+        - **테스트 모드**: enableRealSending=false 시 발송 시뮬레이션
+        - **자동화 워크플로우 지원**: automation 타입 워크플로우는 테스트 번호 사용
+        - **실제 타겟 그룹**: manual 워크플로우에서 실제 DB 쿼리 실행
+        - **전화번호 정리**: 하이픈 자동 제거로 CoolSMS API 호환
+        
+        ### 사용 시나리오
+        1. **개발/테스트**: 워크플로우 동작 확인 (enableRealSending=false)
+        2. **실제 발송**: 관리자가 테스트 발송 (enableRealSending=true)
+        3. **스케줄러 호출**: 내부 시스템에서 자동 실행
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - workflow
+              properties:
+                workflow:
+                  type: object
+                  description: "실행할 워크플로우 설정"
+                  required:
+                    - name
+                    - steps
+                  properties:
+                    id:
+                      type: string
+                      description: "워크플로우 ID (선택적)"
+                      example: "550e8400-e29b-41d4-a716-446655440000"
+                    name:
+                      type: string
+                      description: "워크플로우 이름"
+                      example: "리뷰 요청 알림톡"
+                    description:
+                      type: string
+                      description: "워크플로우 설명"
+                      example: "고객에게 리뷰 작성을 요청하는 워크플로우"
+                    trigger_type:
+                      type: string
+                      enum: [manual, webhook]
+                      description: "트리거 타입"
+                      example: "manual"
+                    status:
+                      type: string
+                      enum: [draft, active, paused, archived]
+                      description: "워크플로우 상태"
+                      example: "active"
+                    steps:
+                      type: array
+                      description: "실행할 스텝들"
+                      minItems: 1
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: "step_1"
+                          name:
+                            type: string
+                            example: "1. 리뷰 요청 알림톡 발송"
+                          action:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum: [send_alimtalk, send_sms, wait]
+                                example: "send_alimtalk"
+                              templateId:
+                                type: string
+                                example: "KA01TP240213011807409jDYLqJs7GHV"
+                              templateCode:
+                                type: string
+                                example: "MEMBERS_1_LqJs7GHV"
+                              templateName:
+                                type: string
+                                example: "1. [슈퍼멤버스] 회원가입(이용안내서 수정본)"
+                              variables:
+                                type: object
+                                description: "템플릿 변수 설정"
+                                additionalProperties:
+                                  type: string
+                                example:
+                                  "가맹점명": "테스트 업체"
+                              delay:
+                                type: integer
+                                description: "대기 시간 (분, wait 타입일 때)"
+                                example: 60
+                    targetGroups:
+                      type: array
+                      description: "대상 그룹 설정 (manual 워크플로우에서 사용)"
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: "group_1"
+                          name:
+                            type: string
+                            example: "VIP 고객"
+                          type:
+                            type: string
+                            enum: [dynamic, static, automation]
+                            example: "dynamic"
+                          dynamicQuery:
+                            type: object
+                            properties:
+                              sql:
+                                type: string
+                                example: "SELECT id, name, phone FROM customers WHERE grade='VIP'"
+                          automationQuery:
+                            type: object
+                            properties:
+                              event:
+                                type: string
+                                enum: [lead_created, signup]
+                                example: "signup"
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      properties:
+                        enableRealSending:
+                          type: boolean
+                          description: "실제 메시지 발송 여부"
+                          example: false
+                        testMode:
+                          type: boolean
+                          description: "테스트 모드 여부"
+                          example: true
+                        fallbackToSMS:
+                          type: boolean
+                          description: "알림톡 실패 시 SMS 대체 발송"
+                          example: true
+                        testPhoneNumber:
+                          type: string
+                          description: "테스트 전화번호"
+                          example: "010-1234-5678"
+                    scheduleSettings:
+                      $ref: '#/components/schemas/ScheduleConfig'
       responses:
         '200':
-          description: 테스트 성공
+          description: 테스트 실행 성공
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "워크플로우 테스트가 완료되었습니다."
+                  results:
+                    type: array
+                    description: "각 스텝 실행 결과"
+                    items:
+                      type: object
+                      properties:
+                        step:
+                          type: integer
+                          description: "스텝 번호"
+                          example: 1
+                        type:
+                          type: string
+                          enum: [alimtalk, sms, wait]
+                          example: "alimtalk"
+                        status:
+                          type: string
+                          enum: [success, failed]
+                          example: "success"
+                        message:
+                          type: string
+                          example: "알림톡 발송 완료"
+                        messageId:
+                          type: string
+                          description: "발송 메시지 ID"
+                          example: "G4V20250731134801XMJJ90TEHSCG7JN"
+                        processedContent:
+                          type: string
+                          description: "변수 치환된 최종 메시지"
+                          example: "안녕하세요 테스트 업체 담당자님..."
+                        fallbackToSMS:
+                          type: boolean
+                          description: "SMS 대체 발송 여부"
+                          example: false
+                        variables:
+                          type: object
+                          description: "사용된 변수들"
+                          additionalProperties:
+                            type: string
+                          example:
+                            "가맹점명": "테스트 업체"
+                        recipient:
+                          type: object
+                          description: "수신자 정보"
+                          properties:
+                            name:
+                              type: string
+                              example: "테스트 고객"
+                            phone:
+                              type: string
+                              example: "01012345678"
+                            company:
+                              type: string
+                              example: "테스트 회사"
+                        error:
+                          type: string
+                          description: "실패 시 오류 메시지"
+                          example: "템플릿을 찾을 수 없습니다"
+                  executionTime:
+                    type: string
+                    format: date-time
+                    description: "실행 완료 시간"
+                    example: "2025-07-31T04:48:01.727Z"
+                  testSettings:
+                    type: object
+                    description: "사용된 테스트 설정"
+                    properties:
+                      enableRealSending:
+                        type: boolean
+                        example: false
+                      fallbackToSMS:
+                        type: boolean
+                        example: true
+                      phoneNumber:
+                        type: string
+                        example: "010-6313-6764"
+                  envStatus:
+                    type: object
+                    description: "환경변수 설정 상태"
+                    properties:
+                      COOLSMS_API_KEY:
+                        type: boolean
+                        example: true
+                      COOLSMS_API_SECRET:
+                        type: boolean
+                        example: true
+                      KAKAO_SENDER_KEY:
+                        type: boolean
+                        example: true
+                      TEST_PHONE_NUMBER:
+                        type: boolean
+                        example: false
+                      phoneNumber:
+                        type: string
+                        example: "010-6313-6764"
+                      useRealTargets:
+                        type: boolean
+                        example: false
+                  realSendingStatus:
+                    type: string
+                    description: "실제 발송 상태 설명"
+                    examples:
+                      - "테스트 모드로 실행됨"
+                      - "실제 발송 시도됨"
+                      - "환경변수 누락으로 테스트 모드로 실행됨"
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    examples:
+                      - "workflow 객체가 필요합니다."
+                      - "steps가 필요합니다."
+                      - "실제 타겟 그룹에서 조회된 연락처가 없습니다."
+                  error:
+                    type: string
+                    example: "상세 오류 정보"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "워크플로우 테스트 실행 중 오류가 발생했습니다."
+                  error:
+                    type: object
+                    description: "상세 오류 정보"
 
   # Messaging
   /api/sms/send:
