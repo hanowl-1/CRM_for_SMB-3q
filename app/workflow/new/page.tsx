@@ -25,17 +25,6 @@ export default function NewWorkflowPage() {
   const handleSave = async (workflow: Workflow) => {
     setIsSaving(true);
     try {
-      // console.log("🚀 새 워크플로우 저장 시작:", workflow.name);
-      // console.log("워크플로우 데이터:", workflow);
-      // console.log("🔍 개인화 설정 확인:", workflow.templatePersonalizations);
-      // console.log(
-      //   "🔍 스텝별 개인화 설정:",
-      //   workflow.steps?.map((step) => ({
-      //     templateId: step.action.templateId,
-      //     personalization: step.action.personalization,
-      //   }))
-      // );
-
       const requestData = {
         name: workflow.name,
         description: workflow.description,
@@ -87,10 +76,19 @@ export default function NewWorkflowPage() {
   };
 
   const handleTest = async (workflow: Workflow) => {
+    setIsSaving(true);
     try {
-      console.log("워크플로우 테스트 실행:", workflow);
+      console.log("🔍 테스트할 워크플로우 데이터:", {
+        name: workflow.name,
+        status: workflow.status,
+        trigger_type: workflow.trigger_type,
+        message_config: workflow.message_config,
+        target_config: workflow.target_config,
+        variables: workflow.variables,
+        schedule_config: workflow.schedule_config,
+      });
 
-      // 테스트 API 호출
+      // 테스트 실행 API 호출
       const response = await fetch("/api/workflow/test", {
         method: "POST",
         headers: {
@@ -110,6 +108,8 @@ export default function NewWorkflowPage() {
     } catch (error) {
       console.error("테스트 실행 실패:", error);
       alert("테스트 실행 중 오류가 발생했습니다.");
+    } finally {
+      setIsSaving(false);
     }
   };
 

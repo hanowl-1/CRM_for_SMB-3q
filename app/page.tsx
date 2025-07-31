@@ -164,6 +164,7 @@ function DashboardContent() {
       }
 
       const result = await response.json();
+      console.log(result);
 
       if (!result.success) {
         throw new Error(result.message || "워크플로우 로드에 실패했습니다.");
@@ -181,21 +182,31 @@ function DashboardContent() {
           trigger_type: workflow.trigger_type || "manual",
           sent: workflow.sent || 0,
           lastRun: workflow.lastRun || "-",
-          stepsCount: workflow.steps?.length || 0,
+          stepsCount: workflow.message_config?.steps?.length || 0, // message_config에서 steps 가져오기
           templateInfo: {
-            templateName: workflow.templateInfo?.templateName || "",
-            templateCount: workflow.templateInfo?.templateCount || 0,
-            additionalTemplates:
-              workflow.templateInfo?.additionalTemplates || 0,
+            templateName:
+              workflow.message_config?.selectedTemplates?.[0]?.templateName ||
+              "", // 첫 번째 템플릿 이름
+            templateCount:
+              workflow.message_config?.selectedTemplates?.length || 0, // 전체 템플릿 수
+            additionalTemplates: Math.max(
+              0,
+              (workflow.message_config?.selectedTemplates?.length || 0) - 1
+            ), // 추가 템플릿 수
           },
           stats: {
             totalCost: workflow.stats?.totalCost || 0,
-            targetsCount: workflow.stats?.targetsCount || 0,
+            targetsCount: workflow.target_config?.targetGroups?.length || 0, // target_config에서 타겟 그룹 수
           },
-          estimatedCount: workflow.estimated_count || 0,
-          steps: workflow.steps || [],
-          createdAt: workflow.createdAt || new Date().toISOString(),
-          updatedAt: workflow.updatedAt || new Date().toISOString(),
+          estimatedCount:
+            workflow.target_config?.targetGroups?.reduce(
+              (total: number, group: any) =>
+                total + (group.estimatedCount || 0),
+              0
+            ) || 0, // 모든 타겟 그룹의 예상 수 합계
+          steps: workflow.message_config?.steps || [], // message_config에서 steps 가져오기
+          createdAt: workflow.created_at || new Date().toISOString(), // 새로운 필드명 사용
+          updatedAt: workflow.updated_at || new Date().toISOString(), // 새로운 필드명 사용
         })
       );
 

@@ -165,174 +165,36 @@ export default function WorkflowDetailPage() {
   const handleTest = async (workflow: Workflow) => {
     setIsSaving(true);
     try {
+      console.log("🔍 테스트할 워크플로우 데이터:", {
+        name: workflow.name,
+        status: workflow.status,
+        trigger_type: workflow.trigger_type,
+        message_config: workflow.message_config,
+        target_config: workflow.target_config,
+        variables: workflow.variables,
+        schedule_config: workflow.schedule_config,
+      });
+
       // 테스트 실행 API 호출
       const response = await fetch("/api/workflow/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          workflow,
-        }),
+        body: JSON.stringify({ workflow }),
       });
 
-      if (response.ok) {
-        const result = await response.json();
+      const result = await response.json();
 
-        // 스케줄 테스트인 경우
-        if (result.scheduledTest) {
-          let message = `⏰ 스케줄 테스트가 등록되었습니다!\n\n`;
-
-          // 스케줄 정보
-          if (result.scheduleInfo) {
-            message += `📅 스케줄 정보:\n`;
-            message += `• 타입: ${
-              result.scheduleInfo.type === "delay"
-                ? "지연 발송"
-                : result.scheduleInfo.type === "scheduled"
-                ? "예약 발송"
-                : result.scheduleInfo.type === "recurring"
-                ? "반복 발송"
-                : "즉시 발송"
-            }\n`;
-
-            if (result.scheduleInfo.type === "delay") {
-              message += `• 지연 시간: ${result.scheduleInfo.delay}분\n`;
-            } else if (result.scheduleInfo.type === "scheduled") {
-              message += `• 예약 시간: ${new Date(
-                result.scheduleInfo.scheduledTime
-              ).toLocaleString("ko-KR")}\n`;
-            } else if (result.scheduleInfo.type === "recurring") {
-              const pattern = result.scheduleInfo.recurringPattern;
-              if (pattern) {
-                message += `• 반복 주기: ${
-                  pattern.frequency === "daily"
-                    ? "매일"
-                    : pattern.frequency === "weekly"
-                    ? "매주"
-                    : pattern.frequency === "monthly"
-                    ? "매월"
-                    : "기타"
-                }\n`;
-                message += `• 발송 시간: ${pattern.time}\n`;
-              }
-            }
-
-            message += `• 타임존: ${result.scheduleInfo.timezone}\n\n`;
-          }
-
-          // 테스트 설정 정보
-          message += `📋 테스트 설정:\n`;
-          message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
-          message += `• 실제 발송: ${
-            result.testSettings.enableRealSending ? "✅ 활성화" : "❌ 비활성화"
-          }\n`;
-          message += `• SMS 대체: ${
-            result.testSettings.fallbackToSMS ? "✅ 활성화" : "❌ 비활성화"
-          }\n\n`;
-
-          // 스케줄러 등록 정보
-          if (result.jobId) {
-            message += `🔧 스케줄러 정보:\n`;
-            message += `• Job ID: ${result.jobId}\n`;
-          }
-          message += `• 등록 시간: ${new Date(
-            result.executionTime
-          ).toLocaleString("ko-KR")}\n\n`;
-
-          // 발송 상태
-          message += `📡 상태: ${result.realSendingStatus}\n\n`;
-
-          message += `✨ 설정된 시간에 테스트 메시지가 자동으로 발송됩니다.`;
-
-          alert(message);
-          return;
-        }
-
-        // 즉시 테스트 결과 (기존 로직)
-        let message = `🎯 워크플로우 테스트 완료!\n\n`;
-
-        // 테스트 설정 정보
-        message += `📋 테스트 설정:\n`;
-        message += `• 수신번호: ${result.testSettings.phoneNumber}\n`;
-        message += `• 실제 발송: ${
-          result.testSettings.enableRealSending ? "✅ 활성화" : "❌ 비활성화"
-        }\n`;
-        message += `• SMS 대체: ${
-          result.testSettings.fallbackToSMS ? "✅ 활성화" : "❌ 비활성화"
-        }\n`;
-        message += `• 실행 시간: ${new Date(
-          result.executionTime
-        ).toLocaleString("ko-KR")}\n\n`;
-
-        // 환경변수 상태 정보 추가
-        if (result.envStatus) {
-          message += `🔧 환경변수 상태:\n`;
-          message += `• COOLSMS API 키: ${
-            result.envStatus.COOLSMS_API_KEY ? "✅ 설정됨" : "❌ 누락"
-          }\n`;
-          message += `• COOLSMS API 시크릿: ${
-            result.envStatus.COOLSMS_API_SECRET ? "✅ 설정됨" : "❌ 누락"
-          }\n`;
-          message += `• 카카오 발신키: ${
-            result.envStatus.KAKAO_SENDER_KEY ? "✅ 설정됨" : "❌ 누락"
-          }\n`;
-          message += `• 테스트 전화번호: ${
-            result.envStatus.phoneNumber || "❌ 누락"
-          }\n\n`;
-        }
-
-        // 실제 발송 상태
-        if (result.realSendingStatus) {
-          message += `📡 발송 상태: ${result.realSendingStatus}\n\n`;
-        }
-
-        // 각 단계별 결과
-        message += `📊 실행 결과:\n`;
-        result.results.forEach((step: any) => {
-          const statusIcon = step.status === "success" ? "✅" : "❌";
-          message += `${statusIcon} 단계 ${step.step}: ${step.message}\n`;
-
-          if (step.variables && Object.keys(step.variables).length > 0) {
-            message += `   🔧 사용된 변수: ${
-              Object.keys(step.variables).length
-            }개\n`;
-          }
-
-          if (step.processedContent) {
-            const preview =
-              step.processedContent.length > 50
-                ? step.processedContent.substring(0, 50) + "..."
-                : step.processedContent;
-            message += `   💬 메시지: ${preview}\n`;
-          }
-
-          if (step.fallbackToSMS) {
-            message += `   📱 SMS 대체 발송됨\n`;
-          }
-
-          message += `\n`;
-        });
-
-        // 성공/실패 요약
-        const successCount = result.results.filter(
-          (r: any) => r.status === "success"
-        ).length;
-        const totalCount = result.results.length;
-        message += `📈 요약: ${successCount}/${totalCount} 단계 성공`;
-
-        alert(message);
+      if (result.success) {
+        alert("테스트가 성공적으로 실행되었습니다!");
+        console.log("테스트 결과:", result);
       } else {
-        const errorResult = await response.json();
-        throw new Error(errorResult.message || "테스트 실행 실패");
+        alert(`테스트 실행 실패: ${result.message}`);
       }
     } catch (error) {
       console.error("테스트 실행 실패:", error);
-      alert(
-        `❌ 테스트 실행에 실패했습니다.\n\n오류: ${
-          error instanceof Error ? error.message : "알 수 없는 오류"
-        }`
-      );
+      alert("테스트 실행 중 오류가 발생했습니다.");
     } finally {
       setIsSaving(false);
     }

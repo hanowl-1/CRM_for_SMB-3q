@@ -88,6 +88,7 @@ export function WorkflowBuilder({
   onSave,
   onTest,
 }: WorkflowBuilderProps) {
+  // 기본정보 탭
   const [activeTab, setActiveTab] = useState("basic");
   const [name, setName] = useState(workflow?.name || "");
   const [description, setDescription] = useState(workflow?.description || "");
@@ -98,6 +99,15 @@ export function WorkflowBuilder({
     workflow?.trigger_type || "manual"
   );
 
+  // 템플릿 선택 탭
+  const [selectedTemplates, setSelectedTemplates] = useState<KakaoTemplate[]>(
+    workflow?.message_config?.selectedTemplates || []
+  );
+  const [steps, setSteps] = useState<WorkflowStep[]>(
+    workflow?.message_config?.steps || []
+  );
+
+  // 대상 선정 탭
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>(() => {
     // 기존 대상 그룹이 있으면 사용
     if (workflow?.target_config?.targetGroups?.length > 0) {
@@ -128,18 +138,25 @@ export function WorkflowBuilder({
 
     return [];
   });
-  const [selectedTemplates, setSelectedTemplates] = useState<KakaoTemplate[]>(
-    workflow?.message_config?.selectedTemplates || []
-  );
+
+  // 대상-템플릿 매핑
+  const [targetTemplateMappings, setTargetTemplateMappings] = useState<
+    TargetTemplateMappingType[]
+  >(workflow?.target_config?.targetTemplateMappings || []);
+
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(
     workflow?.schedule_config || {
       type: "immediate",
       timezone: "Asia/Seoul",
     }
   );
-  const [steps, setSteps] = useState<WorkflowStep[]>(
-    workflow?.message_config?.steps || []
-  );
+
+  //  템플릿별 개인화 설정
+  const [templatePersonalizations, setTemplatePersonalizations] = useState<
+    Record<string, PersonalizationSettings>
+  >(workflow?.variables?.templatePersonalizations || {});
+
+  // 테스트 설정
   const [testSettings, setTestSettings] = useState<WorkflowTestSettings>(() => {
     const defaultSettings = {
       testPhoneNumber: "010-1234-5678",
@@ -150,15 +167,17 @@ export function WorkflowBuilder({
       testNotes: "",
     };
 
-    if (workflow?.testSettings) {
+    if (workflow?.variables?.testSettings) {
       return {
         ...defaultSettings,
-        ...workflow.testSettings,
+        ...workflow.variables.testSettings,
         // 중요한 필드들은 반드시 문자열이어야 함
         testPhoneNumber:
-          workflow.testSettings.testPhoneNumber ||
+          workflow.variables.testSettings.testPhoneNumber ||
           defaultSettings.testPhoneNumber,
-        testNotes: workflow.testSettings.testNotes || defaultSettings.testNotes,
+        testNotes:
+          workflow.variables.testSettings.testNotes ||
+          defaultSettings.testNotes,
       };
     }
 
@@ -173,35 +192,26 @@ export function WorkflowBuilder({
     null
   );
 
-  // 새로운 상태: 템플릿별 개인화 설정
-  const [templatePersonalizations, setTemplatePersonalizations] = useState<
-    Record<string, PersonalizationSettings>
-  >(workflow?.variables?.templatePersonalizations || {});
-
-  // 새로운 상태: 템플릿별 변수 저장
+  // 템플릿별 변수 저장
   const [templateVariables, setTemplateVariables] = useState<
     Record<string, Record<string, string>>
   >({});
 
-  // 새로운 상태: 대상-템플릿 매핑
-  const [targetTemplateMappings, setTargetTemplateMappings] = useState<
-    TargetTemplateMappingType[]
-  >(workflow?.mapping_config?.targetTemplateMappings || []);
-
+  // 미리보기 데이터
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [totalEstimatedCount, setTotalEstimatedCount] = useState(0);
 
-  console.log("🔥 workflow", workflow);
+  // console.log("🔥 workflow", workflow);
 
   // 기존 워크플로우 로드 시 변수와 개인화 설정 초기화
   useEffect(() => {
-    if (workflow && workflow.steps) {
+    if (workflow && workflow.message_config?.steps) {
       console.log("🔄 워크플로우 로드 시작:", {
         workflowId: workflow.id,
         workflowName: workflow.name,
-        stepsCount: workflow.steps.length,
+        stepsCount: workflow.message_config?.steps.length,
       });
 
       const variables: Record<string, Record<string, string>> = {};
@@ -209,7 +219,7 @@ export function WorkflowBuilder({
       const templates: KakaoTemplate[] = [];
       const mappings: TargetTemplateMappingType[] = [];
 
-      workflow.steps.forEach((step, index) => {
+      workflow.message_config?.steps.forEach((step, index) => {
         console.log(`🔍 Step ${index + 1} 분석:`, {
           stepId: step.id,
           actionType: step.action.type,
@@ -233,6 +243,22 @@ export function WorkflowBuilder({
             console.log(
               `⚙️ 개인화 설정 복원 (${step.action.templateId}):`,
               step.action.personalization
+            );
+          } else if (
+            workflow.variables?.templatePersonalizations?.[
+              step.action.templateId
+            ]
+          ) {
+            // 워크플로우 레벨 개인화 설정 복원
+            personalizations[step.action.templateId] =
+              workflow.variables.templatePersonalizations[
+                step.action.templateId
+              ];
+            console.log(
+              `⚙️ 워크플로우 레벨 개인화 설정 복원 (${step.action.templateId}):`,
+              workflow.variables.templatePersonalizations[
+                step.action.templateId
+              ]
             );
           }
 
@@ -322,11 +348,11 @@ export function WorkflowBuilder({
       });
 
       // 기존 워크플로우에서 매핑 정보 복원
-      if (workflow.targetTemplateMappings) {
-        mappings.push(...workflow.targetTemplateMappings);
+      if (workflow.mapping_config?.targetTemplateMappings) {
+        mappings.push(...workflow.mapping_config.targetTemplateMappings);
         console.log(
           "🔗 워크플로우 레벨 대상-템플릿 매핑 복원:",
-          workflow.targetTemplateMappings.length
+          workflow.mapping_config.targetTemplateMappings.length
         );
       }
 
@@ -346,7 +372,7 @@ export function WorkflowBuilder({
         })),
       });
 
-      // 대상 그룹도 복원
+      // 대상 그룹 복원
       if (workflow.target_config?.targetGroups?.length > 0) {
         setTargetGroups(workflow.target_config.targetGroups);
         console.log(
@@ -376,24 +402,22 @@ export function WorkflowBuilder({
         console.log("🤖 자동화 대상 그룹 생성:", automationTarget);
       }
 
-      // 스케줄 설정도 복원
-      if (workflow.scheduleSettings) {
-        console.log("⏰ 스케줄 설정 복원 시작:", {
-          원본설정: workflow.scheduleSettings,
-          타입: workflow.scheduleSettings.type,
-          예약시간: workflow.scheduleSettings.scheduledTime,
-          반복패턴: workflow.scheduleSettings.recurringPattern,
+      // 스케줄 설정 복원
+      if (workflow.schedule_config) {
+        console.log("⏰ 스케줄 설정 복원:", {
+          타입: workflow.schedule_config.type,
+          예약시간: workflow.schedule_config.scheduledTime,
+          반복패턴: workflow.schedule_config.recurringPattern,
         });
-        setScheduleSettings(workflow.scheduleSettings);
-        console.log("⏰ 스케줄 설정 복원 완료:", workflow.scheduleSettings);
+        setScheduleSettings(workflow.schedule_config);
       } else {
         console.log("⏰ 워크플로우에 스케줄 설정이 없음, 기본값 사용");
       }
 
-      // 테스트 설정도 복원
-      if (workflow.testSettings) {
-        setTestSettings(workflow.testSettings);
-        console.log("🧪 테스트 설정 복원:", workflow.testSettings);
+      // 테스트 설정 복원
+      if (workflow.variables?.testSettings) {
+        setTestSettings(workflow.variables.testSettings);
+        console.log("🧪 테스트 설정 복원:", workflow.variables.testSettings);
       }
     }
   }, [workflow]);
@@ -914,13 +938,6 @@ export function WorkflowBuilder({
         })),
       });
 
-      console.log(
-        targetGroups,
-        selectedTemplates,
-        templatePersonalizations,
-        targetTemplateMappings
-      );
-
       const response = await fetch("/api/workflow/preview", {
         method: "POST",
         headers: {
@@ -969,18 +986,8 @@ export function WorkflowBuilder({
           sampleData: result.data?.[0] || null,
         });
 
-        // 🔒 방어적 프로그래밍: result.data가 배열인지 확인
-        if (Array.isArray(result.data)) {
-          setPreviewData(result.data);
-        } else {
-          console.warn(
-            "⚠️ API 응답의 data가 배열이 아닙니다:",
-            typeof result.data,
-            result.data
-          );
-          setPreviewData([]);
-        }
-        setTotalEstimatedCount(result.totalEstimatedCount || 0);
+        setPreviewData(result.data.data);
+        setTotalEstimatedCount(result.data.totalEstimatedCount || 0);
       } else {
         console.error("❌ 미리보기 API 응답 실패:", result);
         throw new Error(result.error || "미리보기 데이터 로드 실패");
@@ -998,87 +1005,6 @@ export function WorkflowBuilder({
       setIsLoadingPreview(false);
     }
   };
-
-  // const getTriggerType = () => {
-  //   if (hasAutomationTargets()) {
-  //     return "webhook"; // 자동화 타입
-  //   }
-  //   // 스케줄 설정에 따라 결정
-  //   return scheduleSettings.type === "immediate" ? "manual" : "schedule";
-  // };
-
-  // const handleTestAutomationWorkflow = async () => {
-  //   try {
-  //     console.log("🧪 자동화 워크플로우 테스트 시작...");
-
-  //     const automationTarget = targetGroups.find(
-  //       (group) => group.type === "automation"
-  //     );
-  //     const eventType = automationTarget?.automationQuery?.event;
-
-  //     // 가짜 웹훅 이벤트 데이터 생성
-  //     const testEventData = {
-  //       event: eventType,
-  //       user: {
-  //         name: "테스트 사용자",
-  //         phone: testSettings.testPhoneNumber,
-  //         email: "test@example.com",
-  //       },
-  //       timestamp: new Date().toISOString(),
-  //       isTest: true,
-  //     };
-
-  //     // 웹훅 수신 API로 테스트 이벤트 전송
-  //     const response = await fetch("/api/events/automation", {
-  //       method: "POST",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify(testEventData),
-  //     });
-
-  //     if (response.ok) {
-  //       console.log("✅ 테스트 이벤트 발송 성공");
-  //     } else {
-  //       console.error("❌ 테스트 이벤트 발송 실패");
-  //     }
-  //   } catch (error) {
-  //     console.error("❌ 자동화 테스트 실패:", error);
-  //   }
-  // };
-
-  // const getTrigger = (): WorkflowTrigger => {
-  //   if (hasAutomationTargets()) {
-  //     // 🔥 자동화 타입일 때
-  //     const automationTarget = targetGroups.find(
-  //       (group) => group.type === "automation"
-  //     );
-  //     const eventType = automationTarget?.automationQuery?.event || "signup";
-
-  //     return {
-  //       id: `trigger_${eventType}_${Date.now()}`,
-  //       type: "webhook", // 모든 자동화는 webhook 타입
-  //       name: `webhook 자동화`,
-  //       description: `webhook 발생 시 자동으로 실행되는 워크플로우`,
-  //       conditions: [],
-  //       conditionLogic: "AND",
-  //     };
-  //   } else {
-  //     // 🔥 일반 워크플로우일 때
-  //     const triggerType =
-  //       scheduleSettings.type === "immediate" ? "manual" : "schedule";
-
-  //     return {
-  //       id: `trigger_${triggerType}_${Date.now()}`,
-  //       type: triggerType,
-  //       name: triggerType === "manual" ? "수동 실행" : "스케줄 실행",
-  //       description:
-  //         triggerType === "manual"
-  //           ? "관리자가 수동으로 실행하는 워크플로우"
-  //           : "스케줄에 따라 자동으로 실행되는 워크플로우",
-  //       conditions: [],
-  //       conditionLogic: "AND",
-  //     };
-  //   }
-  // };
 
   const getTriggerConfig = () => {
     if (triggerType === "webhook") {
@@ -1109,66 +1035,10 @@ export function WorkflowBuilder({
     }
   };
 
-  // const handleActivateAutomationWorkflow = async () => {
-  //   try {
-  //     console.log("🔄 자동화 워크플로우 활성화 중...");
-
-  //     const workflowData: Workflow = {
-  //       // id: workflow?.id || `workflow_${Date.now()}`,
-  //       name,
-  //       description,
-  //       status: "active", // 🔥 활성 상태로 설정
-
-  //       // 🔥 백엔드 요청 필드들만
-  //       selectedTemplates,
-  //       targetGroups: hasAutomationTargets() ? [] : targetGroups,
-  //       templatePersonalizations,
-  //       targetTemplateMappings,
-  //       scheduleSettings,
-  //       schedule_config: scheduleSettings,
-  //       testSettings,
-  //       steps: selectedTemplates.map((template, index) => ({
-  //         id: `step_${template.id}_${Date.now()}`,
-  //         name: `${template.templateName} 발송`,
-  //         action: {
-  //           id: `action_${template.id}_${Date.now()}`,
-  //           type: "send_alimtalk",
-  //           templateId: template.id,
-  //           templateCode: template.templateCode,
-  //           templateName: template.templateName,
-  //           variables: templateVariables[template.id] || {},
-  //           scheduleSettings: { type: "immediate", timezone: "Asia/Seoul" },
-  //           personalization: templatePersonalizations[template.id],
-  //         },
-  //         nextStepId: undefined,
-  //         position: { x: index * 200, y: 100 },
-  //       })),
-  //       createdBy: "user",
-  //       trigger_type: getTrigger().type,
-  //       trigger_config: getTriggerConfig(),
-  //       target_config: getTargetConfig(),
-
-  //       // 🔥 메타데이터
-  //       // createdAt: workflow?.createdAt || new Date().toISOString(),
-  //       // updatedAt: new Date().toISOString(),
-  //       // trigger: getTrigger(), // 호환성용
-  //     };
-
-  //     // 워크플로우 저장/업데이트
-  //     onSave(workflowData);
-
-  //     console.log(
-  //       "✅ 자동화 워크플로우가 활성화되었습니다. 웹훅을 기다리는 중..."
-  //     );
-  //   } catch (error) {
-  //     console.error("❌ 자동화 워크플로우 활성화 실패:", error);
-  //   }
-  // };
-
   const isScheduleTypeEnabled = (scheduleType: string) => {
     if (triggerType === "webhook") {
       // webhook 타입일 때는 immediate와 delay만 허용
-      return scheduleType === "immediate" || scheduleType === "delay";
+      return scheduleType === "immediate";
     }
     // manual 타입일 때는 모든 스케줄 타입 허용
     return true;
@@ -1271,23 +1141,6 @@ export function WorkflowBuilder({
             )}
           </div>
         </div>
-
-        {/* 수동 저장 버튼 */}
-        {/* <div className="flex items-center gap-2">
-          <Button
-            variant={hasUnsavedChanges ? "default" : "outline"}
-            onClick={saveWorkflow}
-            disabled={isSaving || !name || !description}
-            className="flex items-center gap-2"
-          >
-            {isSaving ? (
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            저장
-          </Button>
-        </div> */}
       </div>
 
       <Tabs
@@ -1822,18 +1675,22 @@ export function WorkflowBuilder({
                   </div>
 
                   <div
-                    className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                    className={`p-4 border rounded-lg transition-colors ${
                       scheduleSettings.type === "delay"
                         ? "border-blue-500 bg-blue-50"
-                        : "hover:bg-gray-50"
+                        : isScheduleTypeEnabled("delay")
+                        ? "hover:bg-gray-50 cursor-pointer"
+                        : "opacity-50 cursor-not-allowed"
                     }`}
                     onClick={() => {
-                      console.log("🔄 스케줄 타입 변경: delay");
-                      setScheduleSettings({
-                        type: "delay",
-                        delay: scheduleSettings.delay || 60,
-                        timezone: "Asia/Seoul",
-                      });
+                      if (isScheduleTypeEnabled("delay")) {
+                        console.log("🔄 스케줄 타입 변경: delay");
+                        setScheduleSettings({
+                          type: "delay",
+                          scheduledTime: scheduleSettings.scheduledTime || "",
+                          timezone: "Asia/Seoul",
+                        });
+                      }
                     }}
                   >
                     <div className="flex items-center gap-3">
@@ -2840,12 +2697,17 @@ export function WorkflowBuilder({
                   <Button
                     onClick={() => {
                       const testWorkflow = {
-                        ...buildWorkflowForTest(),
-                        testSettings: {
-                          ...testSettings,
-                          testPhoneNumber: testSettings.testPhoneNumber,
-                        },
+                        id: workflow?.id || "",
+                        name: `${name} (테스트)`,
+                        description: `${description} - 테스트 실행`,
+                        status: workflowStatus,
+                        trigger_type: triggerType,
+                        targetGroups,
+                        steps,
+                        testSettings,
+                        scheduleSettings,
                       };
+
                       onTest(testWorkflow);
                     }}
                     variant="outline"
@@ -2869,6 +2731,11 @@ export function WorkflowBuilder({
                       trigger_config: getTriggerConfig(),
                       target_config: getTargetConfig(),
                       schedule_config: scheduleSettings,
+                      variables: {
+                        templatePersonalizations,
+                        testSettings,
+                      },
+                      createdBy: "user",
                       message_config: {
                         steps: selectedTemplates.map((template, index) => ({
                           id: `step_${template.id}_${Date.now()}`,
@@ -2888,11 +2755,6 @@ export function WorkflowBuilder({
                         })),
                         selectedTemplates,
                       },
-                      variables: {
-                        templatePersonalizations,
-                        testSettings,
-                      },
-                      createdBy: "user",
                     };
 
                     // console.log("🚀 워크플로우 저장 데이터:", {
