@@ -226,39 +226,12 @@ async function executeWorkflowImmediately(
     const executionResult = await response.json();
     const responseTime = Date.now() - startTime;
 
-    // 성공 로그 저장
-    await supabase.from('message_logs').insert({
-      workflow_id: workflow.id,
-      status: 'success',
-      execution_result: {
-        ...executionResult,
-        webhook_event: eventType,
-        webhook_data: eventData,
-        response_time_ms: responseTime
-      },
-      created_at: new Date().toISOString()
-    });
-
     console.log(`✅ 즉시실행 완료: ${workflow.name} (${responseTime}ms)`);
     return executionResult;
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
     console.error(`❌ 즉시실행 실패: ${workflow.name}`, error);
-
-    // 실패 로그 저장
-    await supabase.from('message_logs').insert({
-      workflow_id: workflow.id,
-      status: 'failed',
-      error_message: error instanceof Error ? error.message : '알 수 없는 오류',
-      execution_result: {
-        webhook_event: eventType,
-        webhook_data: eventData,
-        response_time_ms: responseTime
-      },
-      created_at: new Date().toISOString()
-    });
-
     throw error;
   }
 }

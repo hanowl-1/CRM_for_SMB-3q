@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     // 🔥 1단계: 실제 알림톡 템플릿 데이터 로드
     const actualTemplates = templates.map((template: any) => {
-      const templateKey = template.templateCode || template.id;
+      const templateKey = template.id || template.templateCode;
       
       // 여러 방법으로 템플릿 찾기
       let realTemplate = null;

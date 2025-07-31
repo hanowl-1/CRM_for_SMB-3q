@@ -945,7 +945,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     });
     
     // 🔥 미리보기 API와 동일한 템플릿 조회 로직
-    const templateKey = templateCode || templateId;
+    const templateKey = templateId || templateCode;
     console.log(`🔑 템플릿 키: ${templateKey}`);
     
     // 여러 방법으로 템플릿 찾기
