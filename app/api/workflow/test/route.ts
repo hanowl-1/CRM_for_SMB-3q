@@ -200,10 +200,14 @@ export async function POST(request: NextRequest) {
       data: any;
     }> = [];
 
+    // Automation 타입 워크플로우 체크
+    const hasAutomationGroups = workflow.targetGroups?.some(group => group.type === "automation");
+    
     if (
       useRealTargets &&
       workflow.targetGroups &&
-      workflow.targetGroups.length > 0
+      workflow.targetGroups.length > 0 &&
+      !hasAutomationGroups
     ) {
       console.log("🎯 실제 타겟 그룹에서 연락처 조회 중...");
       targetContacts = await getContactsFromTargetGroups(workflow.targetGroups);
@@ -230,6 +234,11 @@ export async function POST(request: NextRequest) {
       console.log(
         `✅ 실제 타겟 그룹에서 ${targetContacts.length}개 연락처 조회 완료`
       );
+    } else if (hasAutomationGroups) {
+      console.log("🔔 Automation 워크플로우 감지 - 지정된 테스트 번호 사용");
+      useRealTargets = false; // automation 워크플로우는 테스트 번호 사용
+      phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
+      console.log("📱 Automation 워크플로우 테스트 번호로 변경:", phoneNumber);
     }
 
     for (let i = 0; i < workflow.steps.length; i++) {
@@ -653,9 +662,12 @@ async function sendAlimtalk({
       COOLSMS_CONFIG.apiSecret
     );
 
+    // 전화번호 정리 (하이픈 제거)
+    const cleanedPhoneNumber = cleanPhoneNumber(phoneNumber);
+    
     // 기본 메시지 옵션
     const baseMessageOptions: any = {
-      to: phoneNumber,
+      to: cleanedPhoneNumber,
       from: SMS_CONFIG.senderNumber,
       type: "ATA", // 알림톡
       kakaoOptions: {
@@ -670,7 +682,7 @@ async function sendAlimtalk({
     };
 
     console.log("📤 CoolSMS API 호출 옵션:", {
-      to: phoneNumber,
+      to: cleanedPhoneNumber,
       from: SMS_CONFIG.senderNumber,
       type: "ATA",
       pfId: getPfIdForTemplate(finalTemplateId),
@@ -811,6 +823,11 @@ function getPfIdForTemplate(templateId: string): string {
   return pfId;
 }
 
+// 전화번호 정리 함수 (하이픈 및 공백 제거)
+function cleanPhoneNumber(phoneNumber: string): string {
+  return phoneNumber.replace(/[-\s]/g, '');
+}
+
 // SMS 발송 함수
 async function sendSMS({
   content,
@@ -833,7 +850,7 @@ async function sendSMS({
   });
 
   console.log("📱 SMS 발송 시도");
-  console.log("수신번호:", phoneNumber);
+  console.log("수신번호:", phoneNumber, "→", cleanPhoneNumber(phoneNumber));
   console.log("처리된 메시지:", processedContent);
   console.log("실제 발송:", enableRealSending ? "활성화" : "비활성화");
 
@@ -860,8 +877,11 @@ async function sendSMS({
       COOLSMS_CONFIG.apiSecret
     );
 
+    // 전화번호 정리 (하이픈 제거)
+    const cleanedPhoneNumber = cleanPhoneNumber(phoneNumber);
+    
     const result = await messageService.sendOne({
-      to: phoneNumber,
+      to: cleanedPhoneNumber,
       from: SMS_CONFIG.senderNumber,
       text: processedContent,
       type: processedContent.length > 90 ? "LMS" : "SMS", // 90자 초과시 LMS
