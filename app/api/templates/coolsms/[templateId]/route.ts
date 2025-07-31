@@ -9,10 +9,10 @@ function generateSignature(method: string, uri: string, apiKey: string, apiSecre
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { templateId: string } }
+  { params }: { params: Promise<{ templateId: string }> }
 ) {
   try {
-    const templateId = params.templateId
+    const { templateId } = await params
     const apiKey = process.env.COOLSMS_API_KEY!
     const apiSecret = process.env.COOLSMS_API_SECRET!
     const salt = Date.now().toString()

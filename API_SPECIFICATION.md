@@ -351,6 +351,45 @@ GET /api/scheduler/register
 POST /api/scheduler/register
 ```
 
+**API 목적:**
+- 활성화된 워크플로우들의 스케줄을 `scheduled_jobs` 테이블에 등록
+- Manual 워크플로우가 `active` 상태로 변경될 때 자동 호출
+- 즉시 실행(`immediate`) 타입을 제외한 모든 스케줄 타입 지원
+
+**처리 대상:**
+- `status = 'active'`인 모든 워크플로우
+- `schedule_config.type`이 `delay`, `scheduled`, `recurring`인 워크플로우
+- `immediate` 타입은 **제외** (수동 실행만 지원)
+
+**스케줄 타입별 동작:**
+- **`delay`**: 워크플로우 활성화 시점부터 N분 후 실행으로 등록
+- **`scheduled`**: 지정된 날짜/시간에 실행으로 등록  
+- **`recurring`**: 반복 패턴에 따른 다음 실행 시간으로 등록
+
+**응답:**
+```json
+{
+  "success": true,
+  "data": {
+    "scheduledCount": 3,
+    "scheduledJobs": [
+      {
+        "workflowName": "신규 회원 환영",
+        "scheduledTime": "2024-01-15 09:00:00",
+        "jobId": "uuid-123"
+      }
+    ],
+    "processedWorkflows": 5
+  },
+  "message": "3개의 작업이 스케줄에 등록되었습니다."
+}
+```
+
+**주의사항:**
+- GET/POST 모두 지원하지만 **GET 메서드 권장**
+- 기존 활성 작업과의 중복을 자동으로 처리
+- 반복 워크플로우는 기존 작업을 취소하고 새로 등록
+
 ### 4.12 테스트 스케줄
 ```http
 POST /api/scheduler/test-schedule

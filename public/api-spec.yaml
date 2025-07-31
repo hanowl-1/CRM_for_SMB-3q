@@ -1505,7 +1505,9 @@ paths:
       tags: [Webhooks]
       summary: 동적 웹훅 처리
       description: |
-        웹훅 이벤트를 처리합니다.
+        웹훅 이벤트를 받아서 해당하는 워크플로우를 즉시실행하거나 지연실행합니다.
+        - 즉시실행: schedule_config.type이 'immediate'인 경우 바로 실행
+        - 지연실행: schedule_config.type이 'delay'인 경우 scheduled_jobs에 추가
         
         **지원하는 이벤트 타입:** `lead_created`, `signup`, `purchase`, `cancel`, `payment_failed`
       parameters:
@@ -1535,7 +1537,29 @@ paths:
                       triggered_workflows:
                         type: array
                         items:
-                          type: string
+                          type: object
+                          properties:
+                            workflowId:
+                              type: string
+                            workflowName:
+                              type: string
+                            executionType:
+                              type: string
+                              enum: [immediate, delayed]
+                              description: "실행 방식"
+                            executionResult:
+                              type: object
+                              description: "즉시실행 결과 (executionType이 immediate인 경우)"
+                            scheduledJobId:
+                              type: string
+                              description: "지연실행 작업 ID (executionType이 delayed인 경우)"
+                            conditions:
+                              type: array
+                            conditionsPassed:
+                              type: boolean
+                            error:
+                              type: string
+                              description: "실행 실패 시 오류 메시지"
                       event_data:
                         type: object
 

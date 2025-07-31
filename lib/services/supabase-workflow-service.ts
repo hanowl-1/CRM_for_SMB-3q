@@ -465,26 +465,30 @@ class SupabaseWorkflowService {
 
       console.log('✅ 워크플로우 업데이트 성공:', data);
 
-      // 🔥 스케줄 설정이 변경되거나 워크플로우가 활성 상태인 경우 크론잡 실행
+      // 🔥 스케줄 등록이 필요한 경우 통합 처리
       const hasScheduleUpdate = updates.scheduleSettings || (updates as any).scheduleConfig || (updates as any).schedule_config;
-      const isActivating = updates.status === 'active' || data.status === 'active';
+      const isActivating = updates.status === 'active';
+      const isActiveWorkflow = data.status === 'active';
+      const hasScheduleConfig = data.schedule_config && data.schedule_config.type !== 'immediate';
       
-      if (hasScheduleUpdate && isActivating) {
-        console.log('🔄 스케줄 설정 변경 감지, 스케줄 등록 API 실행 시작...');
-        console.log('📋 스케줄 업데이트 정보:', {
-          scheduleSettings: updates.scheduleSettings,
-          scheduleConfig: (updates as any).scheduleConfig,
-          status: updates.status,
-          dataStatus: data.status
+      // 스케줄 등록 조건: (스케줄 변경 + 활성 상태) 또는 (활성화 + 스케줄 있음)
+      const shouldRegisterSchedule = (hasScheduleUpdate && (isActivating || isActiveWorkflow)) || (isActivating && hasScheduleConfig);
+      
+      if (shouldRegisterSchedule) {
+        console.log('🔄 워크플로우 스케줄 등록 필요:', {
+          hasScheduleUpdate,
+          isActivating,
+          isActiveWorkflow,
+          hasScheduleConfig,
+          scheduleType: data.schedule_config?.type
         });
         
         try {
-          // 스케줄 등록 API 호출하여 scheduled_jobs 테이블에 등록
           const baseUrl = process.env.NODE_ENV === 'production' 
             ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
             : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
 
-          console.log('📡 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
+          console.log('📡 통합 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
           const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
             method: 'GET',
             headers: {
@@ -497,46 +501,14 @@ class SupabaseWorkflowService {
 
           if (registerResponse.ok) {
             const registerResult = await registerResponse.json();
-            console.log('✅ 스케줄 등록 성공:', registerResult.message);
+            console.log('✅ 통합 스케줄 등록 성공:', registerResult.message);
           } else {
             const errorText = await registerResponse.text();
-            console.warn('⚠️ 스케줄 등록 실패:', errorText);
-          }
-        } catch (schedulerError) {
-          console.warn('⚠️ 스케줄 등록 중 오류:', schedulerError);
-          // 스케줄 등록 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
-        }
-      }
-
-      // 워크플로우 상태가 active로 변경되는 경우에도 스케줄 등록 실행 (스케줄이 있는 경우)
-      if (updates.status === 'active' && data.schedule_config && data.schedule_config.type !== 'immediate') {
-        console.log('🔄 워크플로우 활성화 감지, 스케줄 등록 실행...');
-        
-        try {
-          const baseUrl = process.env.NODE_ENV === 'production' 
-            ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_BASE_URL || 'https://your-domain.vercel.app')
-            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
-
-          console.log('📡 워크플로우 활성화 스케줄 등록 API 호출:', `${baseUrl}/api/scheduler/register`);
-          const registerResponse = await fetch(`${baseUrl}/api/scheduler/register`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              // Vercel Protection Bypass 헤더 추가
-              'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '',
-              'x-vercel-set-bypass-cookie': 'true'
-            }
-          });
-
-          if (registerResponse.ok) {
-            const registerResult = await registerResponse.json();
-            console.log('✅ 워크플로우 활성화 스케줄 등록 성공:', registerResult.message);
-          } else {
-            const errorText = await registerResponse.text();
-            console.warn('⚠️ 워크플로우 활성화 스케줄 등록 실패:', errorText);
+            console.warn('⚠️ 통합 스케줄 등록 실패:', errorText);
           }
         } catch (registerError) {
-          console.warn('⚠️ 워크플로우 활성화 스케줄 등록 중 오류:', registerError);
+          console.warn('⚠️ 통합 스케줄 등록 중 오류:', registerError);
+          // 스케줄 등록 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
         }
       }
 

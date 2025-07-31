@@ -12,22 +12,34 @@ interface WebhookParams {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: WebhookParams }
+  { params }: { params: Promise<WebhookParams> }
 ) {
   try {
-    const { eventType } = params;
+    const { eventType } = await params;
     const eventData: WebhookEventData = await request.json();
 
     console.log(`🔔 웹훅 이벤트 수신: ${eventType}`, eventData);
 
-    // 이벤트 타입 검증
-    const supportedEvents = ['lead_created', 'signup', 'purchase', 'cancel', 'payment_failed'];
-    if (!supportedEvents.includes(eventType)) {
+    // 이벤트 타입 매핑 (하이픈 → 언더스코어)
+    const eventTypeMapping: Record<string, string> = {
+      'lead-created': 'lead_created',
+      'lead_created': 'lead_created',
+      'signup': 'signup',
+      'purchase': 'purchase',
+      'cancel': 'cancel',
+      'payment-failed': 'payment_failed',
+      'payment_failed': 'payment_failed'
+    };
+
+    const normalizedEventType = eventTypeMapping[eventType];
+    if (!normalizedEventType) {
       return NextResponse.json({
         success: false,
         message: `지원되지 않는 이벤트 타입: ${eventType}`
       }, { status: 400 });
     }
+
+    console.log(`🔄 이벤트 타입 변환: ${eventType} → ${normalizedEventType}`);
 
     // 기본 데이터 검증
     if (!eventData || typeof eventData !== 'object') {
@@ -38,18 +50,26 @@ export async function POST(
     }
 
     // 웹훅 타입 워크플로우 조회
-    const triggeredWorkflows = await triggerWebhookWorkflows(eventType, eventData);
+    const triggeredWorkflows = await triggerWebhookWorkflows(normalizedEventType, eventData);
 
-    console.log(`✅ ${eventType} 이벤트 처리 완료: ${triggeredWorkflows.length}개 워크플로우 트리거됨`);
+    console.log(`✅ ${normalizedEventType} 이벤트 처리 완료: ${triggeredWorkflows.length}개 워크플로우 트리거됨`);
 
     // 워크플로우 개수에 따른 메시지 생성
+    const immediateCount = triggeredWorkflows.filter(w => w.executionType === 'immediate').length;
+    const delayedCount = triggeredWorkflows.filter(w => w.executionType === 'delayed').length;
+    
     let message;
     if (triggeredWorkflows.length === 0) {
-      message = `${eventType} 이벤트를 받았지만, 활성 워크플로우가 없어 알림톡을 발송하지 않았습니다.`;
-    } else if (triggeredWorkflows.length === 1) {
-      message = `${eventType} 이벤트 처리 완료: 1개 워크플로우가 실행되어 알림톡이 발송됩니다.`;
+      message = `${normalizedEventType} 이벤트를 받았지만, 활성 워크플로우가 없어 알림톡을 발송하지 않았습니다.`;
     } else {
-      message = `${eventType} 이벤트 처리 완료: ${triggeredWorkflows.length}개 워크플로우가 실행되어 알림톡이 발송됩니다.`;
+      const parts = [];
+      if (immediateCount > 0) {
+        parts.push(`${immediateCount}개 즉시실행`);
+      }
+      if (delayedCount > 0) {
+        parts.push(`${delayedCount}개 지연실행`);
+      }
+      message = `${normalizedEventType} 이벤트 처리 완료: ${parts.join(', ')} 워크플로우가 처리되었습니다.`;
     }
 
     return NextResponse.json({
@@ -117,18 +137,36 @@ async function triggerWebhookWorkflows(eventType: string, eventData: WebhookEven
         continue;
       }
 
-      console.log(`✅ 조건 만족: ${workflow.name} - 워크플로우 실행 예약`);
+      console.log(`✅ 조건 만족: ${workflow.name} - 워크플로우 실행 처리`);
 
-      // 워크플로우 실행 스케줄링
-      const scheduledJob = await scheduleWorkflowExecution(workflow, eventData, eventType);
+      // 스케줄 설정에 따른 실행 방식 결정
+      const scheduleConfig = workflow.schedule_config || {};
       
-      triggeredWorkflows.push({
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        scheduledJobId: scheduledJob.id,
-        conditions: conditions,
-        conditionsPassed: true
-      });
+      if (scheduleConfig.type === 'immediate') {
+        // 즉시실행: 바로 워크플로우 실행
+        const executionResult = await executeWorkflowImmediately(workflow, eventData, eventType);
+        triggeredWorkflows.push({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          executionType: 'immediate',
+          executionResult: executionResult,
+          conditions: conditions,
+          conditionsPassed: true
+        });
+      } else if (scheduleConfig.type === 'delay') {
+        // 지연실행: scheduled_jobs에 추가
+        const scheduledJob = await scheduleDelayedExecution(workflow, eventData, eventType);
+        triggeredWorkflows.push({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          executionType: 'delayed',
+          scheduledJobId: scheduledJob.id,
+          conditions: conditions,
+          conditionsPassed: true
+        });
+      } else {
+        console.log(`⚠️ 지원되지 않는 스케줄 타입: ${scheduleConfig.type} - ${workflow.name}`);
+      }
 
     } catch (workflowError) {
       console.error(`❌ 워크플로우 처리 실패: ${workflow.name}`, workflowError);
@@ -146,9 +184,89 @@ async function triggerWebhookWorkflows(eventType: string, eventData: WebhookEven
 }
 
 /**
- * 워크플로우 실행을 스케줄링합니다.
+ * 워크플로우를 즉시 실행합니다.
  */
-async function scheduleWorkflowExecution(
+async function executeWorkflowImmediately(
+  workflow: any, 
+  eventData: WebhookEventData, 
+  eventType: string
+) {
+  const supabase = getSupabase();
+  const startTime = Date.now();
+  
+  console.log(`🚀 즉시실행 시작: ${workflow.name}`);
+  
+  try {
+    // 워크플로우 실행 API 호출
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/api/workflow/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-scheduler-internal': 'true',
+      },
+      body: JSON.stringify({
+        workflowId: workflow.id,
+        webhook_data: eventData,
+        webhook_event: eventType,
+        schedule_config: workflow.schedule_config,
+        target_config: workflow.target_config,
+        message_config: workflow.message_config,
+        variables: workflow.variables,
+        enableRealSending: workflow.variables?.testSettings?.enableRealSending || false,
+        webhookExecution: true  // 웹훅 실행임을 명시
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`워크플로우 실행 실패: ${errorText}`);
+    }
+
+    const executionResult = await response.json();
+    const responseTime = Date.now() - startTime;
+
+    // 성공 로그 저장
+    await supabase.from('message_logs').insert({
+      workflow_id: workflow.id,
+      status: 'success',
+      execution_result: {
+        ...executionResult,
+        webhook_event: eventType,
+        webhook_data: eventData,
+        response_time_ms: responseTime
+      },
+      created_at: new Date().toISOString()
+    });
+
+    console.log(`✅ 즉시실행 완료: ${workflow.name} (${responseTime}ms)`);
+    return executionResult;
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ 즉시실행 실패: ${workflow.name}`, error);
+
+    // 실패 로그 저장
+    await supabase.from('message_logs').insert({
+      workflow_id: workflow.id,
+      status: 'failed',
+      error_message: error instanceof Error ? error.message : '알 수 없는 오류',
+      execution_result: {
+        webhook_event: eventType,
+        webhook_data: eventData,
+        response_time_ms: responseTime
+      },
+      created_at: new Date().toISOString()
+    });
+
+    throw error;
+  }
+}
+
+/**
+ * 워크플로우 실행을 지연 스케줄링합니다.
+ */
+async function scheduleDelayedExecution(
   workflow: any, 
   eventData: WebhookEventData, 
   eventType: string
@@ -156,8 +274,8 @@ async function scheduleWorkflowExecution(
   const supabase = getSupabase();
   const scheduleConfig = workflow.schedule_config || {};
   
-  // 지연 시간 계산 (schedule_config에서 가져옴)
-  const delayMinutes = scheduleConfig.delay || 0;
+  // 지연 시간 계산 (안전한 접근)
+  const delayMinutes = scheduleConfig?.delay || 0;
   const scheduledTime = new Date();
   scheduledTime.setMinutes(scheduledTime.getMinutes() + delayMinutes);
 
@@ -187,6 +305,6 @@ async function scheduleWorkflowExecution(
     throw new Error(`워크플로우 스케줄링 실패: ${error.message}`);
   }
 
-  console.log(`📅 워크플로우 스케줄링 완료: ${workflow.name} (${delayMinutes}분 후 실행)`);
+  console.log(`📅 지연실행 스케줄링 완료: ${workflow.name} (${delayMinutes}분 후 실행)`);
   return scheduledJob;
 } 

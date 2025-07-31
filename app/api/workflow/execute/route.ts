@@ -23,7 +23,11 @@ interface ExecuteRequest {
   jobId?: string;
   scheduledJobId?: string;
   enableRealSending?: boolean;
+  webhook_data?: any;
+  webhook_event?: string; // 웹훅 이벤트 타입
+  webhookExecution?: boolean;
 }
+
 
 /**
  * 🎯 워크플로우 실행 API
@@ -77,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
     
     const body: ExecuteRequest = await request.json();
-    let { workflow, workflowId, scheduledExecution = false, jobId, scheduledJobId, enableRealSending = false } = body;
+    let { workflow, workflowId, scheduledExecution = false, jobId, scheduledJobId, enableRealSending = false, webhook_data, webhook_event, webhookExecution = false } = body;
 
     // 🔥 스케줄러에서 전달한 scheduledJobId를 jobId로 매핑
     if (scheduledJobId && !jobId) {
@@ -85,9 +89,17 @@ export async function POST(request: NextRequest) {
       console.log(`📋 scheduledJobId를 jobId로 매핑: ${jobId}`);
     }
 
-    // 🔥 스케줄된 작업에서 웹훅 데이터 추출
+    // 🔥 웹훅 데이터 처리 (직접 전달된 데이터 우선)
     let webhookTriggerData = null;
-    if (jobId && scheduledExecution) {
+    if (webhook_data && webhook_event) {
+      console.log(`🔔 웹훅 데이터 직접 전달됨:`, { event: webhook_event, data: webhook_data });
+      webhookTriggerData = {
+        trigger_type: 'webhook',
+        webhook_event: webhook_event,
+        event_data: webhook_data,
+        source: 'direct_webhook'
+      };
+    } else if (jobId && scheduledExecution) {
       console.log(`📋 스케줄된 작업에서 웹훅 데이터 조회 중: ${jobId}`);
       
       try {
@@ -99,14 +111,33 @@ export async function POST(request: NextRequest) {
         
         if (jobError) {
           console.error('스케줄된 작업 조회 실패:', jobError);
-        } else if (jobData?.workflow_data?.webhook_trigger) {
-          webhookTriggerData = jobData.workflow_data.webhook_trigger;
-          console.log('🔔 웹훅 트리거 데이터 발견:', webhookTriggerData);
+        } else if (jobData?.workflow_data) {
+          try {
+            // 🔥 workflow_data가 JSON 문자열로 저장되어 있으므로 파싱 필요
+            const workflowDataObj = typeof jobData.workflow_data === 'string' 
+              ? JSON.parse(jobData.workflow_data) 
+              : jobData.workflow_data;
+            
+            if (workflowDataObj?.webhook_trigger) {
+              webhookTriggerData = workflowDataObj.webhook_trigger;
+              console.log('🔔 웹훅 트리거 데이터 발견:', webhookTriggerData);
+            }
+          } catch (parseError) {
+            console.error('workflow_data JSON 파싱 실패:', parseError);
+          }
+        } else {
+          console.log('⚠️ workflow_data가 없습니다');
         }
       } catch (jobQueryError) {
         console.error('스케줄된 작업 조회 중 오류:', jobQueryError);
       }
     }
+
+    console.log('🔍 webhookTriggerData 복원 결과:', {
+      webhookTriggerDataExists: !!webhookTriggerData,
+      scheduledExecution: scheduledExecution,
+      jobId: jobId
+    });
 
     // 🔥 workflow 객체가 없으면 workflowId로 조회
     if (!workflow && workflowId) {
@@ -230,8 +261,8 @@ export async function POST(request: NextRequest) {
     const startTime = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 시작 시간 기록
     let endTime = getKoreaTime(); // 🔥 endTime을 상위 스코프에서 선언
 
-    // 🔥 수동 실행도 스케줄 잡으로 기록하여 통합 모니터링
-    if (!scheduledExecution) {
+    // 🔥 수동 실행도 스케줄 잡으로 기록하여 통합 모니터링 (웹훅 실행 제외)
+    if (!scheduledExecution && !webhookExecution) {
       console.log('📝 수동 실행을 스케줄 잡으로 기록 중...');
       try {
         // 🔥 간단하게: 현재 시간을 한국시간대로 명시
@@ -275,6 +306,8 @@ export async function POST(request: NextRequest) {
         console.error('⚠️ 수동 실행 스케줄 잡 생성 중 오류:', scheduleError);
         // 스케줄 잡 생성 실패는 워크플로우 실행에 영향을 주지 않음
       }
+    } else if (webhookExecution) {
+      console.log('🔔 웹훅 실행 - scheduled_jobs 기록 생략');
     }
 
     try {
@@ -287,16 +320,15 @@ export async function POST(request: NextRequest) {
         webhook_trigger?: any;
       };
       
-      // 웹훅 트리거인지 확인
+      // 웹훅 트리거인지 확인 (직접 웹훅 또는 웹훅 데이터가 있는 경우)
       const isWebhookTrigger = workflowWithSupabaseProps.trigger_type === 'webhook' || 
-                              workflowWithSupabaseProps.webhook_trigger?.trigger_type === 'webhook';
+                              workflowWithSupabaseProps.webhook_trigger?.trigger_type === 'webhook' ||
+                              !!webhookTriggerData;
       
-      console.log('🔍 [DEBUG] 웹훅 트리거 확인:', {
-        'trigger_type': workflowWithSupabaseProps.trigger_type,
-        'webhook_trigger': workflowWithSupabaseProps.webhook_trigger,
-        'isWebhookTrigger': isWebhookTrigger,
-        'condition1': workflowWithSupabaseProps.trigger_type === 'webhook',
-        'condition2': workflowWithSupabaseProps.webhook_trigger?.trigger_type === 'webhook'
+      console.log('🔍 웹훅 트리거 확인:', {
+        trigger_type: workflowWithSupabaseProps.trigger_type,
+        hasWebhookTriggerData: !!webhookTriggerData,
+        isWebhookTrigger: isWebhookTrigger
       });
       
       console.log('📋 워크플로우 실행 시작:', {
@@ -345,8 +377,19 @@ export async function POST(request: NextRequest) {
       }
       
       // 🔥 데이터 검증 (웹훅 타입은 대상 그룹 검증 건너뛰기)
+      console.log('🔍 대상 그룹 검증:', {
+        isWebhookTrigger: isWebhookTrigger,
+        targetGroupsLength: targetGroups.length,
+        willSkipValidation: isWebhookTrigger
+      });
+      
       if (!isWebhookTrigger && targetGroups.length === 0) {
+        console.error('❌ 대상 그룹 검증 실패 - 웹훅이 아닌데 targetGroups가 비어있음');
         throw new Error('대상 그룹이 설정되지 않았습니다. target_config.targetGroups를 확인해주세요.');
+      }
+      
+      if (isWebhookTrigger) {
+        console.log('✅ 웹훅 트리거이므로 대상 그룹 검증 건너뛰기');
       }
       
       if (messageSteps.length === 0) {
@@ -366,7 +409,9 @@ export async function POST(request: NextRequest) {
 
         if (isWebhookTrigger) {
           // 🔥 웹훅 타입: 이벤트 데이터에서 직접 연락처 추출
-          const webhookEventData = workflowWithSupabaseProps.webhook_trigger?.event_data || {};
+          const webhookEventData = webhookTriggerData?.event_data || 
+                                   workflowWithSupabaseProps.webhook_trigger?.event_data || 
+                                   {};
           const webhookTargetGroup = {
             id: 'webhook_target',
             name: '웹훅 이벤트 대상',
@@ -374,8 +419,6 @@ export async function POST(request: NextRequest) {
             estimatedCount: 1,
             webhookEventData // 웹훅 이벤트 데이터 저장
           };
-          
-          console.log('🔔 웹훅 이벤트 데이터:', webhookEventData);
           
           const stepResult = await executeStep(step, webhookTargetGroup, workflow, enableRealSending, targetTemplateMappings);
           results.push({
@@ -910,6 +953,12 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
     
     // 1) 직접 키 매칭
     console.log(`🔍 1단계: 직접 키 매칭 시도 (${templateKey})`);
+    console.log(`🔍 KakaoAlimtalkTemplateById 객체 상태:`, {
+      totalKeys: Object.keys(KakaoAlimtalkTemplateById).length,
+      hasTargetKey: templateKey in KakaoAlimtalkTemplateById,
+      sampleKeys: Object.keys(KakaoAlimtalkTemplateById).slice(0, 3),
+      targetKeyType: typeof templateKey
+    });
     templateInfo = KakaoAlimtalkTemplateById[templateKey as keyof typeof KakaoAlimtalkTemplateById];
     console.log(`📋 1단계 결과:`, !!templateInfo ? '성공' : '실패');
     
@@ -923,9 +972,34 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
       }
     }
     
-    // 2) 113번 템플릿을 특별히 찾기
+    // 1-2) 81번 템플릿 특별 처리
+    if (!templateInfo && templateId === 'KA01TP250211020438703JXjSd4tHP15') {
+      console.log(`🔍 1-2단계: 81번 템플릿 특별 처리`);
+      templateInfo = KakaoAlimtalkTemplateById['KA01TP250211020438703JXjSd4tHP15'];
+      console.log(`📋 1-2단계 결과:`, !!templateInfo ? '성공' : '실패');
+      if (templateInfo) {
+        console.log(`✅ 81번 템플릿 직접 매칭 성공:`, templateInfo.templateName);
+      }
+    }
+    
+    // 2) 81번 템플릿을 특별히 찾기
+    if (!templateInfo && (step.templates?.[0]?.templateName?.includes('81.') || step.name?.includes('81.'))) {
+      console.log(`🔍 2단계: 81번 템플릿 특별 매칭 시도`);
+      const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
+      console.log(`📋 총 템플릿 개수: ${templateEntries.length}`);
+      for (const [key, tmpl] of templateEntries) {
+        if (tmpl.templateName && tmpl.templateName.includes('81.') && tmpl.templateName.includes('도입 문의 완료')) {
+          templateInfo = tmpl;
+          console.log(`✅ 81번 템플릿 매칭 성공: ${key}`);
+          break;
+        }
+      }
+      console.log(`📋 2단계 결과:`, !!templateInfo ? '성공' : '실패');
+    }
+    
+    // 3) 113번 템플릿을 특별히 찾기
     if (!templateInfo && step.templates?.[0]?.templateName?.includes('113.')) {
-      console.log(`🔍 2단계: 113번 템플릿 특별 매칭 시도`);
+      console.log(`🔍 3단계: 113번 템플릿 특별 매칭 시도`);
       const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
       console.log(`📋 총 템플릿 개수: ${templateEntries.length}`);
       for (const [key, tmpl] of templateEntries) {
@@ -935,11 +1009,12 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           break;
         }
       }
-      console.log(`📋 2단계 결과:`, !!templateInfo ? '성공' : '실패');
+      console.log(`📋 3단계 결과:`, !!templateInfo ? '성공' : '실패');
     }
     
-    // 3) 템플릿 이름으로 매칭
+    // 4) 템플릿 이름으로 매칭
     if (!templateInfo && step.templates?.[0]?.templateName) {
+      console.log(`🔍 4단계: 템플릿 이름 매칭 시도 (${step.templates[0].templateName})`);
       const templateEntries = Object.entries(KakaoAlimtalkTemplateById);
       for (const [key, tmpl] of templateEntries) {
         if (tmpl.templateName === step.templates[0].templateName) {
@@ -948,10 +1023,12 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           break;
         }
       }
+      console.log(`📋 4단계 결과:`, !!templateInfo ? '성공' : '실패');
     }
     
-    // 4) step.templates에서 직접 사용
+    // 5) step.templates에서 직접 사용
     if (!templateInfo && step.templates?.[0]) {
+      console.log(`🔍 5단계: step.templates에서 직접 사용`);
       templateInfo = {
         templateName: step.templates[0].templateName || '사용자 정의 템플릿',
         content: step.templates[0].content,
@@ -1194,9 +1271,20 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
           }
         }
 
-        // 🔥 템플릿에서 모든 변수 패턴 찾기 및 기본값 설정
+        // 🔥 템플릿에서 실제 변수 패턴만 찾기 (#{변수명} 형태만)
         let processedContent = templateInfo.content;
         const templateVariableMatches = processedContent.match(/#{([^}]+)}/g) || [];
+        
+        console.log(`🔍 템플릿에서 발견된 변수: ${templateVariableMatches.length}개`, templateVariableMatches);
+        
+        // 🔥 템플릿에 실제로 존재하지 않는 변수들을 personalizedVariables에서 제거
+        const templateVariableNames = templateVariableMatches.map(v => v);
+        Object.keys(personalizedVariables).forEach(key => {
+          if (key.startsWith('#{') && !templateVariableNames.includes(key)) {
+            console.log(`🗑️ 템플릿에 없는 변수 제거: ${key}`);
+            delete personalizedVariables[key];
+          }
+        });
               
         // 발견된 모든 변수에 대해 기본값 설정
         templateVariableMatches.forEach(fullVar => {
