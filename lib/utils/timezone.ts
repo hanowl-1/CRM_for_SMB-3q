@@ -21,6 +21,7 @@ export const KOREA_TIMEZONE = 'Asia/Seoul';
  * 🔥 반환값: 한국 시간 기준 Date 객체 (저장 시 koreaTimeToUTCString 사용 필요)
  */
 export function getKoreaTime(): Date {
+  // 🔥 정확한 한국 시간 Date 객체 반환
   const koreaMoment = moment.tz(KOREA_TIMEZONE);
   
   // 🔥 문서 원칙 적용: 한국 시간 값으로 Date 객체 생성

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/database/supabase-client";
+import { handleWorkflowActivation } from "@/lib/utils/workflow-scheduler";
 
 // GET: 워크플로우 목록 조회 (페이지네이션 + 필터링 지원)
 export async function GET(request: NextRequest) {
@@ -197,10 +198,25 @@ export async function POST(request: NextRequest) {
       trigger_type: data.trigger_type,
     });
 
+    // 🔥 자동 스케줄링 처리 (active + recurring인 경우)
+    let schedulingResult = null;
+    if (data.status === 'active' && data.trigger_type === 'manual' && data.schedule_config?.type === 'recurring') {
+      console.log(`📅 자동 스케줄링 시작: ${data.name}`);
+      schedulingResult = await handleWorkflowActivation(data);
+      
+      if (schedulingResult.success) {
+        console.log(`✅ 자동 스케줄링 완료: ${data.name}`);
+      } else {
+        console.error(`❌ 자동 스케줄링 실패: ${data.name}`, schedulingResult.error);
+        // 스케줄링 실패는 워크플로우 생성 성공에 영향을 주지 않음
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
         data: data,
+        scheduling: schedulingResult // 스케줄링 결과 포함
       },
       { status: 201 }
     );

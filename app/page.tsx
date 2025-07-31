@@ -501,6 +501,7 @@ function DashboardContent() {
         body: JSON.stringify({
           workflowId: executeModal.workflowId,
           enableRealSending: true,
+          scheduleConfig: { type: 'immediate' }, // 즉시 실행 명시
         }),
       });
 
