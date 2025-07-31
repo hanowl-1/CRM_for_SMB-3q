@@ -75,16 +75,13 @@ export async function POST(request: NextRequest) {
     let phoneNumber: string | undefined;
     let useRealTargets = false;
 
-    if (isSchedulerExecution && enableRealSending) {
-      // 스케줄러 실행 시에는 실제 타겟 그룹 사용
-      console.log("🎯 스케줄러 실행 모드: 실제 타겟 그룹 연락처 사용");
-      useRealTargets = true;
-      phoneNumber = "TARGET_GROUP"; // 특수 값으로 표시
-    } else {
-      // 테스트 모드에서는 테스트 번호 사용
-      phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
-      console.log("🧪 테스트 모드: 테스트 번호 사용 -", phoneNumber);
-    }
+    // 🧪 테스트 API는 항상 테스트 번호만 사용
+    // enableRealSending은 실제 CoolSMS API 사용 여부만 결정
+    phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
+    useRealTargets = false; // 테스트에서는 실제 타겟 사용 안함
+    
+    console.log("🧪 테스트 API: 항상 테스트 번호 사용 -", phoneNumber);
+    console.log("📋 enableRealSending 설정:", enableRealSending ? "실제 CoolSMS API 사용" : "모킹 모드");
 
     // 환경변수 설정 상태 확인
     const envStatus = {
@@ -192,54 +189,9 @@ export async function POST(request: NextRequest) {
     // 워크플로우 단계별 실행
     const results = [];
 
-    // 실제 타겟 그룹 연락처 조회 (스케줄러 실행 시)
-    let targetContacts: Array<{
-      name: string;
-      phone: string;
-      company?: string;
-      data: any;
-    }> = [];
-
-    // Automation 타입 워크플로우 체크
-    const hasAutomationGroups = workflow.targetGroups?.some(group => group.type === "automation");
-    
-    if (
-      useRealTargets &&
-      workflow.targetGroups &&
-      workflow.targetGroups.length > 0 &&
-      !hasAutomationGroups
-    ) {
-      console.log("🎯 실제 타겟 그룹에서 연락처 조회 중...");
-      targetContacts = await getContactsFromTargetGroups(workflow.targetGroups);
-
-      if (targetContacts.length === 0) {
-        console.warn("⚠️ 실제 타겟 그룹에서 조회된 연락처가 없습니다.");
-        return NextResponse.json(
-          {
-            success: false,
-            message: "실제 타겟 그룹에서 조회된 연락처가 없습니다.",
-            targetContactsCount: 0,
-            envStatus,
-            testSettings: {
-              enableRealSending,
-              fallbackToSMS,
-              phoneNumber,
-              useRealTargets,
-            },
-          },
-          { status: 400 }
-        );
-      }
-
-      console.log(
-        `✅ 실제 타겟 그룹에서 ${targetContacts.length}개 연락처 조회 완료`
-      );
-    } else if (hasAutomationGroups) {
-      console.log("🔔 Automation 워크플로우 감지 - 지정된 테스트 번호 사용");
-      useRealTargets = false; // automation 워크플로우는 테스트 번호 사용
-      phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
-      console.log("📱 Automation 워크플로우 테스트 번호로 변경:", phoneNumber);
-    }
+    // 🧪 테스트 API에서는 실제 타겟 그룹 조회하지 않음
+    // 테스트 번호로만 발송하여 워크플로우 동작 확인
+    const targetContacts: any[] = []; // 사용되지 않는 코드 호환성을 위한 빈 배열
 
     for (let i = 0; i < workflow.steps.length; i++) {
       const step = workflow.steps[i];
@@ -275,8 +227,8 @@ export async function POST(request: NextRequest) {
           templateContent: realTemplate.content,
         };
 
-        // 실제 타겟 그룹 사용 시 각 연락처에 개별 발송
-        if (useRealTargets && targetContacts.length > 0) {
+        // 🧪 테스트 모드: 테스트 번호로 발송 (useRealTargets는 항상 false)
+        if (false && false) { // 사용하지 않는 코드 (테스트 API에서는 실제 타겟 사용 안함)
           console.log(
             `🎯 실제 타겟 그룹 ${targetContacts.length}명에게 개별 발송 시작`
           );
@@ -549,6 +501,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 🧪 테스트 API는 항상 테스트 번호만 표시
+    const displayPhoneNumber = `테스트 번호: ${phoneNumber}`;
+
     return NextResponse.json({
       success: true,
       message: "워크플로우 테스트가 완료되었습니다.",
@@ -557,16 +512,18 @@ export async function POST(request: NextRequest) {
       testSettings: {
         enableRealSending,
         fallbackToSMS,
-        phoneNumber,
+        phoneNumber: displayPhoneNumber,
+        useRealTargets: false, // 테스트 API는 항상 false
+        targetContactsCount: 0, // 테스트 API는 실제 타겟 사용 안함
       },
       envStatus,
       realSendingStatus: enableRealSending
         ? envStatus.COOLSMS_API_KEY &&
           envStatus.COOLSMS_API_SECRET &&
           envStatus.KAKAO_SENDER_KEY
-          ? "실제 발송 시도됨"
-          : "환경변수 누락으로 테스트 모드로 실행됨"
-        : "테스트 모드로 실행됨",
+          ? "실제 API로 테스트 발송 완료"
+          : "환경변수 누락으로 모킹 모드로 실행됨"
+        : "모킹 모드로 실행됨",
     });
   } catch (error) {
     console.error("워크플로우 테스트 실행 실패:", error);
