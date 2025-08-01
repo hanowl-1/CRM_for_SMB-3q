@@ -2695,21 +2695,7 @@ export function WorkflowBuilder({
               {onTest && (
                 <>
                   <Button
-                    onClick={() => {
-                      const testWorkflow = {
-                        id: workflow?.id || "",
-                        name: `${name} (테스트)`,
-                        description: `${description} - 테스트 실행`,
-                        status: workflowStatus,
-                        trigger_type: triggerType,
-                        targetGroups,
-                        steps,
-                        testSettings,
-                        scheduleSettings,
-                      };
-
-                      onTest(testWorkflow);
-                    }}
+                    onClick={handleTest}
                     variant="outline"
                     className="bg-blue-50 border-blue-200 hover:bg-blue-100"
                   >
