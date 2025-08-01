@@ -1,0 +1,10 @@
+{
+  "name": "aws-lambda-cron-scheduler",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AWS Lambda function for triggering Vercel cron jobs",
+  "main": "cron-scheduler.js",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 

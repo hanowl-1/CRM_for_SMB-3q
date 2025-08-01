@@ -1,0 +1,31 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["icn1"],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/sync-templates",
+      "schedule": "0 3 * * *"
+    }
+  ],
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 10
+    },
+    "app/api/scheduler/**/*.ts": {
+      "maxDuration": 10
+    },
+    "app/api/workflow/**/*.ts": {
+      "maxDuration": 10
+    }
+  }
+} 

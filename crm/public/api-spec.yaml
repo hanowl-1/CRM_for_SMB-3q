@@ -1,0 +1,2103 @@
+openapi: 3.0.3
+info:
+  title: CRM 시스템 API
+  description: |
+    **마케팅 자동화 CRM 시스템**의 백엔드 API 명세서입니다.
+    
+    ### 기술 스택
+    - **프레임워크**: Next.js 15 (App Router)
+    - **데이터베이스**: Supabase (메타데이터), MySQL (비즈니스 데이터)
+    - **메시징**: CoolSMS API
+    - **스케줄링**: AWS Lambda + Vercel Cron
+    
+    ### 중요 참고사항
+    - **스케줄 필드**: `schedule_config` 사용 (legacy `schedule_settings`는 하위호환성만 지원)
+    - **워크플로우**: 3단계 구조 (target_config, message_config, mapping_config)
+    - **테스트 모드**: 개발 환경에서 실제 메시지 발송 없이 시뮬레이션 가능
+  version: 1.0.0
+  contact:
+    name: CRM API Support
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://your-domain.vercel.app
+    description: Production server
+
+tags:
+  - name: Workflows
+    description: 워크플로우 관리
+  - name: Messaging
+    description: 메시징 서비스
+  - name: Database
+    description: 데이터베이스 연동
+  - name: Scheduler
+    description: 스케줄러 시스템
+  - name: Webhooks
+    description: 웹훅 시스템
+  - name: Templates
+    description: 템플릿 관리
+  - name: Supabase
+    description: Supabase 데이터 관리
+  - name: Campaigns
+    description: 캠페인 관리
+  - name: System
+    description: 시스템 관리
+  - name: Queries
+    description: 쿼리 및 매핑
+  - name: Cron
+    description: 크론 작업
+  - name: Auth
+    description: 인증
+
+components:
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "작업 완료 메시지"
+        data:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-07-29T09:06:32.946Z"
+    
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "에러 메시지"
+        error:
+          type: string
+          example: "상세 에러 정보"
+    
+    Workflow:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "리뷰 요청 워크플로우"
+        description:
+          type: string
+          example: "고객에게 리뷰 요청 메시지를 발송하는 워크플로우"
+        status:
+          type: string
+          enum: [draft, active, paused, archived]
+          example: "active"
+        trigger_type:
+          type: string
+          enum: [manual, webhook]
+          example: "manual"
+          description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
+        trigger_config:
+          type: object
+          description: "트리거 설정"
+        target_config:
+          type: object
+          description: "대상 설정 (manual 타입에서만 사용)"
+        message_config:
+          type: object
+          description: "메시지 설정"
+        mapping_config:
+          type: object
+          description: "매핑 설정"
+        schedule_config:
+          $ref: '#/components/schemas/ScheduleConfig'
+        variables:
+          type: object
+          description: "변수 설정"
+        statistics:
+          type: object
+          description: "실행 통계"
+        last_run_at:
+          type: string
+          format: date-time
+          example: "2025-07-29T00:00:00Z"
+          description: "마지막 실행 시간"
+        next_run_at:
+          type: string
+          format: date-time
+          example: "2025-07-30T09:00:00Z"
+          description: "다음 실행 예정 시간"
+        created_by:
+          type: string
+          example: "user"
+          description: "생성자"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-07-29T00:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2025-07-29T12:00:00Z"
+
+    SMSRequest:
+      type: object
+      required:
+        - to
+        - message
+      properties:
+        to:
+          type: string
+          example: "010-1234-5678"
+          description: "수신 전화번호"
+        message:
+          type: string
+          example: "메시지 내용"
+          description: "발송할 메시지"
+        from:
+          type: string
+          example: "발신번호"
+          description: "발신 전화번호"
+        enableRealSending:
+          type: boolean
+          example: false
+          description: "실제 발송 여부"
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            name: "홍길동"
+            company: "회사명"
+
+    QueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          example: "SELECT * FROM table_name LIMIT 10"
+          description: "실행할 SQL 쿼리 (SELECT만 허용)"
+        limit:
+          type: integer
+          example: 1000
+          maximum: 50000
+          description: "결과 행 제한"
+
+    WebhookEvent:
+      type: object
+      description: "웹훅 이벤트 데이터 (핵심 필드만 정의, 추가 필드 자유롭게 전송 가능)"
+      required:
+        - phone
+      properties:
+        phone:
+          type: string
+          example: "010-1234-5678"
+          description: "수신자 전화번호 (필수) - phoneNumber, contact로도 전달 가능"
+        company:
+          type: string
+          example: "회사명"
+          description: "회사명/이름 (권장)"
+        email:
+          type: string
+          format: email
+          example: "test@example.com"
+          description: "이메일 주소 (선택적)"
+      additionalProperties: true
+      examples:
+        minimal:
+          summary: "최소 필수 필드"
+          value:
+            phone: "010-1234-5678"
+            company: "테스트 회사"
+        with_email:
+          summary: "이메일 포함"
+          value:
+            phone: "010-1234-5678"
+            company: "ABC 회사"
+            email: "test@abc.com"
+
+    ScheduleConfig:
+      type: object
+      description: "스케줄 설정 (현재 사용 중인 필드)"
+      required:
+        - type
+        - timezone
+      properties:
+        type:
+          type: string
+          enum: [immediate, delay, scheduled, recurring]
+          example: "immediate"
+          description: "스케줄 실행 타입"
+        timezone:
+          type: string
+          example: "Asia/Seoul"
+          description: "시간대 설정 (모든 타입에 필수)"
+        delay:
+          type: integer
+          description: "지연 시간 (분 단위, type이 'delay'일 때 필수)"
+          example: 60
+        scheduledTime:
+          type: string
+          description: "예약 실행 시간 (type이 'scheduled'일 때 필수)"
+          example: "2025-01-30T14:35:00+09:00"
+        recurringPattern:
+          type: object
+          description: "반복 패턴 설정 (type이 'recurring'일 때 필수)"
+          required:
+            - frequency
+            - interval
+            - time
+          properties:
+            frequency:
+              type: string
+              enum: [daily, weekly, monthly]
+              example: "daily"
+            interval:
+              type: integer
+              example: 1
+              description: "반복 간격"
+            time:
+              type: string
+              pattern: "^[0-2][0-9]:[0-5][0-9]$"
+              example: "14:35"
+              description: "실행 시간 (HH:MM 형식)"
+            daysOfWeek:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 6
+              description: "요일 설정 (0=일요일, 1=월요일, ..., weekly일 때 선택사항)"
+            dayOfMonth:
+              type: integer
+              minimum: 1
+              maximum: 31
+              description: "월의 특정 일 (monthly일 때 선택사항)"
+      examples:
+        immediate:
+          summary: "즉시 실행"
+          value:
+            type: "immediate"
+            timezone: "Asia/Seoul"
+        delay:
+          summary: "지연 실행"
+          value:
+            type: "delay"
+            delay: 60
+            timezone: "Asia/Seoul"
+        recurring_daily:
+          summary: "매일 반복"
+          value:
+            type: "recurring"
+            timezone: "Asia/Seoul"
+            recurringPattern:
+              time: "14:35"
+              interval: 1
+              frequency: "daily"
+
+paths:
+  # Workflows
+  /api/supabase/workflows:
+    get:
+      tags: [Workflows]
+      summary: 워크플로우 목록 조회
+      description: |
+        페이지네이션, 필터링, 검색 기능을 지원하는 워크플로우 목록 조회 API입니다.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: "페이지 번호"
+          example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: "페이지당 항목 수 (최대 100개)"
+          example: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, active, paused, archived]
+          description: "상태별 필터링"
+          example: "active"
+        - name: trigger_type
+          in: query
+          schema:
+            type: string
+            enum: [manual, webhook]
+          description: "트리거 타입별 필터링"
+          example: "manual"
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: "이름 또는 설명에서 검색할 키워드"
+          example: "리뷰"
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Workflow'
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: "전체 항목 수"
+                        example: 150
+                      page:
+                        type: integer
+                        description: "현재 페이지"
+                        example: 1
+                      limit:
+                        type: integer
+                        description: "페이지당 항목 수"
+                        example: 20
+                      totalPages:
+                        type: integer
+                        description: "전체 페이지 수"
+                        example: 8
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags: [Workflows]
+      summary: 새 워크플로우 생성
+      description: |
+        새로운 워크플로우를 생성합니다. 워크플로우 타입에 따라 저장되는 필드가 다릅니다.
+        - **webhook**: trigger_config만 저장, target_config 제외
+        - **manual**: target_config 포함
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: "워크플로우 이름 (필수)"
+                  example: "리뷰 요청 워크플로우"
+                description:
+                  type: string
+                  description: "워크플로우 설명"
+                  example: "고객에게 리뷰 요청 메시지를 발송하는 워크플로우"
+                trigger_type:
+                  type: string
+                  enum: [manual, webhook]
+                  default: "manual"
+                  description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
+                  example: "manual"
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  default: "draft"
+                  description: "워크플로우 상태"
+                  example: "draft"
+                message_config:
+                  type: object
+                  description: "메시지 설정"
+                  properties:
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                      description: "워크플로우 실행 단계들"
+                      example: []
+                    selectedTemplates:
+                      type: array
+                      items:
+                        type: object
+                      description: "선택된 메시지 템플릿들"
+                      example: []
+                target_config:
+                  type: object
+                  description: "대상 설정 (manual 타입에서만 사용)"
+                  properties:
+                    targetGroups:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상 그룹 설정"
+                      example: []
+                    targetTemplateMappings:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상-템플릿 매핑 설정"
+                      example: []
+                variables:
+                  type: object
+                  description: "변수 설정"
+                  properties:
+                    templatePersonalizations:
+                      type: object
+                      description: "템플릿 개인화 설정"
+                      example: {}
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      example: {}
+                schedule_config:
+                  $ref: '#/components/schemas/ScheduleConfig'
+                trigger_config:
+                  type: object
+                  description: "트리거 설정 (webhook 타입에서 주로 사용)"
+                  example: {}
+                created_by:
+                  type: string
+                  default: "user"
+                  description: "생성자"
+                  example: "user"
+      responses:
+        '201':
+          description: 생성 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "Workflow name is required"
+                      - "Invalid trigger type. Only \"manual\" and \"webhook\" are supported."
+                      - "Webhook workflows only support \"immediate\" and \"delay\" schedule types."
+                      - "Invalid status"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/supabase/workflows/{id}:
+    get:
+      tags: [Workflows]
+      summary: 단일 워크플로우 조회
+      description: "특정 워크플로우의 상세 정보를 조회합니다."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags: [Workflows]
+      summary: 워크플로우 전체 수정
+      description: |
+        워크플로우의 전체 또는 부분 정보를 수정합니다.
+        워크플로우 타입에 따라 수정 가능한 필드가 다릅니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: "워크플로우 이름"
+                  example: "수정된 워크플로우 이름"
+                description:
+                  type: string
+                  description: "워크플로우 설명"
+                trigger_type:
+                  type: string
+                  enum: [manual, webhook]
+                  description: "트리거 타입 (manual: 사용자 관리, webhook: 이벤트 기반)"
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  description: "워크플로우 상태"
+                message_config:
+                  type: object
+                  description: "메시지 설정"
+                  properties:
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                      description: "워크플로우 실행 단계들"
+                      example: []
+                    selectedTemplates:
+                      type: array
+                      items:
+                        type: object
+                      description: "선택된 메시지 템플릿들"
+                      example: []
+                target_config:
+                  type: object
+                  description: "대상 설정 (manual 타입에서만 사용)"
+                  properties:
+                    targetGroups:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상 그룹 설정"
+                      example: []
+                    targetTemplateMappings:
+                      type: array
+                      items:
+                        type: object
+                      description: "대상-템플릿 매핑 설정"
+                      example: []
+                variables:
+                  type: object
+                  description: "변수 설정"
+                  properties:
+                    templatePersonalizations:
+                      type: object
+                      description: "템플릿 개인화 설정"
+                      example: {}
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      example: {}
+                schedule_config:
+                  $ref: '#/components/schemas/ScheduleConfig'
+                trigger_config:
+                  type: object
+                  description: "트리거 설정 (webhook 타입에서 주로 사용)"
+                  example: {}
+      responses:
+        '200':
+          description: 수정 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow name cannot be empty"
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [Workflows]
+      summary: 워크플로우 상태 변경
+      description: |
+        워크플로우의 상태를 변경합니다. 
+        상태가 'paused' 또는 'archived'로 변경되면 관련된 스케줄 작업들이 자동으로 취소됩니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [draft, active, paused, archived]
+                  description: "변경할 상태"
+                  example: "active"
+      responses:
+        '200':
+          description: 상태 변경 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Workflow'
+                  message:
+                    type: string
+                    examples:
+                      - "워크플로우가 활성화되었습니다."
+                      - "워크플로우가 일시정지되었습니다."
+                      - "워크플로우가 보관되었습니다."
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "Status is required for PATCH operation"
+                      - "Invalid status"
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Workflows]
+      summary: 워크플로우 삭제
+      description: |
+        워크플로우를 영구적으로 삭제합니다.
+        CASCADE 설정으로 인해 관련된 scheduled_jobs도 함께 삭제됩니다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "워크플로우 ID"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "워크플로우 '리뷰 요청 워크플로우'가 삭제되었습니다."
+        '404':
+          description: 워크플로우를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Workflow not found"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/workflow/execute:
+    post:
+      tags: [Workflows]
+      summary: 워크플로우 실행
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflowId
+              properties:
+                workflow:
+                  type: object
+                workflowId:
+                  type: string
+                  example: "workflow_123"
+                scheduledExecution:
+                  type: boolean
+                  example: false
+                jobId:
+                  type: string
+                  example: "job_123"
+                scheduledJobId:
+                  type: string
+                  example: "scheduled_123"
+                enableRealSending:
+                  type: boolean
+                  example: false
+      responses:
+        '200':
+          description: 워크플로우 실행 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/workflow/preview:
+    post:
+      tags: [Workflows]
+      summary: 워크플로우 미리보기 생성
+      description: |
+        **저장되지 않은 워크플로우 설정**으로 실제 메시지 발송 전 미리보기를 생성합니다.
+        
+        ### 핵심 기능
+        - **임시 설정**: DB에 저장하지 않은 워크플로우 설정으로 시뮬레이션
+        - **실제 SQL 실행**: 사용자가 작성한 대상자 쿼리를 실제 DB에서 실행
+        - **변수 매핑**: 개별 변수 쿼리 실행 후 고객별 데이터 매칭
+        - **템플릿 렌더링**: 개인화된 메시지 생성
+        
+        ### 사용 시나리오
+        1. 워크플로우 빌더에서 설정 작성 중
+        2. "미리보기" 버튼 클릭 (아직 저장하지 않음)  
+        3. 현재 작성 중인 모든 설정을 API에 전달
+        4. 실제 고객 데이터로 개인화된 메시지 미리보기 확인
+        5. 확인 후 저장 여부 결정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - targetGroups
+                - templates
+              properties:
+                targetGroups:
+                  type: array
+                  description: "대상 그룹 설정 (동적 SQL 쿼리 포함)"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "temp_group_1"
+                      name:
+                        type: string
+                        example: "VIP 고객"
+                      type:
+                        type: string
+                        enum: [dynamic, static]
+                        example: "dynamic"
+                      dynamicQuery:
+                        type: object
+                        properties:
+                          sql:
+                            type: string
+                            example: "SELECT id, name, phone, company_name FROM customers WHERE grade='VIP' LIMIT 5"
+                            description: "대상자 조회 SQL (SELECT만 허용)"
+                templates:
+                  type: array
+                  description: "선택된 메시지 템플릿들"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "template_123"
+                      templateName:
+                        type: string
+                        example: "리뷰 감사 메시지"
+                      templateCode:
+                        type: string
+                        example: "TK_001"
+                      content:
+                        type: string
+                        example: "안녕하세요 #{company_name}님! 총 #{total_reviews}개 리뷰 감사합니다."
+                templatePersonalizations:
+                  type: object
+                  description: "템플릿별 개인화 설정"
+                  additionalProperties:
+                    type: object
+                    properties:
+                      variableMappings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            templateVariable:
+                              type: string
+                              example: "#{company_name}"
+                            targetField:
+                              type: string
+                              example: "company_name"
+                            defaultValue:
+                              type: string
+                              example: "고객"
+                targetTemplateMappings:
+                  type: array
+                  description: "대상 그룹과 템플릿 매핑 설정"
+                  items:
+                    type: object
+                    properties:
+                      targetGroupId:
+                        type: string
+                        example: "temp_group_1"
+                      templateId:
+                        type: string
+                        example: "template_123"
+                      fieldMappings:
+                        type: array
+                        items:
+                          type: object
+                limit:
+                  type: integer
+                  default: 5
+                  minimum: 1
+                  maximum: 10
+                  description: "미리보기할 연락처 수 (최대 10명)"
+                  example: 5
+      responses:
+        '200':
+          description: 미리보기 생성 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    description: "고객별 개인화된 메시지 미리보기"
+                    items:
+                      type: object
+                      properties:
+                        groupName:
+                          type: string
+                          example: "VIP 고객"
+                        contact:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: "1"
+                            name:
+                              type: string
+                              example: "김철수"
+                            phone:
+                              type: string
+                              example: "010-1234-5678"
+                            email:
+                              type: string
+                              example: "kim@example.com"
+                            company:
+                              type: string
+                              example: "ABC회사"
+                            customFields:
+                              type: object
+                              description: "추가 고객 정보"
+                        messages:
+                          type: array
+                          description: "해당 고객에게 발송될 메시지들"
+                          items:
+                            type: object
+                            properties:
+                              templateId:
+                                type: string
+                                example: "template_123"
+                              templateName:
+                                type: string
+                                example: "리뷰 감사 메시지"
+                              templateCode:
+                                type: string
+                                example: "TK_001"
+                              originalContent:
+                                type: string
+                                example: "안녕하세요 #{company_name}님! 총 #{total_reviews}개 리뷰 감사합니다."
+                              processedContent:
+                                type: string
+                                example: "안녕하세요 ABC회사님! 총 127개 리뷰 감사합니다."
+                              variables:
+                                type: object
+                                description: "해당 고객에게 적용된 변수들"
+                                example:
+                                  company_name: "ABC회사"
+                                  total_reviews: "127"
+                              characterCount:
+                                type: integer
+                                example: 35
+                                description: "처리된 메시지의 글자 수"
+                  totalEstimatedCount:
+                    type: integer
+                    example: 5
+                    description: "총 미리보기 연락처 수"
+                  debug:
+                    type: object
+                    description: "디버그 정보"
+                    properties:
+                      savedMappingsCount:
+                        type: integer
+                        example: 3
+                        description: "사용된 변수 매핑 수"
+                      variableCacheSize:
+                        type: integer
+                        example: 3
+                        description: "캐시된 변수 수"
+                      templatesLoaded:
+                        type: integer
+                        example: 1
+                        description: "로드된 템플릿 수"
+                      realTemplatesFound:
+                        type: integer
+                        example: 1
+                        description: "실제 템플릿 데이터가 발견된 수"
+                      totalCachedRows:
+                        type: integer
+                        example: 150
+                        description: "캐시된 총 데이터 행 수"
+                  executionLogs:
+                    type: array
+                    description: "실행 로그 (디버깅용)"
+                    items:
+                      type: string
+                    example:
+                      - "🚀 워크플로우 미리보기 시작"
+                      - "✅ 변수 데이터 캐시됨: #{total_reviews} (50개 행)"
+                      - "🔗 매칭 성공: #{total_reviews} = \"127\" (id=1)"
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    examples:
+                      - "targetGroups와 templates가 필요합니다."
+                      - "SELECT 문만 허용됩니다."
+                      - "허용되지 않는 SQL 키워드가 포함되어 있습니다."
+        '500':
+          description: 서버 오류 (SQL 실행 실패 등)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "미리보기 생성 중 오류가 발생했습니다."
+                  executionLogs:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - "❌ MySQL API 호출 실패: 500"
+                      - "❌ 변수 쿼리 실행 오류: 테이블이 존재하지 않습니다."
+
+  /api/workflow/test:
+    post:
+      tags: [Workflows]
+      summary: 워크플로우 테스트 실행
+      description: |
+        **저장된 또는 임시 워크플로우 설정**으로 실제 메시지 발송 또는 시뮬레이션을 수행합니다.
+        
+        ### 핵심 기능
+        - **실제 발송 모드**: enableRealSending=true 시 실제 알림톡/SMS 발송
+        - **테스트 모드**: enableRealSending=false 시 발송 시뮬레이션
+        - **자동화 워크플로우 지원**: automation 타입 워크플로우는 테스트 번호 사용
+        - **실제 타겟 그룹**: manual 워크플로우에서 실제 DB 쿼리 실행
+        - **전화번호 정리**: 하이픈 자동 제거로 CoolSMS API 호환
+        
+        ### 사용 시나리오
+        1. **개발/테스트**: 워크플로우 동작 확인 (enableRealSending=false)
+        2. **실제 발송**: 관리자가 테스트 발송 (enableRealSending=true)
+        3. **스케줄러 호출**: 내부 시스템에서 자동 실행
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflow
+              properties:
+                workflow:
+                  type: object
+                  description: "실행할 워크플로우 설정"
+                  required:
+                    - name
+                    - steps
+                  properties:
+                    id:
+                      type: string
+                      description: "워크플로우 ID (선택적)"
+                      example: "550e8400-e29b-41d4-a716-446655440000"
+                    name:
+                      type: string
+                      description: "워크플로우 이름"
+                      example: "리뷰 요청 알림톡"
+                    description:
+                      type: string
+                      description: "워크플로우 설명"
+                      example: "고객에게 리뷰 작성을 요청하는 워크플로우"
+                    trigger_type:
+                      type: string
+                      enum: [manual, webhook]
+                      description: "트리거 타입"
+                      example: "manual"
+                    status:
+                      type: string
+                      enum: [draft, active, paused, archived]
+                      description: "워크플로우 상태"
+                      example: "active"
+                    steps:
+                      type: array
+                      description: "실행할 스텝들"
+                      minItems: 1
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: "step_1"
+                          name:
+                            type: string
+                            example: "1. 리뷰 요청 알림톡 발송"
+                          action:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum: [send_alimtalk, send_sms, wait]
+                                example: "send_alimtalk"
+                              templateId:
+                                type: string
+                                example: "KA01TP240213011807409jDYLqJs7GHV"
+                              templateCode:
+                                type: string
+                                example: "MEMBERS_1_LqJs7GHV"
+                              templateName:
+                                type: string
+                                example: "1. [슈퍼멤버스] 회원가입(이용안내서 수정본)"
+                              variables:
+                                type: object
+                                description: "템플릿 변수 설정"
+                                additionalProperties:
+                                  type: string
+                                example:
+                                  "가맹점명": "테스트 업체"
+                              delay:
+                                type: integer
+                                description: "대기 시간 (분, wait 타입일 때)"
+                                example: 60
+                    targetGroups:
+                      type: array
+                      description: "대상 그룹 설정 (manual 워크플로우에서 사용)"
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: "group_1"
+                          name:
+                            type: string
+                            example: "VIP 고객"
+                          type:
+                            type: string
+                            enum: [dynamic, static, automation]
+                            example: "dynamic"
+                          dynamicQuery:
+                            type: object
+                            properties:
+                              sql:
+                                type: string
+                                example: "SELECT id, name, phone FROM customers WHERE grade='VIP'"
+                          automationQuery:
+                            type: object
+                            properties:
+                              event:
+                                type: string
+                                enum: [lead_created, signup]
+                                example: "signup"
+                    testSettings:
+                      type: object
+                      description: "테스트 실행 설정"
+                      properties:
+                        enableRealSending:
+                          type: boolean
+                          description: "실제 메시지 발송 여부"
+                          example: false
+                        testMode:
+                          type: boolean
+                          description: "테스트 모드 여부"
+                          example: true
+                        fallbackToSMS:
+                          type: boolean
+                          description: "알림톡 실패 시 SMS 대체 발송"
+                          example: true
+                        testPhoneNumber:
+                          type: string
+                          description: "테스트 전화번호"
+                          example: "010-1234-5678"
+                    scheduleSettings:
+                      $ref: '#/components/schemas/ScheduleConfig'
+      responses:
+        '200':
+          description: 테스트 실행 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "워크플로우 테스트가 완료되었습니다."
+                  results:
+                    type: array
+                    description: "각 스텝 실행 결과"
+                    items:
+                      type: object
+                      properties:
+                        step:
+                          type: integer
+                          description: "스텝 번호"
+                          example: 1
+                        type:
+                          type: string
+                          enum: [alimtalk, sms, wait]
+                          example: "alimtalk"
+                        status:
+                          type: string
+                          enum: [success, failed]
+                          example: "success"
+                        message:
+                          type: string
+                          example: "알림톡 발송 완료"
+                        messageId:
+                          type: string
+                          description: "발송 메시지 ID"
+                          example: "G4V20250731134801XMJJ90TEHSCG7JN"
+                        processedContent:
+                          type: string
+                          description: "변수 치환된 최종 메시지"
+                          example: "안녕하세요 테스트 업체 담당자님..."
+                        fallbackToSMS:
+                          type: boolean
+                          description: "SMS 대체 발송 여부"
+                          example: false
+                        variables:
+                          type: object
+                          description: "사용된 변수들"
+                          additionalProperties:
+                            type: string
+                          example:
+                            "가맹점명": "테스트 업체"
+                        recipient:
+                          type: object
+                          description: "수신자 정보"
+                          properties:
+                            name:
+                              type: string
+                              example: "테스트 고객"
+                            phone:
+                              type: string
+                              example: "01012345678"
+                            company:
+                              type: string
+                              example: "테스트 회사"
+                        error:
+                          type: string
+                          description: "실패 시 오류 메시지"
+                          example: "템플릿을 찾을 수 없습니다"
+                  executionTime:
+                    type: string
+                    format: date-time
+                    description: "실행 완료 시간"
+                    example: "2025-07-31T04:48:01.727Z"
+                  testSettings:
+                    type: object
+                    description: "사용된 테스트 설정"
+                    properties:
+                      enableRealSending:
+                        type: boolean
+                        example: false
+                      fallbackToSMS:
+                        type: boolean
+                        example: true
+                      phoneNumber:
+                        type: string
+                        example: "010-6313-6764"
+                  envStatus:
+                    type: object
+                    description: "환경변수 설정 상태"
+                    properties:
+                      COOLSMS_API_KEY:
+                        type: boolean
+                        example: true
+                      COOLSMS_API_SECRET:
+                        type: boolean
+                        example: true
+                      KAKAO_SENDER_KEY:
+                        type: boolean
+                        example: true
+                      TEST_PHONE_NUMBER:
+                        type: boolean
+                        example: false
+                      phoneNumber:
+                        type: string
+                        example: "010-6313-6764"
+                      useRealTargets:
+                        type: boolean
+                        example: false
+                  realSendingStatus:
+                    type: string
+                    description: "실제 발송 상태 설명"
+                    examples:
+                      - "테스트 모드로 실행됨"
+                      - "실제 발송 시도됨"
+                      - "환경변수 누락으로 테스트 모드로 실행됨"
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    examples:
+                      - "workflow 객체가 필요합니다."
+                      - "steps가 필요합니다."
+                      - "실제 타겟 그룹에서 조회된 연락처가 없습니다."
+                  error:
+                    type: string
+                    example: "상세 오류 정보"
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "워크플로우 테스트 실행 중 오류가 발생했습니다."
+                  error:
+                    type: object
+                    description: "상세 오류 정보"
+
+  # Messaging
+  /api/sms/send:
+    post:
+      tags: [Messaging]
+      summary: SMS 발송
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SMSRequest'
+      responses:
+        '200':
+          description: SMS 발송 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      messageId:
+                        type: string
+                        example: "test_sms_1753779972569"
+                      messageType:
+                        type: string
+                        enum: [SMS, LMS]
+                        example: "SMS"
+                      processedMessage:
+                        type: string
+                        example: "처리된 메시지"
+                      testMode:
+                        type: boolean
+                        example: true
+                      actualSending:
+                        type: boolean
+                        example: false
+                      variables:
+                        type: object
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/send-message:
+    post:
+      tags: [Messaging]
+      summary: 통합 메시지 발송
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 메시지 발송 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # Database
+  /api/mysql/query:
+    get:
+      tags: [Database]
+      summary: MySQL 쿼리 테스트
+      parameters:
+        - name: test
+          in: query
+          schema:
+            type: string
+            enum: [connection]
+          example: "connection"
+      responses:
+        '200':
+          description: 테스트 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    
+    post:
+      tags: [Database]
+      summary: MySQL 쿼리 실행
+      description: |
+        SQL 쿼리를 실행합니다.
+        
+        **제한사항:**
+        - SELECT 문만 허용
+        - 위험한 키워드 차단: drop, delete, update, insert, alter, create, truncate
+        - 최대 50,000 행 제한
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: 쿼리 실행 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          rows:
+                            type: array
+                            items:
+                              type: object
+                          rowCount:
+                            type: integer
+                            example: 0
+        '400':
+          description: 잘못된 쿼리
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mysql/schema:
+    get:
+      tags: [Database]
+      summary: 데이터베이스 스키마 조회
+      responses:
+        '200':
+          description: 스키마 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/mysql/statistics:
+    get:
+      tags: [Database]
+      summary: 데이터베이스 통계
+      responses:
+        '200':
+          description: 통계 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/mysql/companies:
+    get:
+      tags: [Database]
+      summary: 회사 데이터 조회
+      responses:
+        '200':
+          description: 회사 데이터 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/mysql/variables:
+    get:
+      tags: [Database]
+      summary: 변수 매핑 조회
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [tables, variables]
+        - name: table
+          in: query
+          schema:
+            type: string
+          description: "테이블명 (action=variables일 때 필요)"
+      responses:
+        '200':
+          description: 변수 매핑 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/mysql/table-mappings:
+    get:
+      tags: [Database]
+      summary: 테이블 매핑 조회
+      responses:
+        '200':
+          description: 테이블 매핑 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    
+    post:
+      tags: [Database]
+      summary: 테이블 매핑 관리
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+                - tableName
+              properties:
+                action:
+                  type: string
+                  enum: [save, delete, toggle]
+                tableName:
+                  type: string
+                  example: "테이블명"
+                mapping:
+                  type: object
+      responses:
+        '200':
+          description: 테이블 매핑 관리 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/mysql/targets/preview:
+    post:
+      tags: [Database]
+      summary: 대상 미리보기
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 대상 미리보기 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # Scheduler
+  /api/scheduler:
+    get:
+      tags: [Scheduler]
+      summary: 스케줄러 상태 조회
+      responses:
+        '200':
+          description: 스케줄러 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    
+    post:
+      tags: [Scheduler]
+      summary: 스케줄러 상태 관리
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+              properties:
+                action:
+                  type: string
+                  example: "cancel_workflow_schedule"
+                workflowId:
+                  type: string
+                  example: "workflow_123"
+      responses:
+        '200':
+          description: 스케줄러 상태 관리 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/scheduler/health:
+    get:
+      tags: [Scheduler]
+      summary: 스케줄러 헬스체크
+      responses:
+        '200':
+          description: 헬스체크 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          health_check:
+                            type: object
+                            properties:
+                              timestamp:
+                                type: string
+                                format: date-time
+                              korea_time:
+                                type: string
+                              check_type:
+                                type: string
+                              environment:
+                                type: string
+                              aws_lambda_enabled:
+                                type: boolean
+                          cron_status:
+                            type: object
+                            properties:
+                              has_signals:
+                                type: boolean
+                              last_aws_signal:
+                                type: object
+                              minutes_since_last_signal:
+                                type: integer
+                              is_healthy:
+                                type: boolean
+                              health_status:
+                                type: string
+                          lambda_status:
+                            type: object
+                            properties:
+                              is_working:
+                                type: boolean
+                              last_execution:
+                                type: string
+                                nullable: true
+                              pending_overdue_count:
+                                type: integer
+                              recent_execution_count:
+                                type: integer
+                          statistics:
+                            type: object
+                            properties:
+                              total:
+                                type: integer
+                              pending:
+                                type: integer
+                              running:
+                                type: integer
+                              completed:
+                                type: integer
+                              failed:
+                                type: integer
+
+  # Webhooks
+  /api/webhook/{eventType}:
+    post:
+      tags: [Webhooks]
+      summary: 동적 웹훅 처리
+      description: |
+        웹훅 이벤트를 받아서 해당하는 워크플로우를 즉시실행하거나 지연실행합니다.
+        - 즉시실행: schedule_config.type이 'immediate'인 경우 바로 실행
+        - 지연실행: schedule_config.type이 'delay'인 경우 scheduled_jobs에 추가
+        
+        **지원하는 이벤트 타입:** `lead_created`, `signup`, `purchase`, `cancel`, `payment_failed`
+      parameters:
+        - name: eventType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [lead_created, signup, purchase, cancel, payment_failed]
+          example: "lead_created"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+      responses:
+        '200':
+          description: 이벤트 처리 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      triggered_workflows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            workflowId:
+                              type: string
+                            workflowName:
+                              type: string
+                            executionType:
+                              type: string
+                              enum: [immediate, delayed]
+                              description: "실행 방식"
+                            executionResult:
+                              type: object
+                              description: "즉시실행 결과 (executionType이 immediate인 경우)"
+                            scheduledJobId:
+                              type: string
+                              description: "지연실행 작업 ID (executionType이 delayed인 경우)"
+                            conditions:
+                              type: array
+                            conditionsPassed:
+                              type: boolean
+                            error:
+                              type: string
+                              description: "실행 실패 시 오류 메시지"
+                      event_data:
+                        type: object
+
+  # Templates
+  /api/templates/coolsms/list:
+    get:
+      tags: [Templates]
+      summary: CoolSMS 템플릿 목록
+      responses:
+        '200':
+          description: 템플릿 목록 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/coolsms/sdk-list:
+    get:
+      tags: [Templates]
+      summary: CoolSMS SDK 목록
+      responses:
+        '200':
+          description: SDK 목록 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/coolsms/real:
+    get:
+      tags: [Templates]
+      summary: CoolSMS 실제 템플릿
+      responses:
+        '200':
+          description: 실제 템플릿 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/coolsms/test:
+    get:
+      tags: [Templates]
+      summary: CoolSMS 테스트
+      responses:
+        '200':
+          description: 테스트 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/coolsms/sync:
+    get:
+      tags: [Templates]
+      summary: CoolSMS 동기화
+      responses:
+        '200':
+          description: 동기화 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/coolsms/{templateId}:
+    get:
+      tags: [Templates]
+      summary: 특정 템플릿 조회
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "template_123"
+      responses:
+        '200':
+          description: 템플릿 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/{templateId}/details:
+    get:
+      tags: [Templates]
+      summary: 템플릿 상세 정보
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "template_123"
+      responses:
+        '200':
+          description: 템플릿 상세 정보 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/sync:
+    get:
+      tags: [Templates]
+      summary: 템플릿 동기화 조회
+      responses:
+        '200':
+          description: 동기화 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    
+    post:
+      tags: [Templates]
+      summary: 템플릿 동기화 실행
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 동기화 실행 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/templates/usage:
+    get:
+      tags: [Templates]
+      summary: 템플릿 사용량
+      responses:
+        '200':
+          description: 사용량 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # Auth
+  /api/auth/signup:
+    post:
+      tags: [Auth]
+      summary: 회원가입
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  example: "password123"
+                name:
+                  type: string
+                  example: "홍길동"
+      responses:
+        '200':
+          description: 회원가입 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # System
+  /api/test-env:
+    get:
+      tags: [System]
+      summary: 환경 변수 확인
+      responses:
+        '200':
+          description: 환경 변수 확인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/db-fields:
+    get:
+      tags: [System]
+      summary: 데이터베이스 필드 조회
+      responses:
+        '200':
+          description: 필드 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              example: "user_name"
+                            label:
+                              type: string
+                              example: "고객명"
+                            type:
+                              type: string
+                              example: "string"
+                            table:
+                              type: string
+                              example: "users"
+
+  /api/system/cleanup:
+    get:
+      tags: [System]
+      summary: 시스템 정리 상태 조회
+      responses:
+        '200':
+          description: 정리 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    
+    post:
+      tags: [System]
+      summary: 시스템 정리 실행
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 정리 실행 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # Additional endpoints can be added here following the same pattern... 
