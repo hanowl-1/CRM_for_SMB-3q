@@ -79,9 +79,12 @@ export async function POST(request: NextRequest) {
     // enableRealSending은 실제 CoolSMS API 사용 여부만 결정
     phoneNumber = testSettings?.testPhoneNumber || TEST_CONFIG.phoneNumber;
     useRealTargets = false; // 테스트에서는 실제 타겟 사용 안함
-    
+
     console.log("🧪 테스트 API: 항상 테스트 번호 사용 -", phoneNumber);
-    console.log("📋 enableRealSending 설정:", enableRealSending ? "실제 CoolSMS API 사용" : "모킹 모드");
+    console.log(
+      "📋 enableRealSending 설정:",
+      enableRealSending ? "실제 CoolSMS API 사용" : "모킹 모드"
+    );
 
     // 환경변수 설정 상태 확인
     const envStatus = {
@@ -108,41 +111,8 @@ export async function POST(request: NextRequest) {
       useRealTargets,
     });
 
-    // 스케줄 테스트인 경우 스케줄러에 등록
-    if (isScheduledTest) {
-      console.log("📅 스케줄 테스트 모드: 스케줄러에 등록 중...");
-
-      // 크론잡 기반 시스템에서는 스케줄 테스트를 위해 별도 처리 필요
-      console.log(
-        "ℹ️ 크론잡 기반 스케줄러에서는 스케줄 테스트가 지원되지 않습니다."
-      );
-
-      return NextResponse.json({
-        success: true,
-        message:
-          "스케줄 설정이 확인되었습니다. 실제 스케줄 실행은 워크플로우를 저장하고 활성화해주세요.",
-        scheduledTest: true,
-        scheduleInfo: {
-          type: scheduleSettings.type,
-          scheduledTime: scheduleSettings.scheduledTime,
-          delay: scheduleSettings.delay,
-          recurringPattern: scheduleSettings.recurringPattern,
-          timezone: scheduleSettings.timezone,
-        },
-        executionTime: new Date().toISOString(),
-        testSettings: {
-          enableRealSending,
-          fallbackToSMS,
-          phoneNumber,
-        },
-        envStatus,
-        realSendingStatus:
-          "스케줄 설정 확인됨 - 워크플로우 저장 후 활성화 시 스케줄러에 등록됩니다",
-      });
-    }
-
-    // 즉시 테스트 실행 (기존 로직)
-    console.log("🚀 즉시 테스트 모드: 바로 실행 중...");
+    // 테스트는 스케줄 타입과 관계없이 항상 즉시 실행
+    console.log("🚀 테스트 모드: 즉시 실행 중...");
 
     // 실제 발송이 활성화되었지만 필수 환경변수가 없는 경우 경고
     if (enableRealSending) {
@@ -228,7 +198,8 @@ export async function POST(request: NextRequest) {
         };
 
         // 🧪 테스트 모드: 테스트 번호로 발송 (useRealTargets는 항상 false)
-        if (false && false) { // 사용하지 않는 코드 (테스트 API에서는 실제 타겟 사용 안함)
+        if (false && false) {
+          // 사용하지 않는 코드 (테스트 API에서는 실제 타겟 사용 안함)
           console.log(
             `🎯 실제 타겟 그룹 ${targetContacts.length}명에게 개별 발송 시작`
           );
@@ -621,7 +592,7 @@ async function sendAlimtalk({
 
     // 전화번호 정리 (하이픈 제거)
     const cleanedPhoneNumber = cleanPhoneNumber(phoneNumber);
-    
+
     // 기본 메시지 옵션
     const baseMessageOptions: any = {
       to: cleanedPhoneNumber,
@@ -782,7 +753,7 @@ function getPfIdForTemplate(templateId: string): string {
 
 // 전화번호 정리 함수 (하이픈 및 공백 제거)
 function cleanPhoneNumber(phoneNumber: string): string {
-  return phoneNumber.replace(/[-\s]/g, '');
+  return phoneNumber.replace(/[-\s]/g, "");
 }
 
 // SMS 발송 함수
@@ -836,7 +807,7 @@ async function sendSMS({
 
     // 전화번호 정리 (하이픈 제거)
     const cleanedPhoneNumber = cleanPhoneNumber(phoneNumber);
-    
+
     const result = await messageService.sendOne({
       to: cleanedPhoneNumber,
       from: SMS_CONFIG.senderNumber,
