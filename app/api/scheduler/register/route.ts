@@ -158,7 +158,7 @@ export async function GET(request: NextRequest) {
         
         if (shouldCreateNew) {
           // 🔥 한국시간대 문자열을 직접 처리하여 시간대 변환 문제 해결
-          let kstTimeString: string;
+          let scheduledTimeForDB: string;
           
           // scheduledTime을 문자열로 변환하여 타입 안전성 확보
           const scheduledTimeStr = String(scheduledTime);
@@ -166,16 +166,16 @@ export async function GET(request: NextRequest) {
           if (scheduledTimeStr.includes('+09:00')) {
             // UI에서 한국시간대 포함 문자열을 받은 경우 (예: "2025-06-30T17:30+09:00")
             // PostgreSQL TIMESTAMPTZ 형태로 변환 (예: "2025-06-30 17:30:00+09:00")
-            kstTimeString = scheduledTimeStr.replace('T', ' ');
+            scheduledTimeForDB = scheduledTimeStr.replace('T', ' ');
             
             // 초 부분이 없으면 추가
-            if (kstTimeString.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\+09:00$/)) {
-              kstTimeString = kstTimeString.replace('+09:00', ':00+09:00');
+            if (scheduledTimeForDB.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\+09:00$/)) {
+              scheduledTimeForDB = scheduledTimeForDB.replace('+09:00', ':00+09:00');
             }
             
             console.log('✅ 한국시간대 포함 문자열 직접 변환:', {
               원본: scheduledTime,
-              변환후: kstTimeString
+              변환후: scheduledTimeForDB
             });
           } else {
             // Date 객체이거나 시간대 정보가 없는 경우 (반복 스케줄 등)
@@ -189,11 +189,11 @@ export async function GET(request: NextRequest) {
             const hours = String(dateObj.getHours()).padStart(2, '0');
             const minutes = String(dateObj.getMinutes()).padStart(2, '0');
             const seconds = String(dateObj.getSeconds()).padStart(2, '0');
-            kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+            scheduledTimeForDB = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
             
             console.log('✅ 한국시간 Date 객체 직접 포맷팅:', {
               원본Date: dateObj.toISOString(),
-              한국시간문자열: kstTimeString
+              한국시간문자열: scheduledTimeForDB
             });
           }
           
@@ -212,7 +212,7 @@ export async function GET(request: NextRequest) {
                 target_config: workflow.target_config,
                 schedule_config: scheduleConfig
               },
-              scheduled_time: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+              scheduled_time: scheduledTimeForDB, // 🔥 한국시간대를 명시한 문자열
               status: 'pending',
               retry_count: 0,
               max_retries: 3,

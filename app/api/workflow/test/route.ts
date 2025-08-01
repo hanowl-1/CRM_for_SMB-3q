@@ -215,27 +215,36 @@ export async function POST(request: NextRequest) {
       console.log(`단계 ${i + 1} 실행:`, step.name);
 
       if (step.action.type === 'send_alimtalk') {
-        // 알림톡 발송 - 실제 카카오 템플릿 사용
+        // 알림톡 발송
         console.log('🔍 알림톡 템플릿 검색:', {
           templateId: step.action.templateId,
           templateCode: step.action.templateCode,
           templateName: step.action.templateName
         });
 
-        // 실제 카카오 템플릿에서 찾기
-        const realTemplate = KakaoAlimtalkTemplateById[step.action.templateId as keyof typeof KakaoAlimtalkTemplateById];
-        
-        if (!realTemplate) {
-          throw new Error(`카카오 알림톡 템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
-        }
-
         // 템플릿 정보 구성
-        const template = {
-          id: step.action.templateId,
-          name: realTemplate.templateName,
-          templateCode: step.action.templateCode || `MEMBERS_${realTemplate.templateNumber}`,
-          templateContent: realTemplate.content
-        };
+        let template: any;
+        
+        // 먼저 mockTemplates에서 찾기 (테스트용)
+        template = mockTemplates.find(t => t.id === step.action.templateId);
+        
+        if (!template && step.action.templateId) {
+          // mockTemplates에 없으면 실제 카카오 템플릿에서 찾기
+          const realTemplate = KakaoAlimtalkTemplateById[step.action.templateId as keyof typeof KakaoAlimtalkTemplateById];
+          
+          if (realTemplate) {
+            template = {
+              id: step.action.templateId,
+              name: realTemplate.templateName,
+              templateCode: step.action.templateCode || `MEMBERS_${realTemplate.templateNumber}`,
+              templateContent: realTemplate.content
+            };
+          }
+        }
+        
+        if (!template) {
+          throw new Error(`템플릿을 찾을 수 없습니다: ${step.action.templateId}`);
+        }
 
         // 실제 타겟 그룹 사용 시 각 연락처에 개별 발송
         if (useRealTargets && targetContacts.length > 0) {
@@ -288,7 +297,6 @@ export async function POST(request: NextRequest) {
               console.log(`📤 ${contact.name} (${contact.phone})에게 발송 중...`);
 
               const result = await sendAlimtalk({
-                templateId: template.id,
                 templateCode: template.templateCode,
                 templateContent: template.templateContent,
                 phoneNumber: contact.phone,
@@ -387,7 +395,6 @@ export async function POST(request: NextRequest) {
           console.log('🔧 최종 사용할 변수:', variables);
 
           const result = await sendAlimtalk({
-            templateId: template.id,
             templateCode: template.templateCode,
             templateContent: template.templateContent,
             phoneNumber: phoneNumber!,
@@ -512,7 +519,6 @@ export async function POST(request: NextRequest) {
 
 // 알림톡 발송 함수
 async function sendAlimtalk({
-  templateId,
   templateCode,
   templateContent,
   phoneNumber,
@@ -520,7 +526,6 @@ async function sendAlimtalk({
   enableRealSending,
   fallbackToSMS
 }: {
-  templateId?: string;
   templateCode: string;
   templateContent: string;
   phoneNumber: string;
@@ -528,17 +533,11 @@ async function sendAlimtalk({
   enableRealSending: boolean;
   fallbackToSMS: boolean;
 }) {
-  // 템플릿 ID가 직접 전달된 경우 사용, 없으면 코드로 찾기
-  let finalTemplateId = templateId;
-  
-  if (!finalTemplateId) {
-    finalTemplateId = findTemplateIdByCode(templateCode);
-    if (!finalTemplateId) {
-      throw new Error(`템플릿 코드 ${templateCode}에 해당하는 템플릿 ID를 찾을 수 없습니다.`);
-    }
+  // 템플릿 코드에서 실제 템플릿 ID 찾기
+  const templateId = findTemplateIdByCode(templateCode);
+  if (!templateId) {
+    throw new Error(`템플릿 코드 ${templateCode}에 해당하는 템플릿 ID를 찾을 수 없습니다.`);
   }
-  
-  console.log('🔍 사용할 템플릿 ID:', finalTemplateId);
 
   // 변수 치환
   let processedContent = templateContent;
@@ -548,7 +547,7 @@ async function sendAlimtalk({
 
   console.log('🔔 알림톡 발송 시도');
   console.log('템플릿 코드:', templateCode);
-  console.log('템플릿 ID:', finalTemplateId);
+  console.log('템플릿 ID:', templateId);
   console.log('수신번호:', phoneNumber);
   console.log('사용자 변수:', variables);
   console.log('처리된 메시지:', processedContent);
@@ -580,8 +579,8 @@ async function sendAlimtalk({
       from: SMS_SENDER_NUMBER,
       type: 'ATA', // 알림톡
       kakaoOptions: {
-        pfId: getPfIdForTemplate(finalTemplateId),
-        templateId: finalTemplateId, // 실제 템플릿 ID 사용
+        pfId: getPfIdForTemplate(templateId),
+        templateId: templateId, // 실제 템플릿 ID 사용
         // CoolSMS API는 variables 속성에서 #{변수명} 형식 사용
         variables: Object.entries(variables).reduce((acc, [key, value]) => {
           acc[`#{${key}}`] = value;
@@ -594,8 +593,8 @@ async function sendAlimtalk({
       to: phoneNumber,
       from: SMS_SENDER_NUMBER,
       type: 'ATA',
-      pfId: getPfIdForTemplate(finalTemplateId),
-      templateId: finalTemplateId,
+      pfId: getPfIdForTemplate(templateId),
+      templateId: templateId,
       variables: baseMessageOptions.kakaoOptions.variables
     });
     
