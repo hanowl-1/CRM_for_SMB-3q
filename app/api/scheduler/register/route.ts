@@ -9,6 +9,71 @@ import {
   debugTimeInfo 
 } from '@/lib/utils/timezone';
 
+// 워크플로우 즉시 실행 함수
+async function executeWorkflowImmediately(workflow: any) {
+  console.log(`🚀 워크플로우 즉시 실행 시작: ${workflow.name}`);
+  
+  try {
+    // 워크플로우 실행 API 호출
+    const baseUrl = process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:3000' 
+      : `https://${process.env.VERCEL_URL || process.env.VERCEL_PROJECT_URL}`;
+    
+    const executeUrl = `${baseUrl}/api/workflow/execute`;
+    
+    const requestBody = {
+      workflowId: workflow.id,
+      enableRealSending: true, // 즉시 실행은 실제 발송
+      scheduledExecution: false // 수동 실행으로 표시
+    };
+    
+    console.log(`📡 워크플로우 실행 API 호출: ${executeUrl}`);
+    console.log(`📋 요청 데이터:`, requestBody);
+    
+    const response = await fetch(executeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-scheduler-internal': 'true', // 내부 호출 표시
+        ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET && {
+          'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+        })
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.success) {
+      console.log(`✅ 워크플로우 즉시 실행 완료: ${workflow.name}`);
+      console.log(`📊 실행 결과:`, {
+        runId: result.runId,
+        successCount: result.results?.reduce((sum: number, r: any) => sum + (r.successCount || 0), 0) || 0,
+        failedCount: result.results?.reduce((sum: number, r: any) => sum + (r.failedCount || 0), 0) || 0
+      });
+      
+      return {
+        success: true,
+        message: '워크플로우 즉시 실행 완료',
+        executionResult: result
+      };
+    } else {
+      console.error(`❌ 워크플로우 즉시 실행 실패: ${workflow.name}`, result);
+      return {
+        success: false,
+        error: result.error || '워크플로우 실행 API 호출 실패'
+      };
+    }
+    
+  } catch (error) {
+    console.error(`❌ 워크플로우 즉시 실행 중 오류: ${workflow.name}`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '알 수 없는 오류'
+    };
+  }
+}
+
 // 다음 실행 시간 계산 함수
 function calculateNextRecurringTime(recurringPattern: any): Date {
   const { frequency, time, daysOfWeek } = recurringPattern;
@@ -60,13 +125,35 @@ export async function GET(request: NextRequest) {
     }
     
     let scheduledCount = 0;
+    let immediateCount = 0;
     const scheduledJobs = [];
+    const immediateJobs = [];
     
     for (const workflow of workflows || []) {
       const scheduleConfig = workflow.schedule_config || workflow.schedule_settings;
       
-      if (!scheduleConfig || scheduleConfig.type === 'immediate') {
-        continue; // 즉시 실행 워크플로우는 건너뛰기
+      if (!scheduleConfig) {
+        continue; // 스케줄 설정이 없는 워크플로우는 건너뛰기
+      }
+      
+      // 즉시 실행 워크플로우 처리
+      if (scheduleConfig.type === 'immediate') {
+        console.log(`⚡ 즉시 실행 워크플로우 발견: ${workflow.name}`);
+        const executeResult = await executeWorkflowImmediately(workflow);
+        
+        if (executeResult.success) {
+          immediateCount++;
+          immediateJobs.push({
+            workflowName: workflow.name,
+            executionTime: formatKoreaTime(getKoreaTime()),
+            runId: executeResult.executionResult?.runId,
+            result: executeResult.executionResult
+          });
+          console.log(`✅ 즉시 실행 완료: ${workflow.name}`);
+        } else {
+          console.error(`❌ 즉시 실행 실패: ${workflow.name}`, executeResult.error);
+        }
+        continue;
       }
       
       let scheduledTime: Date | null = null;
@@ -237,16 +324,18 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`🎯 스케줄 등록 완료: ${scheduledCount}개 작업 등록`);
+    console.log(`🎯 워크플로우 처리 완료: ${immediateCount}개 즉시실행, ${scheduledCount}개 스케줄등록`);
     
     return NextResponse.json({
       success: true,
       data: {
+        immediateCount,
+        immediateJobs,
         scheduledCount,
         scheduledJobs,
         processedWorkflows: workflows?.length || 0
       },
-      message: `${scheduledCount}개의 작업이 스케줄에 등록되었습니다.`
+      message: `${immediateCount}개 워크플로우가 즉시 실행되었고, ${scheduledCount}개의 작업이 스케줄에 등록되었습니다.`
     });
     
   } catch (error) {

@@ -3,6 +3,7 @@ import { Workflow } from '@/lib/types/workflow';
 import { KakaoAlimtalkTemplateById } from '@/lib/data/kakao-templates';
 import supabaseWorkflowService from '@/lib/services/supabase-workflow-service';
 import crypto from 'crypto';
+import mysql from 'mysql2/promise';
 import { getSupabase, getSupabaseAdmin } from '@/lib/database/supabase-client';
 import { 
   getKoreaTime, 
@@ -13,8 +14,22 @@ import {
   koreaTimeToUTC
 } from '@/lib/utils/timezone';
 import { executeQuery } from '@/lib/database/mysql-connection.js';
-import { createMySQLConnection, MYSQL_CONFIG } from '@/lib/config/database';
-import { COOLSMS_CONFIG, KAKAO_CONFIG, SMS_CONFIG } from '@/lib/config/messaging';
+
+const COOLSMS_API_KEY = process.env.COOLSMS_API_KEY;
+const COOLSMS_API_SECRET = process.env.COOLSMS_API_SECRET;
+const COOLSMS_SENDER = process.env.COOLSMS_SENDER;
+const KAKAO_SENDER_KEY = process.env.KAKAO_SENDER_KEY;
+const SMS_SENDER_NUMBER = process.env.SMS_SENDER_NUMBER;
+
+// MySQL 설정
+const dbConfig = {
+  host: process.env.MYSQL_HOST || 'localhost',
+  port: parseInt(process.env.MYSQL_PORT || '3306'),
+  user: process.env.MYSQL_USER || 'root',
+  password: process.env.MYSQL_PASSWORD || '',
+  database: process.env.MYSQL_DATABASE || 'test',
+  timezone: '+09:00'
+};
 
 interface ExecuteRequest {
   workflow?: Workflow;
@@ -156,6 +171,8 @@ async function scheduleWorkflowExecution(
 }
 
 export async function POST(request: NextRequest) {
+  // 🔥 currentJobId를 최상위 스코프에서 선언하여 모든 catch 블록에서 접근 가능
+  let currentJobId: string | undefined;
   
   try {
     // 🔥 Vercel Protection 우회를 위한 응답 헤더 설정
@@ -242,67 +259,8 @@ export async function POST(request: NextRequest) {
       scheduledExecution: scheduledExecution,
       jobId: jobId
     });
-
-    // 🔥 Manual 실행의 경우 schedule_config에 따른 분기 처리
-    if (!scheduledExecution && !webhookExecution && workflowId) {
-      console.log(`📋 Manual 실행 요청: ${workflowId}`);
-      
-      // 워크플로우 정보 조회하여 schedule_config 확인
-      const { data: workflowData, error: workflowError } = await getSupabase()
-        .from('workflows')
-        .select('*')
-        .eq('id', workflowId)
-        .single();
-        
-      if (workflowError || !workflowData) {
-        console.error('워크플로우 조회 실패:', workflowError);
-        return NextResponse.json({
-          success: false,
-          message: `워크플로우 조회 실패: ${workflowError?.message || '워크플로우를 찾을 수 없음'}`
-        }, { status: 404 });
-      }
-      
-      // schedule_config 확인 (전달된 것 우선, 없으면 DB에서)
-      const actualScheduleConfig = scheduleConfig || workflowData.schedule_config || { type: 'immediate' };
-      console.log(`📋 스케줄 설정:`, actualScheduleConfig);
-      
-      if (actualScheduleConfig.type === 'immediate') {
-        // 🚀 즉시 실행: 계속해서 바로 실행
-        console.log(`🚀 즉시 실행 모드: ${workflowData.name}`);
-        workflow = {
-          id: workflowData.id,
-          name: workflowData.name,
-          description: workflowData.description || '',
-          status: workflowData.status,
-          trigger: workflowData.trigger_config || { type: 'manual', name: '수동 실행' },
-          targetGroups: workflowData.target_config?.targetGroups || [],
-          targetTemplateMappings: workflowData.target_config?.targetTemplateMappings || [],
-          steps: workflowData.message_config?.steps || [],
-          testSettings: workflowData.variables?.testSettings || { enableRealSending: false },
-          scheduleSettings: actualScheduleConfig,
-          stats: workflowData.statistics || { totalRuns: 0, successRate: 0 },
-          createdAt: workflowData.created_at,
-          updatedAt: workflowData.updated_at,
-          target_config: workflowData.target_config,
-          message_config: workflowData.message_config,
-          variables: workflowData.variables,
-          trigger_type: workflowData.trigger_type,
-          schedule_config: actualScheduleConfig
-        } as Workflow & {
-          target_config?: any;
-          message_config?: any;
-          variables?: any;
-          trigger_type?: string;
-          schedule_config?: any;
-        };
-      } else {
-        // 📅 스케줄 실행: scheduled_jobs에 등록하고 완료
-        console.log(`📅 스케줄 실행 모드: ${workflowData.name} (${actualScheduleConfig.type})`);
-        return await scheduleWorkflowExecution(workflowData, actualScheduleConfig, enableRealSending);
-      }
-    }
     
-    // 🔥 workflow 객체가 없으면 workflowId로 조회 (기존 로직)
+    // 🔥 workflow 객체가 없으면 workflowId로 조회
     if (!workflow && workflowId) {
       console.log(`📋 workflowId로 워크플로우 정보 조회 중: ${workflowId}`);
       
@@ -424,8 +382,52 @@ export async function POST(request: NextRequest) {
     const startTime = getKoreaTime(); // 🔥 시간대 처리: 한국 시간 기준으로 시작 시간 기록
     let endTime = getKoreaTime(); // 🔥 endTime을 상위 스코프에서 선언
 
-    // 🔥 Manual immediate 실행은 scheduled_jobs 기록하지 않음
-    console.log('🚀 Manual immediate 실행 - scheduled_jobs 기록 생략');
+    // 🔥 수동 실행도 스케줄 잡으로 기록하여 통합 모니터링
+    if (!scheduledExecution) {
+      console.log('📝 수동 실행을 스케줄 잡으로 기록 중...');
+      try {
+        // 🔥 간단하게: 현재 시간을 한국시간대로 명시
+        const year = startTime.getFullYear();
+        const month = String(startTime.getMonth() + 1).padStart(2, '0');
+        const day = String(startTime.getDate()).padStart(2, '0');
+        const hours = String(startTime.getHours()).padStart(2, '0');
+        const minutes = String(startTime.getMinutes()).padStart(2, '0');
+        const seconds = String(startTime.getSeconds()).padStart(2, '0');
+        const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+        
+        const { data: newJob, error: insertError } = await getSupabase()
+          .from('scheduled_jobs')
+          .insert({
+            workflow_id: workflow.id,
+            workflow_data: {
+              id: workflow.id,
+              name: workflow.name,
+              description: workflow.description,
+              message_config: workflow.message_config || (workflow as any).message_config,
+              target_config: workflow.target_config || (workflow as any).target_config,
+              schedule_config: { type: 'immediate' }
+            },
+            scheduled_time: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+            status: 'running',
+            retry_count: 0,
+            max_retries: 1, // 수동 실행은 재시도 안 함
+            created_at: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+            executed_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('❌ 수동 실행 스케줄 잡 생성 실패:', insertError);
+        } else {
+          currentJobId = newJob.id;
+          console.log(`✅ 수동 실행 스케줄 잡 생성 완료: ${currentJobId}`);
+        }
+      } catch (scheduleError) {
+        console.error('⚠️ 수동 실행 스케줄 잡 생성 중 오류:', scheduleError);
+        // 스케줄 잡 생성 실패는 워크플로우 실행에 영향을 주지 않음
+      }
+    }
 
     try {
       // 🔥 3단계 워크플로우 구조에 맞춘 데이터 추출
@@ -596,7 +598,7 @@ export async function POST(request: NextRequest) {
         await supabaseWorkflowService.createWorkflowRun({
           id: runId,
           workflowId: workflow.id,
-          status: totalFailedCount > 0 ? 'partial_success' : 'success',
+          status: totalFailedCount > 0 ? 'partial_success' : 'completed',
           triggerType: scheduledExecution ? 'scheduled' : 'manual',
           targetCount: totalSuccessCount + totalFailedCount,
           successCount: totalSuccessCount,
@@ -644,15 +646,149 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 🔥 워크플로우 실행 완료 후 처리 (Manual immediate는 스케줄 잡 처리 없음)
-      console.log(`🚨🚨🚨 워크플로우 실행 완료 후 처리 시작 🚨🚨🚨`);
+      // 🔥 워크플로우 실행 완료 후 처리 (return 전에 실행되어야 함)
+      console.log(`🚨🚨🚨 워크플로우 실행 완료 후 처리 시작 - 이 로그가 보이면 후처리 로직이 실행됨 🚨🚨🚨`);
       try {
         console.log(`🔍 워크플로우 실행 완료 후 처리 시작`);
-        console.log(`📋 파라미터 상태: scheduledExecution=${scheduledExecution}, jobId=${jobId}, webhookExecution=${webhookExecution}`);
+        console.log(`📋 파라미터 상태: scheduledExecution=${scheduledExecution}, jobId=${jobId}, currentJobId=${currentJobId}, webhookExecution=${webhookExecution}`);
         
-        // Manual immediate 실행은 스케줄 잡 처리가 없으므로 건너뜀
-        if (!scheduledExecution && !webhookExecution) {
-          console.log(`🚀 Manual immediate 실행 완료 - 스케줄 잡 처리 없음`);
+        // 1. 수동 실행으로 생성된 스케줄 잡 완료 처리
+        if (currentJobId) {
+          console.log(`📝 수동 실행 스케줄 잡 완료 처리: ${currentJobId}`);
+          try {
+            // 🔥 간단하게: 종료 시간을 한국시간대로 명시
+            const year = endTime.getFullYear();
+            const month = String(endTime.getMonth() + 1).padStart(2, '0');
+            const day = String(endTime.getDate()).padStart(2, '0');
+            const hours = String(endTime.getHours()).padStart(2, '0');
+            const minutes = String(endTime.getMinutes()).padStart(2, '0');
+            const seconds = String(endTime.getSeconds()).padStart(2, '0');
+            const kstEndTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+            
+            // 🔥 반복 스케줄 처리: 스케줄 잡 완료 전에 다음 실행 시간 계산
+            console.log(`🔄 반복 스케줄 처리 시작: ${jobId}`);
+            let nextScheduleCreated = false;
+            
+            // 워크플로우 스케줄 설정 확인
+            const scheduleConfig = workflow.schedule_config || workflow.scheduleSettings;
+            console.log(`📋 스케줄 설정 확인:`, scheduleConfig);
+            
+            if (scheduleConfig && scheduleConfig.type === 'recurring' && scheduleConfig.recurringPattern) {
+              console.log(`🔄 반복 스케줄 감지됨: ${workflow.name}`);
+              
+              // 🔥 워크플로우 상태 재확인: 실행 완료 시점에 워크플로우가 비활성화되었을 수 있음
+              console.log(`🔍 워크플로우 상태 재확인: ${workflow.id}`);
+              const { data: currentWorkflow, error: statusCheckError } = await getSupabase()
+                .from('workflows')
+                .select('status')
+                .eq('id', workflow.id)
+                .single();
+                
+              if (statusCheckError) {
+                console.error(`❌ 워크플로우 상태 확인 실패: ${workflow.id}`, statusCheckError);
+              } else if (currentWorkflow.status !== 'active') {
+                console.log(`⏸️ 워크플로우가 비활성 상태로 변경되어 다음 스케줄 등록 건너뜀: ${workflow.name} (상태: ${currentWorkflow.status})`);
+              } else {
+                console.log(`✅ 워크플로우 활성 상태 확인됨, 다음 스케줄 등록 진행: ${workflow.name}`);
+                
+                try {
+                  // 다음 실행 시간 계산
+                  const { frequency, time, daysOfWeek } = scheduleConfig.recurringPattern;
+                  console.log(`⏰ 반복 패턴: ${frequency}, 시간: ${time}`);
+                  
+                  if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+                    console.log(`📅 지정된 요일: ${daysOfWeek.map((d: number) => ['일', '월', '화', '수', '목', '금', '토'][d]).join(', ')}`);
+                  }
+                  
+                  if (time) {
+                    // calculateNextKoreaScheduleTime 함수 import 필요
+                    const { calculateNextKoreaScheduleTime } = require('@/lib/utils/timezone');
+                    const nextScheduledTime = calculateNextKoreaScheduleTime(time, frequency, daysOfWeek);
+                    
+                    console.log(`📅 다음 실행 시간 계산 완료: ${nextScheduledTime.toISOString()}`);
+                    
+                    // 🔥 다음 실행 시간을 한국시간대 문자열로 변환
+                    const nextYear = nextScheduledTime.getFullYear();
+                    const nextMonth = String(nextScheduledTime.getMonth() + 1).padStart(2, '0');
+                    const nextDay = String(nextScheduledTime.getDate()).padStart(2, '0');
+                    const nextHours = String(nextScheduledTime.getHours()).padStart(2, '0');
+                    const nextMinutes = String(nextScheduledTime.getMinutes()).padStart(2, '0');
+                    const nextSeconds = String(nextScheduledTime.getSeconds()).padStart(2, '0');
+                    const nextKstTimeString = `${nextYear}-${nextMonth}-${nextDay} ${nextHours}:${nextMinutes}:${nextSeconds}+09:00`;
+                    
+                    console.log(`🔄 다음 스케줄 등록 시작: ${nextKstTimeString}`);
+                    
+                    // 새로운 스케줄 작업 등록
+                    const { data: newScheduleJob, error: scheduleError } = await getSupabase()
+                      .from('scheduled_jobs')
+                      .insert({
+                        workflow_id: workflow.id,
+                        workflow_data: {
+                          ...workflow,
+                          schedule_config: scheduleConfig // 스케줄 설정 유지
+                        },
+                        scheduled_time: nextKstTimeString,
+                        status: 'pending',
+                        retry_count: 0,
+                        max_retries: 3,
+                        created_at: kstEndTimeString,
+                        updated_at: kstEndTimeString
+                      })
+                      .select()
+                      .single();
+                      
+                    if (scheduleError) {
+                      console.error(`❌ 다음 스케줄 등록 실패: ${workflow.name}`, scheduleError);
+                    } else if (newScheduleJob) {
+                      console.log(`✅ 다음 스케줄 등록 성공: ${workflow.name}`, {
+                        newJobId: newScheduleJob.id,
+                        nextScheduledTime: nextKstTimeString,
+                        frequency: frequency
+                      });
+                      nextScheduleCreated = true;
+                    }
+                  } else {
+                    console.warn(`⚠️ 반복 스케줄에 시간 정보가 없음: ${workflow.name}`);
+                  }
+                } catch (recurringError) {
+                  console.error(`❌ 반복 스케줄 처리 중 오류 발생: ${workflow.name}`, recurringError);
+                }
+              }
+            } else {
+              console.log(`📋 일회성 스케줄 또는 반복 설정 없음: ${workflow.name}`);
+            }
+            
+            // 🔥 현재 스케줄 잡 완료 처리 (반복 스케줄 등록 후)
+            console.log(`🏁 현재 스케줄 잡 완료 처리: ${jobId}`);
+            const { data: updateResult, error: updateError } = await getSupabase()
+              .from('scheduled_jobs')
+              .update({ 
+                status: 'completed',
+                
+                updated_at: kstEndTimeString
+              })
+              .eq('id', jobId)
+              .select();
+              
+            if (updateError) {
+              console.error(`❌🚨 스케줄 잡 완료 처리 실패: ${jobId}`, updateError);
+            } else if (updateResult && updateResult.length > 0) {
+              console.log(`✅🚨 스케줄 잡 완료 처리 성공: ${jobId}`, updateResult[0]);
+              
+              // 반복 스케줄 등록 결과 로그
+              if (nextScheduleCreated) {
+                console.log(`🔄✅ 반복 스케줄 처리 완료: ${workflow.name} - 다음 실행 시간 등록됨`);
+              } else {
+                console.log(`📋 일회성 스케줄 완료: ${workflow.name}`);
+              }
+            } else {
+              console.warn(`⚠️🚨 스케줄 잡을 찾을 수 없음: ${jobId}`);
+            }
+          } catch (updateError) {
+            console.error(`❌ 수동 실행 스케줄 잡 완료 처리 예외: ${currentJobId}`, updateError);
+          }
+        } else {
+          console.log(`📋 currentJobId가 없어서 수동 실행 스케줄 잡 처리 건너뜀`);
         }
 
         // 2. 기존 스케줄 실행 잡 완료 처리 (스케줄 실행인 경우)
@@ -786,7 +922,7 @@ export async function POST(request: NextRequest) {
               .from('scheduled_jobs')
               .update({ 
                 status: 'completed',
-                completed_at: kstEndTimeString,
+                
                 updated_at: kstEndTimeString
               })
               .eq('id', jobId)
@@ -808,12 +944,15 @@ export async function POST(request: NextRequest) {
             }
           }
         } else {
-          console.log(`📋🚨 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}`);
+          console.log(`📋🚨 스케줄 잡 완료 처리 건너뜀 - scheduledExecution: ${scheduledExecution}, jobId: ${jobId}, webhookExecution: ${webhookExecution}`);
           if (!scheduledExecution) {
             console.log(`📋 scheduledExecution이 false이므로 스케줄 잡 처리 안함`);
           }
           if (!jobId) {
             console.log(`📋 jobId가 없으므로 스케줄 잡 처리 안함`);
+          }
+          if (webhookExecution) {
+            console.log(`📋 웹훅 실행이므로 스케줄 잡 처리 없음`);
           }
         }
         
@@ -848,9 +987,31 @@ export async function POST(request: NextRequest) {
       });
 
     } catch (error) {
-      // 🔥 Manual immediate 실행은 스케줄 잡 실패 처리 없음
-      if (!scheduledExecution && !webhookExecution) {
-        console.log(`❌ Manual immediate 실행 실패 - 스케줄 잡 처리 없음`);
+      // 🔥 실행 실패 시 스케줄 잡 상태 업데이트
+      if (currentJobId) {
+        try {
+          console.log(`❌ 워크플로우 실행 실패, 스케줄 잡 상태 업데이트: ${currentJobId}`);
+          // 🔥 간단하게: 실패 시간을 한국시간대로 명시
+          const year = endTime.getFullYear();
+          const month = String(endTime.getMonth() + 1).padStart(2, '0');
+          const day = String(endTime.getDate()).padStart(2, '0');
+          const hours = String(endTime.getHours()).padStart(2, '0');
+          const minutes = String(endTime.getMinutes()).padStart(2, '0');
+          const seconds = String(endTime.getSeconds()).padStart(2, '0');
+          const kstFailTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
+          
+          await getSupabase()
+            .from('scheduled_jobs')
+            .update({ 
+              status: 'failed',
+              error_message: error instanceof Error ? error.message : '알 수 없는 오류',
+              updated_at: kstFailTimeString // 🔥 한국시간대를 명시한 문자열
+            })
+            .eq('id', currentJobId);
+          console.log(`✅ 스케줄 잡 실패 상태 업데이트 완료: ${currentJobId}`);
+        } catch (updateError) {
+          console.error('❌ 스케줄 잡 실패 상태 업데이트 실패:', updateError);
+        }
       }
 
       // 실행 실패 기록
@@ -997,6 +1158,44 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
       console.log(`✅ 사용자 정의 템플릿 사용: ${templateInfo.templateName}`);
     }
     
+    // 6) workflow의 message_config.selectedTemplates에서 찾기
+    if (!templateInfo && workflow.message_config?.selectedTemplates) {
+      console.log(`🔍 6단계: workflow message_config selectedTemplates에서 템플릿 찾기`);
+      const selectedTemplate = workflow.message_config.selectedTemplates.find((tmpl: any) => 
+        tmpl.id === templateId || tmpl.templateCode === templateCode
+      );
+      
+      if (selectedTemplate) {
+        templateInfo = {
+          templateName: selectedTemplate.templateName || selectedTemplate.templateTitle || '선택된 템플릿',
+          content: selectedTemplate.templateContent,
+          templateParams: selectedTemplate.variables || [],
+          templateId: selectedTemplate.id,
+          channel: selectedTemplate.channelKey
+        };
+        console.log(`✅ selectedTemplates에서 템플릿 매칭 성공: ${templateInfo.templateName}`);
+      }
+    }
+    
+    // 7) workflowWithSupabaseProps의 message_config.selectedTemplates에서 찾기
+    if (!templateInfo && (workflow as any).message_config?.selectedTemplates) {
+      console.log(`🔍 7단계: supabase message_config selectedTemplates에서 템플릿 찾기`);
+      const selectedTemplate = (workflow as any).message_config.selectedTemplates.find((tmpl: any) => 
+        tmpl.id === templateId || tmpl.templateCode === templateCode
+      );
+      
+      if (selectedTemplate) {
+        templateInfo = {
+          templateName: selectedTemplate.templateName || selectedTemplate.templateTitle || '선택된 템플릿',
+          content: selectedTemplate.templateContent,
+          templateParams: selectedTemplate.variables || [],
+          templateId: selectedTemplate.id,
+          channel: selectedTemplate.channelKey
+        };
+        console.log(`✅ supabase selectedTemplates에서 템플릿 매칭 성공: ${templateInfo.templateName}`);
+      }
+    }
+    
     if (!templateInfo) {
       throw new Error(`템플릿을 찾을 수 없습니다: ${templateId}`);
     }
@@ -1104,15 +1303,27 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
               console.log(`📊 변수 쿼리 결과:`, {
                 success: variableResult.success,
                 hasData: !!variableResult.data,
-                dataLength: variableResult.data?.rows?.length || 0
+                dataType: typeof variableResult.data,
+                dataLength: variableResult.data?.length || 0
               });
               
-              if (variableResult.success && variableResult.data && variableResult.data.rows && variableResult.data.rows.length > 0) {
-                const rows = variableResult.data.rows;
-                variableDataCache.set(mapping.variable_name, rows);
-                console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${rows.length}개 행)`);
-                console.log(`📊 샘플 데이터:`, rows.slice(0, 2));
-                console.log(`📊 첫 번째 행의 컬럼들:`, Object.keys(rows[0] || {}));
+              // 🔥 MySQL API 응답 구조 처리: data가 배열인지 확인
+              let variableData = [];
+              if (variableResult.success && variableResult.data) {
+                if (Array.isArray(variableResult.data)) {
+                  variableData = variableResult.data;
+                } else if (variableResult.data.rows && Array.isArray(variableResult.data.rows)) {
+                  variableData = variableResult.data.rows;
+                } else if (variableResult.data.data && Array.isArray(variableResult.data.data)) {
+                  variableData = variableResult.data.data;
+                }
+              }
+              
+              if (variableData.length > 0) {
+                variableDataCache.set(mapping.variable_name, variableData);
+                console.log(`✅ 변수 쿼리 성공: ${mapping.variable_name} (${variableData.length}개 행)`);
+                console.log(`📊 샘플 데이터:`, variableData.slice(0, 2));
+                console.log(`📊 첫 번째 행의 컬럼들:`, Object.keys(variableData[0] || {}));
               } else {
                 console.log(`❌ 변수 쿼리 결과 없음: ${mapping.variable_name}`);
               }
@@ -1147,7 +1358,7 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
         const personalizedVariables: Record<string, string> = {
           'name': target.name || '이름 없음',
           'id': String(target.id || 'unknown'),
-          'company_name': target.company || target.name || '회사명 없음',
+          'company_name': target.rawData?.company || target.rawData?.companyName || target.name || '회사명 없음',
         };
 
         // 🔥 Feature_Workflow_Builder.md 4.1.1 범용적 매칭 시스템
@@ -1203,8 +1414,26 @@ async function executeStep(step: any, targetGroup: any, workflow: Workflow, enab
                 
                 const variableResult = await variableResponse.json();
                 
-                if (variableResult.success && variableResult.data?.length > 0) {
-                  const variableData = variableResult.data;
+                console.log(`📊 대상자별 변수 쿼리 응답:`, {
+                  success: variableResult.success,
+                  hasData: !!variableResult.data,
+                  dataType: typeof variableResult.data,
+                  dataLength: variableResult.data?.length
+                });
+
+                // 🔥 MySQL API 응답 구조 처리: data가 배열인지 확인
+                let variableData = [];
+                if (variableResult.success && variableResult.data) {
+                  if (Array.isArray(variableResult.data)) {
+                    variableData = variableResult.data;
+                  } else if (variableResult.data.rows && Array.isArray(variableResult.data.rows)) {
+                    variableData = variableResult.data.rows;
+                  } else if (variableResult.data.data && Array.isArray(variableResult.data.data)) {
+                    variableData = variableResult.data.data;
+                  }
+                }
+                
+                if (variableData.length > 0) {
                   console.log(`✅ 대상자별 변수 데이터 조회 성공: ${variableData.length}개`);
                   
                   // 첫 번째 결과 사용 (대상자별로 필터링되었으므로 정확한 데이터)
@@ -1403,14 +1632,31 @@ async function getTargetsFromGroup(targetGroup: any) {
       }
 
       const result = await response.json();
-        console.log(`📋 MySQL API 응답:`, { success: result.success, dataLength: result.data?.length });
+        console.log(`📋 MySQL API 응답:`, { success: result.success, hasData: !!result.data, dataType: typeof result.data, dataLength: result.data?.length });
       
-        if (!result.success || !result.data || result.data.length === 0) {
-          console.warn(`⚠️ 대상자 조회 결과 없음`);
+        if (!result.success || !result.data) {
+          console.warn(`⚠️ 대상자 조회 결과 없음 - API 실패 또는 데이터 없음`);
           return [];
-      }
+        }
 
-        const contacts = result.data;
+        // 🔥 MySQL API 응답 구조 처리: data가 배열인지 확인
+        let contacts = [];
+        if (Array.isArray(result.data)) {
+          contacts = result.data;
+        } else if (result.data.rows && Array.isArray(result.data.rows)) {
+          contacts = result.data.rows;
+        } else if (result.data.data && Array.isArray(result.data.data)) {
+          contacts = result.data.data;
+        } else {
+          console.warn(`⚠️ 예상하지 못한 데이터 구조:`, result.data);
+          return [];
+        }
+
+        if (contacts.length === 0) {
+          console.warn(`⚠️ 대상자 조회 결과 없음 - 빈 배열`);
+          return [];
+        }
+
         console.log(`✅ 대상자 조회 성공: ${contacts.length}명`);
 
       // MySQL 결과를 대상자 형식으로 변환
@@ -1484,7 +1730,11 @@ async function sendAlimtalk({
   // 🔥 시간대 처리: API 인증을 위한 현재 시간 (UTC 기준)
   const date = new Date().toISOString();
   const salt = Date.now().toString();
-  const signature = generateSignature(COOLSMS_CONFIG.apiKey!, COOLSMS_CONFIG.apiSecret!, date, salt);
+  const signature = generateSignature(COOLSMS_API_KEY!, COOLSMS_API_SECRET!, date, salt);
+
+  // 🔥 전화번호 정리: 숫자만 남기고 최대 25자로 제한
+  const cleanPhoneNumber = phoneNumber.replace(/[^0-9]/g, '').slice(0, 25);
+  console.log(`📞 전화번호 정리: ${phoneNumber} → ${cleanPhoneNumber}`);
 
   // CoolSMS API에 맞는 변수 형식으로 변환: 
   // variables 객체에 이미 #{변수명} 형태로 저장되어 있으므로 그대로 사용
@@ -1498,8 +1748,8 @@ async function sendAlimtalk({
   const processedContent = templateContent.replace(/#{(\w+)}/g, (match, key) => variables[key] || match);
 
   const messageData = {
-    to: phoneNumber,
-          from: SMS_CONFIG.senderNumber,
+    to: cleanPhoneNumber, // 🔥 정리된 전화번호 사용
+    from: SMS_SENDER_NUMBER,
     type: 'ATA',
     kakaoOptions: {
       pfId: pfId,
@@ -1508,7 +1758,7 @@ async function sendAlimtalk({
     }
   };
 
-  console.log(`📱 실제 알림톡 발송: ${phoneNumber} - 템플릿: ${templateId}`);
+  console.log(`📱 실제 알림톡 발송: ${cleanPhoneNumber} - 템플릿: ${templateId}`);
   console.log(`📋 메시지 내용 (미리보기): ${processedContent}`);
   console.log(`🔑 발신프로필: ${pfId}`);
   console.log(`🔧 CoolSMS 변수:`, coolsmsVariables);
@@ -1516,7 +1766,7 @@ async function sendAlimtalk({
   const response = await fetch('https://api.coolsms.co.kr/messages/v4/send', {
     method: 'POST',
     headers: {
-      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_CONFIG.apiKey}, date=${date}, salt=${salt}, signature=${signature}`,
+      'Authorization': `HMAC-SHA256 apiKey=${COOLSMS_API_KEY}, date=${date}, salt=${salt}, signature=${signature}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -1553,11 +1803,11 @@ function getPfIdForTemplate(templateId: string): string {
     const channel = templateInfo.channel;
     
     if (channel === 'CEO') {
-      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
+      return process.env.PFID_CEO || templateInfo.channelId || KAKAO_SENDER_KEY || '';
     } else if (channel === 'BLOGGER') {
-      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_CONFIG.senderKey || '';
+      return process.env.PFID_BLOGGER || templateInfo.channelId || KAKAO_SENDER_KEY || '';
     }
   }
   
-  return KAKAO_CONFIG.senderKey || '';
+  return KAKAO_SENDER_KEY || '';
 } 
