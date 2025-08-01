@@ -211,15 +211,16 @@ export async function GET(request: NextRequest) {
           if (runningMinutes > 3) {
             console.log(`⚠️ 작업 ${stuckJob.id} 복구 시작: ${runningMinutes.toFixed(1)}분 동안 멈춤`);
             
-            const { error: updateError } = await supabase
-              .from('scheduled_jobs')
-              .update({
-                status: 'failed',
-                error_message: `실행 타임아웃: ${runningMinutes.toFixed(1)}분 동안 응답 없음`,
-                failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
-                updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
-              })
-              .eq('id', stuckJob.id);
+                          const koreaTimeNow = getKoreaTime();
+              const { error: updateError } = await supabase
+                .from('scheduled_jobs')
+                .update({
+                  status: 'failed',
+                  error_message: `실행 타임아웃: ${runningMinutes.toFixed(1)}분 동안 응답 없음`,
+                  failed_at: formatKoreaTime(koreaTimeNow, 'yyyy-MM-dd HH:mm:ss'),
+                  updated_at: formatKoreaTime(koreaTimeNow, 'yyyy-MM-dd HH:mm:ss')
+                })
+                .eq('id', stuckJob.id);
               
             if (updateError) {
               console.error(`❌ 작업 ${stuckJob.id} 복구 실패:`, updateError);
@@ -231,13 +232,14 @@ export async function GET(request: NextRequest) {
           // executed_at이 없는 running 작업은 즉시 복구
           console.log(`⚠️ 작업 ${stuckJob.id}: executed_at 없는 running 상태 - 즉시 복구`);
           
+          const koreaTimeNow = getKoreaTime();
           const { error: updateError } = await supabase
             .from('scheduled_jobs')
             .update({
               status: 'failed',
               error_message: 'executed_at 누락된 비정상 running 상태',
-              failed_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss'),
-              updated_at: formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss')
+              failed_at: formatKoreaTime(koreaTimeNow, 'yyyy-MM-dd HH:mm:ss'),
+              updated_at: formatKoreaTime(koreaTimeNow, 'yyyy-MM-dd HH:mm:ss')
             })
             .eq('id', stuckJob.id);
             
@@ -364,12 +366,6 @@ export async function GET(request: NextRequest) {
       const TOLERANCE_MS = 1 * 60 * 1000; // 1분 = 60초 (기존 10분에서 축소)
       const isTimeToExecute = now.getTime() >= (scheduledTimeKST.getTime() - TOLERANCE_MS);
       
-      console.log(`📊 시간 분석 결과:`);
-      console.log(`   - 현재시간: ${currentTimeString} (${now.getTime()})`);
-      console.log(`   - 예정시간: ${formatKoreaTime(scheduledTimeKST)} (${scheduledTimeKST.getTime()})`);
-      console.log(`   - 시간차이: ${timeDiffSeconds}초 (${(timeDiffSeconds/60).toFixed(1)}분)`);
-      console.log(`   - 실행가능: ${isTimeToExecute} (1분 허용오차 적용) 🔥 중복방지 강화`);
-
       debugInfo.push({
         id: job.id,
         workflow_name: job.workflow_data?.name || 'Unknown',
@@ -398,7 +394,8 @@ export async function GET(request: NextRequest) {
       console.log(`🔒 중복 실행 방지: ${jobsToExecute.length}개 작업을 running 상태로 변경`);
       
       const jobIdsToExecute = jobsToExecute.map(job => job.id);
-      const currentKstTime = formatKoreaTime(now, 'yyyy-MM-dd HH:mm:ss');
+      const koreaTime = getKoreaTime(); // 🔥 정확한 한국 시간 사용
+      const currentKstTime = formatKoreaTime(koreaTime, 'yyyy-MM-dd HH:mm:ss');
       
       const { data: updatedJobs, error: updateError } = await supabase
         .from('scheduled_jobs')
@@ -470,21 +467,21 @@ export async function GET(request: NextRequest) {
         
         // 🔥 실행 시작 상태로 업데이트
         console.log(`🚀 실행 시작 상태 업데이트: ${job.id}`);
-        // 🔥 간단하게: 현재 시간을 한국시간대로 명시
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const hours = String(now.getHours()).padStart(2, '0');
-        const minutes = String(now.getMinutes()).padStart(2, '0');
-        const seconds = String(now.getSeconds()).padStart(2, '0');
+        // 🔥 정확한 한국 시간 사용
+        const koreaTime = getKoreaTime();
+        const year = koreaTime.getFullYear();
+        const month = String(koreaTime.getMonth() + 1).padStart(2, '0');
+        const day = String(koreaTime.getDate()).padStart(2, '0');
+        const hours = String(koreaTime.getHours()).padStart(2, '0');
+        const minutes = String(koreaTime.getMinutes()).padStart(2, '0');
+        const seconds = String(koreaTime.getSeconds()).padStart(2, '0');
         const kstTimeString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}+09:00`;
         
         await getSupabase()
           .from('scheduled_jobs')
           .update({ 
             status: 'running',
-            executed_at: kstTimeString, // 🔥 한국시간대를 명시한 문자열
+            // executed_at은 이미 404번 라인에서 설정됨 (중복 방지)
             updated_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
           })
           .eq('id', job.id);
@@ -610,13 +607,16 @@ export async function GET(request: NextRequest) {
           console.error('워크플로우 실행 실패:', response.status, errorText);
           
           // 🔥 실행 실패시 상태를 failed로 변경
+          const failureKoreaTime = getKoreaTime();
+          const failureKstString = `${failureKoreaTime.getFullYear()}-${String(failureKoreaTime.getMonth() + 1).padStart(2, '0')}-${String(failureKoreaTime.getDate()).padStart(2, '0')} ${String(failureKoreaTime.getHours()).padStart(2, '0')}:${String(failureKoreaTime.getMinutes()).padStart(2, '0')}:${String(failureKoreaTime.getSeconds()).padStart(2, '0')}+09:00`;
+          
           await getSupabase()
             .from('scheduled_jobs')
             .update({ 
               status: 'failed',
               error_message: `HTTP ${response.status}: ${errorText}`,
               retry_count: (job.retry_count || 0) + 1,
-              updated_at: kstTimeString // 🔥 한국시간대를 명시한 문자열
+              updated_at: failureKstString // 🔥 정확한 한국시간대 문자열
             })
             .eq('id', job.id);
           
@@ -648,8 +648,8 @@ export async function GET(request: NextRequest) {
         
         // 🔥 성공 시 상태 업데이트
         console.log(`✅ 실행 완료 상태 업데이트: ${job.id}`);
-        // 🔥 간단하게: 완료 시간을 한국시간대로 명시
-        const completionTime = new Date();
+        // 🔥 정확한 한국 시간 사용
+        const completionTime = getKoreaTime();
         const cYear = completionTime.getFullYear();
         const cMonth = String(completionTime.getMonth() + 1).padStart(2, '0');
         const cDay = String(completionTime.getDate()).padStart(2, '0');
@@ -669,8 +669,8 @@ export async function GET(request: NextRequest) {
         
       } catch (error) {
         console.error(`❌ 작업 실행 실패: ${job.id}`, error);
-        // 🔥 간단하게: 실패 시간을 한국시간대로 명시
-        const failureTime = new Date();
+        // 🔥 정확한 한국 시간 사용
+        const failureTime = getKoreaTime();
         const fYear = failureTime.getFullYear();
         const fMonth = String(failureTime.getMonth() + 1).padStart(2, '0');
         const fDay = String(failureTime.getDate()).padStart(2, '0');

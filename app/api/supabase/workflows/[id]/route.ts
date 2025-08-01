@@ -4,6 +4,7 @@ import {
   getKoreaTime, 
   koreaTimeToUTCString 
 } from '@/lib/utils/timezone';
+import { handleWorkflowActivation, handleWorkflowDeactivation } from '@/lib/utils/workflow-scheduler';
 
 // GET: 단일 워크플로우 조회
 export async function GET(
@@ -114,10 +115,10 @@ export async function PUT(
 
     const supabase = getSupabase();
 
-    // 기존 워크플로우 정보 조회 (타입 확인용)
+    // 기존 워크플로우 정보 조회 (상태 변경 감지용)
     const { data: existingWorkflow, error: fetchError } = await supabase
       .from('workflows')
-      .select('trigger_type')
+      .select('trigger_type, status, schedule_config')
       .eq('id', id)
       .single();
 
@@ -204,9 +205,48 @@ export async function PUT(
       trigger_type: data.trigger_type
     });
 
+    // 🔥 상태 변경에 따른 자동 스케줄링 처리
+    let schedulingResult = null;
+    
+    const oldStatus = existingWorkflow.status;
+    const newStatus = data.status;
+    const oldScheduleConfig = existingWorkflow.schedule_config;
+    const newScheduleConfig = data.schedule_config;
+    
+    console.log(`📋 상태 변경 감지: ${oldStatus} → ${newStatus}`);
+    
+    // 활성화된 경우 (draft/paused/archived → active)
+    if (oldStatus !== 'active' && newStatus === 'active') {
+      console.log(`🟢 워크플로우 활성화 감지: ${data.name}`);
+      schedulingResult = await handleWorkflowActivation(data);
+    }
+    // 비활성화된 경우 (active → draft/paused/archived)
+    else if (oldStatus === 'active' && newStatus !== 'active') {
+      console.log(`🔴 워크플로우 비활성화 감지: ${data.name}`);
+      schedulingResult = await handleWorkflowDeactivation(data.id);
+    }
+    // 이미 active 상태에서 스케줄 설정이 변경된 경우
+    else if (oldStatus === 'active' && newStatus === 'active' && 
+             JSON.stringify(oldScheduleConfig) !== JSON.stringify(newScheduleConfig)) {
+      console.log(`🔄 활성 워크플로우 스케줄 설정 변경 감지: ${data.name}`);
+      // 기존 스케줄 제거하고 새로 생성
+      await handleWorkflowDeactivation(data.id);
+      schedulingResult = await handleWorkflowActivation(data);
+    }
+    
+    if (schedulingResult) {
+      if (schedulingResult.success) {
+        console.log(`✅ 자동 스케줄링 처리 완료: ${data.name}`);
+      } else {
+        console.error(`❌ 자동 스케줄링 처리 실패: ${data.name}`, schedulingResult.error);
+        // 스케줄링 실패는 워크플로우 업데이트 성공에 영향을 주지 않음
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data: data
+      data: data,
+      scheduling: schedulingResult // 스케줄링 결과 포함
     });
 
   } catch (error) {
