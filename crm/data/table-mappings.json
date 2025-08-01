@@ -1,0 +1,279 @@
+{
+  "Companies": {
+    "tableName": "Companies",
+    "displayName": "회사 정보",
+    "description": "고객 회사 정보 및 담당자 데이터",
+    "icon": "Building2",
+    "enabled": true,
+    "fields": {
+      "name": {
+        "displayName": "회사명",
+        "description": "회사 이름",
+        "type": "text",
+        "filterable": true
+      },
+      "email": {
+        "displayName": "회사이메일",
+        "description": "회사 대표 이메일",
+        "type": "email",
+        "filterable": true
+      },
+      "phone": {
+        "displayName": "연락처",
+        "description": "회사 대표 연락처",
+        "type": "phone",
+        "filterable": true
+      },
+      "manager": {
+        "displayName": "담당자",
+        "description": "회사 담당자 이름",
+        "type": "text",
+        "filterable": true
+      },
+      "sales_manager": {
+        "displayName": "매니저",
+        "description": "영업 담당 매니저",
+        "type": "text",
+        "filterable": true
+      },
+      "created_at": {
+        "displayName": "가입일",
+        "description": "회사 등록일",
+        "type": "date",
+        "filterable": true
+      },
+      "last_login": {
+        "displayName": "최종로그인",
+        "description": "마지막 로그인 시간",
+        "type": "datetime",
+        "filterable": true
+      }
+    }
+  },
+  "MarketingLead": {
+    "tableName": "MarketingLead",
+    "displayName": "마케팅 리드",
+    "description": "마케팅을 통해 유입된 잠재 고객 정보",
+    "icon": "Target",
+    "enabled": true,
+    "fields": {
+      "company_name": {
+        "displayName": "리드회사명",
+        "description": "리드 회사 이름",
+        "type": "text",
+        "filterable": true
+      },
+      "phone": {
+        "displayName": "리드연락처",
+        "description": "리드 연락처",
+        "type": "phone",
+        "filterable": true
+      },
+      "category": {
+        "displayName": "광고카테고리",
+        "description": "광고 카테고리",
+        "type": "text",
+        "filterable": true
+      },
+      "sales_person": {
+        "displayName": "담당영업",
+        "description": "담당 영업사원",
+        "type": "text",
+        "filterable": true
+      },
+      "call_temperature": {
+        "displayName": "콜온도",
+        "description": "영업 콜 온도",
+        "type": "select",
+        "filterable": true
+      },
+      "marketing_consent": {
+        "displayName": "마케팅동의",
+        "description": "마케팅 수신 동의 여부",
+        "type": "boolean",
+        "filterable": true
+      },
+      "kakao_registered": {
+        "displayName": "카카오등록",
+        "description": "카카오톡 등록 여부",
+        "type": "boolean",
+        "filterable": true
+      },
+      "created_at": {
+        "displayName": "리드생성일",
+        "description": "리드 생성일",
+        "type": "date",
+        "filterable": true
+      }
+    }
+  },
+  "Ads": {
+    "tableName": "Ads",
+    "displayName": "광고 정보",
+    "description": "광고 캠페인 및 상품 정보",
+    "icon": "Megaphone",
+    "enabled": true,
+    "fields": {
+      "title": {
+        "displayName": "광고명",
+        "description": "광고 제목",
+        "type": "text",
+        "filterable": true
+      },
+      "company_name": {
+        "displayName": "광고회사명",
+        "description": "광고주 회사명",
+        "type": "text",
+        "filterable": true
+      },
+      "category": {
+        "displayName": "광고카테고리",
+        "description": "광고 카테고리",
+        "type": "text",
+        "filterable": true
+      },
+      "address": {
+        "displayName": "주소",
+        "description": "회사 주소",
+        "type": "text",
+        "filterable": false
+      },
+      "phone": {
+        "displayName": "광고연락처",
+        "description": "광고 문의 연락처",
+        "type": "phone",
+        "filterable": true
+      },
+      "email": {
+        "displayName": "광고이메일",
+        "description": "광고 문의 이메일",
+        "type": "email",
+        "filterable": true
+      },
+      "customer_service": {
+        "displayName": "고객센터번호",
+        "description": "고객센터 연락처",
+        "type": "phone",
+        "filterable": false
+      },
+      "website": {
+        "displayName": "홈페이지",
+        "description": "회사 홈페이지 URL",
+        "type": "url",
+        "filterable": false
+      },
+      "apply_link": {
+        "displayName": "신청링크",
+        "description": "신청 페이지 링크",
+        "type": "url",
+        "filterable": false
+      },
+      "purchase_link": {
+        "displayName": "구매링크",
+        "description": "구매 페이지 링크",
+        "type": "url",
+        "filterable": false
+      },
+      "description": {
+        "displayName": "광고소개",
+        "description": "광고 상세 설명",
+        "type": "text",
+        "filterable": false
+      },
+      "requirements": {
+        "displayName": "신청조건",
+        "description": "신청 자격 조건",
+        "type": "text",
+        "filterable": false
+      },
+      "days_until_deadline": {
+        "displayName": "마감일수",
+        "description": "마감까지 남은 일수",
+        "type": "number",
+        "filterable": true
+      },
+      "last_contract_date": {
+        "displayName": "최종계약일",
+        "description": "마지막 계약 체결일",
+        "type": "date",
+        "filterable": true
+      },
+      "created_at": {
+        "displayName": "광고등록일",
+        "description": "광고 등록일",
+        "type": "date",
+        "filterable": true
+      },
+      "stage": {
+        "displayName": "광고단계",
+        "description": "광고 진행 단계",
+        "type": "select",
+        "filterable": true
+      },
+      "is_verified": {
+        "displayName": "인증여부",
+        "description": "광고 인증 상태",
+        "type": "boolean",
+        "filterable": true
+      },
+      "ad_type": {
+        "displayName": "광고유형",
+        "description": "광고 유형 분류",
+        "type": "select",
+        "filterable": true
+      },
+      "priority": {
+        "displayName": "우선순위",
+        "description": "광고 우선순위",
+        "type": "number",
+        "filterable": true
+      }
+    }
+  },
+  "Contracts": {
+    "tableName": "Contracts",
+    "displayName": "이용 내역",
+    "description": "블로거 이용 내역",
+    "icon": "FileText",
+    "enabled": true,
+    "fields": {
+      "contractor_name": {
+        "displayName": "블로거 이름",
+        "description": "블로거 이름",
+        "type": "text",
+        "filterable": true
+      },
+      "contractor_email": {
+        "displayName": "블로거 이메일",
+        "description": "블로거 이메일",
+        "type": "email",
+        "filterable": true
+      },
+      "company_name": {
+        "displayName": "이용 업체 명",
+        "description": "이용 업체 명",
+        "type": "text",
+        "filterable": true
+      },
+      "payment_amount": {
+        "displayName": "결제금액",
+        "description": "결제 금액",
+        "type": "number",
+        "filterable": true
+      },
+      "days_until_deadline": {
+        "displayName": "마감일수",
+        "description": "리뷰까지 남은 일수",
+        "type": "number",
+        "filterable": true
+      },
+      "created_at": {
+        "displayName": "이용 일",
+        "description": "이용 일",
+        "type": "date",
+        "filterable": true
+      }
+    },
+    "updatedAt": "2025-06-13T05:09:21.194Z"
+  }
+}
